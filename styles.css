@@ -45,7 +45,7 @@ h1, h2, h3 { margin: 0; line-height: 1.2; }
 h1 { font-size: 2rem; }
 h2 { font-size: 1.5rem; }
 h3 { font-size: 1.25rem; }
-p { margin: 0; max-width: 70ch; }
+p { margin: 0; max-width: 65ch; }
 a { color: var(--accent); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 /* rings are for keyboard focus; headings and main take focus only from the
@@ -158,6 +158,23 @@ button { font: inherit; color: inherit; }
 .screen { display: grid; gap: var(--gap); align-content: start; }
 .screen.sparse { min-height: 100%; align-content: center; justify-items: center; text-align: center; }
 .screen.sparse p { margin-inline: auto; }
+/* a calm reading column: never wider than about 65 characters, with
+   generous lines; the play screen's status line keeps its own height */
+.screen p, .screen li { line-height: 1.6; }
+.screen li, .screen figcaption { max-width: 65ch; }
+.lede { color: var(--muted); }
+
+/* ---- disclosures: the summary in view, the long text one press away ----
+   Closed until the player opens one; the summary is a full-size target. */
+.more { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.more > summary {
+  display: flex; align-items: center; gap: var(--s2); min-height: var(--target);
+  padding: 0 var(--s4); cursor: pointer; font-weight: 600; list-style: none;
+}
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary::before { content: "▸"; color: var(--muted); }
+.more[open] > summary::before { content: "▾"; }
+.more > .more-body { display: grid; gap: var(--s3); padding: 0 var(--s4) var(--s4); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
 .sparse .actions { justify-content: center; }
 
@@ -284,7 +301,7 @@ dialog.card .label { color: var(--muted); }
 /* read from the left edge: the consent text lines up with its bullets */
 .welcome > .bar-body { align-items: flex-start; text-align: left; }
 .welcome > .bar-end { justify-content: flex-start; }
-.welcome h1, .welcome p, .welcome ul { max-width: 70ch; }
+.welcome h1, .welcome p, .welcome ul, .welcome .more { max-width: 65ch; }
 .consent { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s2); text-align: left; }
 
 /* ---- the rehearsal band, the live progress ---- */
@@ -324,7 +341,7 @@ dialog.card .label { color: var(--muted); }
 .notice.live { border-left-color: var(--accent); }
 .own-result { display: grid; gap: var(--s3); }
 .own-pic { margin: 0; display: grid; gap: var(--s2); justify-items: start; }
-.own-pic canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 18rem; border-radius: var(--s1); }
+.own-pic canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 16rem; border-radius: var(--s1); }
 .own-pic figcaption { color: var(--muted); }
 
 /* ---- what the AI found ---- */

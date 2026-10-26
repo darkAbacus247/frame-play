@@ -5,6 +5,8 @@ import { barMode, holdBar, boardRoom } from '../src/ui.js';
 import { fitSize } from '../src/render.js';
 
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+const APP = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const SCREENS = readFileSync(new URL('../src/screens.js', import.meta.url), 'utf8');
 function rule(selector) {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const m = new RegExp(`(?:^|\\n)${esc}\\s*\\{([^}]*)\\}`).exec(css);
@@ -118,9 +120,9 @@ const centred = (d) => /center/.test(`${d['place-items'] || ''} ${d['align-items
 // header and dock as in the zoom cases above; the side column's height as
 // the sample rooms fill it (three chips, the pad, Describe this room)
 const HEADER = 61, DOCK = 61, RULE_H = 24, LABEL_H = 24;
-function layPlay(vw, vh) {
+function layPlay(vw, vh, chrome = HEADER + DOCK) {
   const pad = length('var(--pad)', vw, vh);
-  const spaceH = vh - HEADER - DOCK - 2 * pad;
+  const spaceH = vh - chrome - 2 * pad;
   const playW = vw - 2 * pad;
   const play = cascade('.play', vw, vh);
   const stage = cascade('.stage', vw, vh);
@@ -165,7 +167,7 @@ function layPlay(vw, vh) {
     sideBeside, playW, spaceH, fit: board, room, minH,
     rule: { top: top(rowsOf('rule')[0]), bottom: top(rowsOf('rule')[0]) + RULE_H },
     board: { top: boardTop, bottom: boardTop + board.cssH, left: 0, right: board.cssW },
-    side: { top: top(sideRows[0]), left: sideBeside ? board.cssW + colGap : 0, right: sideBeside ? board.cssW + colGap + sideW : playW },
+    side: { top: top(sideRows[0]), bottom: top(sideRows[0]) + sideH, left: sideBeside ? board.cssW + colGap : 0, right: sideBeside ? board.cssW + colGap + sideW : playW },
     label: { top: top(li), bottom: top(li) + LABEL_H },
   };
 }
@@ -216,10 +218,9 @@ test('play: no stretched or centred row can float the board; side and line follo
 });
 
 test('reveal and compare: the picture sits right under the heading, top-aligned with its column', () => {
-  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
-  assert.match(app, /'found-grid' \}, \[\s*pic,/, 'the reveal picture leads its grid');
-  assert.match(app, /'room-sum' \}, \[\s*pic,/, 'each compare picture leads its card');
-  assert.match(app, /class: 'screen compare'/);
+  assert.match(SCREENS, /'found-grid' \}, \[\s*pic,/, 'the reveal picture leads its grid');
+  assert.match(SCREENS, /'room-sum' \}, \[\s*pic,/, 'each compare picture leads its card');
+  assert.match(SCREENS, /class: 'screen compare'/);
   for (const v of VIEWS) {
     const screen = cascade('.screen', v.vw, v.vh);
     assert.match(screen['align-content'], /start/, v.name);
@@ -410,14 +411,13 @@ test('the matcher: a play-screen rule never reaches a compare card', () => {
   }
 });
 
-const APP = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 const NARROW = [...VIEWS, { name: '839x900 (the reported window)', vw: 839, vh: 900 }, { name: '839x560', vw: 839, vh: 560 }];
 const COMPARE = [node('section', 'screen compare'), node('div', 'two-rooms')];
 const CARD = [...COMPARE, node('article', 'room-sum')];
 const CARD_KIDS = [node('div', 'two-pic'), node('h2'), node('ul', 'facts'), node('p', 'level-label'), node('div', 'actions')];
 
 test('compare: each card is one column, its picture across the card, its facts one per line', () => {
-  assert.match(APP, /'room-sum' \}, \[\s*pic,\s*el\('h2'[^\n]*\n\s*el\('ul', \{ class: 'facts' \}, \[\s*el\('li'[^\n]*\n\s*el\('li'[^\n]*\n\s*el\('li'/,
+  assert.match(SCREENS, /'room-sum' \}, \[\s*pic,\s*el\('h2'[^\n]*\n\s*el\('ul', \{ class: 'facts' \}, \[\s*el\('li'[^\n]*\n\s*el\('li'[^\n]*\n\s*el\('li'/,
     'picture, title, then the three facts as one list');
   const call = /A\.reveals\.push\(mountReveal\(pic, \{[^\n]*\}\)\);\n\s*\}\n\}\n\nasync function screenFree/.exec(APP);
   assert.ok(call, 'the compare screen mounts its pictures');
@@ -439,11 +439,12 @@ test('compare: each card is one column, its picture across the card, its facts o
 });
 
 const FOUND = [node('section', 'screen found'), node('div', 'found-grid')];
-const INFO_KIDS = ['p summary', 'p why', 'div actions', 'section describe', 'ul obj-list', 'p', 'ul changes', 'p proof', 'h2 small-h', 'p level-label']
+const INFO_KIDS = ['p summary', 'p why', 'div actions', 'section describe', 'details more objects', 'details more proof-more', 'p level-label']
   .map((t) => { const [tag, ...cls] = t.split(' '); return node(tag, cls.join(' ')); });
 
 test('reveal: the picture first, its info beside it on wide windows or below it, no stray column', () => {
-  assert.match(APP, /'found-grid' \}, \[\s*pic,\s*el\('div', \{ class: 'found-info' \}/);
+  assert.match(SCREENS, /'found-grid' \}, \[\s*pic,\s*info,\s*\]/);
+  assert.match(SCREENS, /const info = el\('div', \{ class: 'found-info' \}/);
   for (const v of [...NARROW, { name: '1280x900', vw: 1280, vh: 900 }]) {
     const grid = styleOf(FOUND, v.vw, v.vh);
     const want = tracks(grid['grid-template-columns']).length;
@@ -460,5 +461,28 @@ test('the play grid still places its own four parts', () => {
   for (const v of VIEWS) {
     KIDS.forEach((k, i) => assert.equal(styleOf([...PLAY, k], v.vw, v.vh)['grid-area'], AREAS[i], `${v.name}: .${k.cls[0]}`));
     assert.equal(columnsOf(PLAY, KIDS, v.vw, v.vh), v.vw >= 720 ? 2 : 1, v.name);
+  }
+});
+
+// The play screen in the reported windows, under the header the play step
+// really draws (tests/layoutmodel.js): the board, its line and the side
+// column all fit main, so the window never scrolls while playing.
+test('play fits main without scrolling at 839x945 and 1259x1418, 100% zoom', async () => {
+  const { installFakeDocument } = await import('./fakedom.js');
+  installFakeDocument();
+  const { header, mainSpace } = await import('./layoutmodel.js');
+  try {
+    for (const [vw, vh] of [[839, 945], [1259, 1418]]) {
+      for (const band of [null, 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.']) {
+        const head = header({ lap: 'One photo, one room', counter: 'Step 11 of 12: Play', why: 'Finish a round, win or lose, to continue', band });
+        const m = mainSpace(vw, vh, head, band ? 'rehearsal' : 'mock');
+        const L = layPlay(vw, vh, m.header + m.dock);
+        assert.ok(L.room.h > L.minH, `${vw}x${vh}: the board has room above its minimum`);
+        const bottom = Math.max(L.label.bottom, L.side.bottom);
+        assert.ok(bottom <= L.spaceH + 0.5, `${vw}x${vh}${band ? ' rehearsal' : ''}: ${Math.round(bottom)}px of play in ${Math.round(L.spaceH)}px`);
+      }
+    }
+  } finally {
+    delete globalThis.document;
   }
 });

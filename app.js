@@ -2,7 +2,7 @@
 // sound (on by default), the opt-in tour, welcome back and history.
 import { loadRoom } from './src/rooms.js';
 import { paintRoom } from './src/painter.js';
-import { buildLevel, inputFromRoom, objectWords, validateLevel } from './src/level.js';
+import { buildLevel, inputFromRoom, validateLevel } from './src/level.js';
 import { pictureFromRGBA, fitSize } from './src/render.js';
 import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
@@ -11,11 +11,14 @@ import * as S from './src/store.js';
 import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight } from './src/ui.js';
 import * as R from './src/road.js';
 import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
-import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
+import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
-import { levelFromReply, makeOwnRoom, signature, MOCK_WORDS } from './src/own.js';
-import { closingRooms, closingView } from './src/screens.js';
+import { levelFromReply, makeOwnRoom, signature } from './src/own.js';
+import {
+  welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
+  freeView, ownView, ownResult, closingRooms, closingView, more,
+} from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -303,9 +306,10 @@ function renderDrawer() {
       el('button', { type: 'button', class: 'btn', text: 'Read this screen aloud', tip: 'Reads the main words on this screen', onclick: readScreen }),
       el('button', { type: 'button', class: 'btn', text: 'Start over from Step 1', tip: 'Starts the road again. Saved levels stay', onclick: startOver }),
     ]),
-    el('h3', { text: 'About' }),
-    el('p', { class: 'about', text: DISCLOSURE }),
-    el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
+    more('About FRAME//PLAY', [
+      el('p', { class: 'about', text: DISCLOSURE }),
+      el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
+    ], 'about-more'),
     el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', text: 'Close settings', tip: 'Closes this drawer', onclick: toggleDrawer })]),
   );
 }
@@ -357,30 +361,7 @@ async function render() {
 }
 
 function screenWelcome(main) {
-  const where = {
-    mock: 'This page is in MOCK mode: no photo is sent anywhere, and you play sample rooms drawn by code.',
-    live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It is then sent once, through this app’s server, to Meta’s Model API to read the room. It is not stored.',
-    rehearsal: 'This page is in REHEARSAL mode: a local stand-in answers, not Meta, and no photo leaves this machine.',
-  }[A.mode];
-  const bar = el('div', { class: 'bar-end welcome-bar' }, [
-    el('button', {
-      type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary',
-      tip: 'Agree and go to Step 2', text: R.primaryLabel(A.road), onclick: () => setRoad(R.giveConsent(A.road)),
-    }),
-  ]);
-  const section = el('section', { class: 'screen welcome with-bar' }, [
-    el('div', { class: 'bar-body' }, [
-      el('h1', { text: 'Photograph your room. Play it.' }),
-      el('p', { text: 'FRAME//PLAY turns one photo of a room or a desk top into a small game. The outlines of the real objects become the walls you walk around, the things you collect, the hazard you avoid and the exit.' }),
-      el('ul', { class: 'consent' }, [
-        el('li', { text: 'Keep people and anything private out of the photo.' }),
-        el('li', { text: 'You must be 18 or over to send a photo (Meta’s terms).' }),
-        el('li', { text: where }),
-        el('li', { text: 'Kept: no photo, anywhere. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.' }),
-      ]),
-    ]),
-    bar,
-  ]);
+  const { section, bar } = welcomeView({ mode: A.mode, primaryLabel: R.primaryLabel(A.road), onConsent: () => setRoad(R.giveConsent(A.road)) });
   main.replaceChildren(section);
   holdBar(section, bar);
 }
@@ -392,63 +373,35 @@ function photoOffWords() {
   return 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.';
 }
 
-const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in' };
-
 function roomCard(entry, { disabledWhy, onPick, tour = true }) {
   const level = entry.built.level;
-  const title = entry.room ? entry.room.title : level.title;
-  const thumb = el('canvas', { class: 'thumb', width: '320', height: '240', 'aria-hidden': 'true' });
-  // a photo of another shape keeps its shape, centred
-  const f = fitSize(320, 240, entry.picture.width, entry.picture.height);
-  thumb.getContext('2d').drawImage(entry.picture, (320 - f.cssW) / 2, (240 - f.cssH) / 2, f.cssW, f.cssH);
-  return el('button', {
-    type: 'button', class: 'room-card', 'data-tour': tour ? 'room-card' : null, disabled: !!disabledWhy,
-    tip: disabledWhy || `Play ${title}`, onclick: onPick,
-  }, [
-    thumb,
-    el('span', { class: 'room-title', text: title }),
-    el('span', { class: `tag ${level.origin}`, text: TAGS[level.origin] }),
-    disabledWhy ? el('span', { class: 'why', text: disabledWhy }) : null,
-  ]);
+  return roomCardView({
+    title: entry.room ? entry.room.title : level.title, origin: level.origin, disabledWhy, onPick, tour,
+    draw: (thumb) => {
+      // a photo of another shape keeps its shape, centred
+      const f = fitSize(320, 240, entry.picture.width, entry.picture.height);
+      thumb.getContext('2d').drawImage(entry.picture, (320 - f.cssW) / 2, (240 - f.cssH) / 2, f.cssW, f.cssH);
+    },
+  });
 }
 
 async function screenRoom(main, slot, token) {
-  const off = photoOffWords();
-  const cards = el('div', { class: 'room-cards' });
-  const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
-  const input = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true' });
-  input.addEventListener('change', () => {
-    const f = input.files && input.files[0];
-    input.value = '';
-    if (f) choosePhoto(slot, f, panel);
-  });
-  const choose = el('button', {
-    type: 'button', class: 'btn', disabled: !!off, text: 'Choose a photo', 'data-tour': off ? null : 'room-card',
-    tip: 'Pick a photo of a room or a desk top. It is shrunk on this device first', onclick: () => input.click(),
-  });
   const rehearsal = A.mode === 'rehearsal' && A.health && A.health.rehearsal ? A.health.rehearsal.room : null;
-  const actions = el('div', { class: 'actions' }, [choose, input, off ? el('span', { class: 'why', text: off }) : null]);
-  if (rehearsal && SAMPLES.some((x) => x.id === rehearsal)) {
-    actions.append(el('button', {
-      type: 'button', class: 'btn', text: 'Rehearse the live path',
+  const view = pickView({
+    slot, off: photoOffWords(), onFile: (f) => choosePhoto(slot, f, view.panel),
+    rehearse: rehearsal && SAMPLES.some((x) => x.id === rehearsal) ? {
+      label: 'Rehearse the live path',
       tip: `Sends the ${rehearsal} sample picture to the local stand-in, not Meta, and builds its level the live way`,
-      onclick: () => rehearseRoom(slot, rehearsal, panel),
-    }));
-  }
-  main.replaceChildren(el('section', { class: 'screen' }, [
-    el('h1', { text: slot === 0 ? 'Your room: pick a photo' : 'Another room: pick a second photo' }),
-    el('p', { class: 'advice', text: 'Objects with clear edges on a plain floor or desk work best. No people.' }),
-    actions,
-    panel,
-    el('h2', { text: 'Sample rooms' }),
-    cards,
-  ]));
+      onClick: () => rehearseRoom(slot, rehearsal, view.panel),
+    } : null,
+  });
+  main.replaceChildren(view.section);
   const other = slot === 1 ? A.road.rooms[0] : null;
   for (const s of SAMPLES) {
     const entry = await sample(s.id);
     if (token !== A.renderToken) return;
     const used = other && other.kind === 'sample' && other.id === s.id;
-    cards.append(roomCard(entry, {
+    view.cards.append(roomCard(entry, {
       disabledWhy: used ? 'Already your first room' : null,
       onPick: () => setRoad(R.chooseRoom(A.road, slot, { kind: 'sample', id: s.id })),
     }));
@@ -500,31 +453,6 @@ function missingRoom(main, slot) {
   main.replaceChildren(el('section', { class: 'screen sparse' }, kids));
 }
 
-const SOURCE_WORDS = {
-  exact: 'exact outline, drawn by code',
-  sam_mask: 'SAM’s own mask',
-  traced_in_box: 'traced by code inside SAM’s box',
-  box: 'SAM’s box (the trace was not tight enough)',
-};
-
-function summaryLine(level, summary) {
-  if (level.origin === 'mock') {
-    return 'This sample room was drawn by code: no model was called, and its outlines are the exact shapes code painted. Code proved the room can be won.';
-  }
-  const c = level.provenance.outline_sources || {};
-  const n = level.objects.length;
-  const named = summary ? summary.named : n;
-  const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
-  const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
-  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code traced ${plural(c.traced_in_box || 0, 'outline', 'outlines')} inside SAM’s boxes and kept ${plural(c.box || 0, 'as a box', 'as boxes')}, then proved the room can be won.`;
-}
-
-function proofLine(level) {
-  const names = level.proof.order.map((id) => objectWords(level, level.objects.findIndex((o) => o.id === id)));
-  const last = names.pop();
-  return `Proof: every goal can be reached. The shortest route that collects everything and then exits is ${level.proof.route_length.toLocaleString('en')} px: ${names.join(', ')}, then the ${last}.`;
-}
-
 function describeSection(section, level, rt, state) {
   if (!section.hidden) { section.hidden = true; return; }
   const pos = state ? state.pos : level.start;
@@ -546,61 +474,28 @@ async function screenFound(main, slot, token) {
     return;
   }
   const { level, rt } = entry.built;
-  const pic = el('div', { class: 'found-pic' });
-  const list = el('ol', { class: 'obj-list' });
-  level.objects.forEach((o, k) => {
-    const conf = o.confidence == null ? 'no confidence score (drawn by code)' : `confidence ${Math.round(o.confidence * 100)}%`;
-    list.append(el('li', {}, [
-      el('span', { class: 'num', 'aria-hidden': 'true', text: String(k + 1) }),
-      el('span', { class: 'obj' }, [
-        el('strong', { text: objectWords(level, k) }),
-        el('span', { text: ` · ${o.on_surface ? ROLE_WORDS[o.role] : 'scenery, out of reach'}` }),
-        el('span', { class: 'reason', text: `“${o.reason}”` }),
-        el('small', { text: `${SOURCE_WORDS[o.outline.source]} · ${conf}` }),
-      ]),
-    ]));
-  });
-  const desc = el('section', { class: 'describe', hidden: true, 'aria-live': 'polite' });
-  let walls = false;
-  const wallsBtn = el('button', {
-    type: 'button', class: 'btn', 'aria-pressed': 'false', text: 'Show walls',
-    tip: 'Shows where the explorer can stand and the proven winning route',
-    onclick: () => {
-      walls = !walls;
-      wallsBtn.setAttribute('aria-pressed', String(walls));
-      wallsBtn.textContent = walls ? 'Hide walls' : 'Show walls';
-      for (const r of A.reveals) r.setWalls(walls);
+  const { section, pic, info } = foundView({
+    level, summary: entry.summary, fromDevice: entry.fromDevice,
+    actions: {
+      play: () => setRoad(R.startPlay(A.road)),
+      describe: (desc) => describeSection(desc, level, rt, null),
+      walls: (on) => { for (const r of A.reveals) r.setWalls(on); },
     },
   });
-  const changes = level.changes_by_code.length
-    ? el('ul', { class: 'changes' }, level.changes_by_code.map((c) => el('li', { text: `${c.what}: ${c.why}.` })))
-    : el('p', { text: 'None: the room could be won as read.' });
-  main.replaceChildren(el('section', { class: 'screen found' }, [
-    el('h1', { text: 'What the AI found' }),
-    el('div', { class: 'found-grid' }, [
-      pic,
-      el('div', { class: 'found-info' }, [
-        el('p', { class: 'summary', text: summaryLine(level, entry.summary) }),
-        entry.fromDevice ? el('p', { class: 'why', text: 'Loaded from this device: no model was called this time.' }) : null,
-        el('div', { class: 'actions' }, [
-          el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Start playing this room', text: 'Play this room', onclick: () => setRoad(R.startPlay(A.road)) }),
-          el('button', { type: 'button', class: 'btn', text: 'Describe this room', tip: 'Every object, its role and where it is, in words', onclick: () => describeSection(desc, level, rt, null) }),
-          wallsBtn,
-        ]),
-        desc,
-        list,
-        entry.summary && entry.summary.scenery.length
-          ? el('p', { text: `Also seen, as scenery (never a wall, never sent to SAM): ${entry.summary.scenery.join(', ')}.` }) : null,
-        entry.summary && entry.summary.warnings.length
-          ? el('ul', { class: 'changes' }, entry.summary.warnings.map((w) => el('li', { text: w }))) : null,
-        el('p', { class: 'proof', text: proofLine(level) }),
-        el('h2', { class: 'small-h', text: 'Changes by code' }),
-        changes,
-        el('p', { class: 'level-label', text: level.label }),
-      ]),
-    ]),
-  ]));
-  A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags, maxHeight: () => Math.max(220, $('main').clientHeight - 120) }));
+  main.replaceChildren(section);
+  // the heading, the picture and the info's first lines fit main together
+  const maxHeight = () => {
+    const m = $('main');
+    const cs = getComputedStyle(m);
+    const gap = parseFloat(getComputedStyle(section).rowGap) || 0;
+    return revealHeight({
+      width: pic.clientWidth, aspect: level.picture.height / level.picture.width,
+      spaceH: m.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom),
+      headH: section.querySelector('h1').offsetHeight, gap,
+      infoH: info.offsetHeight, beside: info.offsetLeft > pic.offsetLeft + 1,
+    });
+  };
+  A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags, maxHeight }));
 }
 
 async function screenPlay(main, slot, ref, token) {
@@ -656,38 +551,19 @@ function endOfRound(slot, r, level) {
 }
 
 async function screenTwo(main, token) {
-  const cards = el('div', { class: 'two-rooms' });
-  main.replaceChildren(el('section', { class: 'screen compare' }, [
-    el('h1', { text: 'Your two rooms' }),
-    cards,
-    el('div', { class: 'actions' }, [
-      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Go on to the third room: a photo of your own', text: R.primaryLabel(A.road), onclick: () => setRoad(R.toOwnRoom(A.road)) }),
-    ]),
-  ]));
+  const { section, cards } = compareView({ primaryLabel: R.primaryLabel(A.road), onContinue: () => setRoad(R.toOwnRoom(A.road)) });
+  main.replaceChildren(section);
   for (const slot of [0, 1]) {
     const ref = A.road.rooms[slot];
     const entry = await levelFor(ref);
     if (token !== A.renderToken) return;
     if (!entry || entry.built.error) {
-      cards.append(el('article', { class: 'room-sum' }, [
-        el('h2', { text: slot === 0 ? 'Your first room' : 'Your second room' }),
-        el('p', { text: ref && ref.kind === 'photo' ? 'The photo is never stored: pick it again on its step to see this room here.' : 'This room is not in memory on this visit.' }),
-      ]));
+      cards.append(roomGoneView(slot, ref && ref.kind === 'photo'));
       continue;
     }
     const { level, rt } = entry.built;
-    const best = A.road.best[slot];
-    const pic = el('div', { class: 'two-pic' });
-    cards.append(el('article', { class: 'room-sum' }, [
-      pic,
-      el('h2', { text: level.title }),
-      el('ul', { class: 'facts' }, [
-        el('li', { text: `Objects found: ${level.objects.length}` }),
-        el('li', { text: `Shortest route: ${level.proof.route_length.toLocaleString('en')} px` }),
-        el('li', { text: best == null ? 'Your best: not won yet' : best <= 1.05 ? 'Your best: the shortest route' : `Your best: ${best.toFixed(1)} times the shortest` }),
-      ]),
-      el('p', { class: 'level-label', text: level.label }),
-    ]));
+    const { article, pic } = roomSumView({ level, best: A.road.best[slot] });
+    cards.append(article);
     // the whole card width, keeping the picture's aspect
     A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags }));
   }
@@ -695,12 +571,8 @@ async function screenTwo(main, token) {
 
 async function screenFree(main, token) {
   if (A.free) return screenPlay(main, -1, A.free, token);
-  const cards = el('div', { class: 'room-cards' });
-  main.replaceChildren(el('section', { class: 'screen' }, [
-    el('h1', { text: 'Free play' }),
-    el('p', { text: 'Pick any room. Rounds here do not change your road.' }),
-    cards,
-  ]));
+  const { section, cards } = freeView();
+  main.replaceChildren(section);
   for (const s of SAMPLES) {
     const entry = await sample(s.id);
     if (token !== A.renderToken) return;
@@ -756,19 +628,6 @@ function ownDeps() {
   };
 }
 
-function photoInput(onFile, camera) {
-  const input = el('input', {
-    type: 'file', accept: 'image/jpeg,image/png,image/webp', capture: camera ? 'environment' : null,
-    class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true',
-  });
-  input.addEventListener('change', () => {
-    const f = input.files && input.files[0];
-    input.value = '';
-    if (f) onFile(f);
-  });
-  return input;
-}
-
 function rehearsalRoom() {
   return A.mode === 'rehearsal' && A.health && A.health.rehearsal ? A.health.rehearsal.room : null;
 }
@@ -778,8 +637,8 @@ function samplePictureLink(id) {
   const s = A.samples.get(id);
   if (!s) return null;
   const a = el('a', {
-    class: 'btn', download: `${id}-sample-room.png`, href: '#', text: `Save the ${s.room.title} picture`,
-    tip: 'Saves the sample room’s own picture, the one the local stand-in knows, so you can choose it as your photo',
+    class: 'btn', download: `${id}-sample-room.png`, href: '#', text: 'Save the sample picture',
+    tip: `Saves ${s.room.title}’s own picture, the one the local stand-in knows, so you can choose it as your photo`,
   });
   s.picture.toBlob((b) => {
     if (!b) return;
@@ -790,44 +649,16 @@ function samplePictureLink(id) {
   return a;
 }
 
-const OWN_NOTICE = {
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then sent once to Meta’s Model API (Muse Spark, then SAM 3.1). It is not stored.',
-  rehearsal: 'REHEARSAL: a local stand-in answers, not Meta, and it only knows one sample room’s own picture. Save that picture, then choose it here. Any other photo is refused, and no level is made from it.',
-  mock: MOCK_WORDS,
-};
-
 async function screenOwn(main, token) {
   for (const s of SAMPLES) await sample(s.id);
   if (token !== A.renderToken) return;
-  const mode = OWN_NOTICE[A.mode] ? A.mode : 'mock';
-  const sends = mode !== 'mock';
-  const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
-  const shown = el('div', { class: 'own-result', hidden: true });
-  const pick = (f) => ownPhoto(f, panel, shown);
-  const fileIn = photoInput(pick, false);
-  const camIn = coarsePointer.matches ? photoInput(pick, true) : null;
-  const choose = el('button', {
-    type: 'button', class: sends ? 'btn primary' : 'btn', 'data-primary': sends ? 'true' : null, 'data-tour': sends ? 'primary' : null,
-    text: 'Choose a photo', onclick: () => fileIn.click(),
-    tip: sends ? 'Pick a photo of a room or a desk top. It is shrunk on this device first' : 'Pick a photo to see it here. It stays on this device',
-  });
-  const camera = camIn ? el('button', {
-    type: 'button', class: 'btn', text: 'Take a photo', onclick: () => camIn.click(),
-    tip: sends ? 'Use the camera. The photo is shrunk on this device first' : 'Use the camera. The photo stays on this device',
-  }) : null;
-  const onward = el('button', {
-    type: 'button', class: sends ? 'btn' : 'btn primary', 'data-primary': sends ? null : 'true', 'data-tour': sends ? null : 'primary',
-    text: R.primaryLabel(A.road), tip: 'Go on without your own room', onclick: () => setRoad(R.skipOwnRoom(A.road)),
-  });
   const room = rehearsalRoom();
-  main.replaceChildren(el('section', { class: 'screen own' }, [
-    el('h1', { text: 'Your own room' }),
-    el('p', { class: 'advice', text: 'A photo of your own room or desk top. Objects with clear edges on a plain floor or desk work best. No people.' }),
-    el('p', { class: `notice ${mode}`, text: OWN_NOTICE[mode] }),
-    el('div', { class: 'actions' }, [choose, camera, fileIn, camIn, room ? samplePictureLink(room) : null, onward]),
-    panel,
-    shown,
-  ]));
+  const view = ownView({
+    mode: A.mode, primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
+    sampleLink: room ? samplePictureLink(room) : null,
+    actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.skipOwnRoom(A.road)) },
+  });
+  main.replaceChildren(view.section);
   if (A.busy) setBusy(true);
 }
 
@@ -865,17 +696,7 @@ async function ownPhoto(file, panel, shown) {
 }
 
 function showOwnResult(box, r) {
-  const kept = r.kind === 'kept';
-  let fig = null;
-  if (r.picture) {
-    r.picture.setAttribute('role', 'img');
-    r.picture.setAttribute('aria-label', 'Your photo');
-    fig = el('figure', { class: 'own-pic' }, [
-      r.picture,
-      el('figcaption', { text: kept ? 'Your photo, on this device only. Nothing was sent, and no level was made from it.' : 'Your photo. No level was made from it.' }),
-    ]);
-  }
-  box.replaceChildren(fig, kept ? null : el('p', { class: 'error', role: 'alert', text: r.words }));
+  box.replaceChildren(...ownResult(r).filter(Boolean));
   box.hidden = false;
 }
 

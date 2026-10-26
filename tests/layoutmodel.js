@@ -26,6 +26,18 @@ export const RULES = [];
 })(CSS, null);
 
 const REM = 16;
+// split a value at its top-level spaces, keeping nested brackets whole
+function splitTop(v) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (const c of String(v).trim()) {
+    if (c === '(') depth++;
+    if (c === ')') depth--;
+    if (/\s/.test(c) && !depth) { if (cur) out.push(cur); cur = ''; } else cur += c;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 const toPx = (v) => (v.endsWith('rem') ? parseFloat(v) * REM : v.endsWith('em') ? parseFloat(v) * REM : parseFloat(v));
 export function mediaHolds(media, vw, vh) {
   if (!media) return true;
@@ -113,7 +125,7 @@ export class Layout {
 
   sides(v, base) {
     if (!v) return null;
-    const t = v.split(/\s+(?![^(]*\))/).map((x) => this.len(x, base) || 0);
+    const t = splitTop(v).map((x) => this.len(x, base) || 0);
     const [a, b = a, c = a, d = b] = t;
     return [a, b, c, d];
   }
@@ -210,7 +222,7 @@ export class Layout {
   }
 
   gaps(st) {
-    const [row, col = row] = (st.gap || '0').split(/\s+(?![^(]*\))/);
+    const [row, col = row] = splitTop(st.gap || '0');
     return { row: this.len(st['row-gap'] || row) || 0, col: this.len(st['column-gap'] || col) || 0 };
   }
 
@@ -328,7 +340,7 @@ export class Layout {
     const spec = st['grid-template-columns'];
     if (!spec) return [inner];
     const toks = [];
-    for (const t of spec.trim().split(/\s+(?![^(]*\))/)) {
+    for (const t of splitTop(spec)) {
       const rep = /^repeat\((auto-fill|auto-fit|\d+),\s*(.+)\)$/.exec(t);
       if (!rep) { toks.push(t); continue; }
       if (/^\d+$/.test(rep[1])) { for (let i = 0; i < +rep[1]; i++) toks.push(rep[2]); continue; }

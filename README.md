@@ -34,6 +34,14 @@ one sentence on what the AI did in it, and the ways on: Free play, Play
 again for any room, Try your own room (or, in MOCK, why it needs the live
 AI), and Start over.
 
+Every screen is written to fit without scrolling at 100% zoom: one short
+line up front, short labelled facts, and the longer text (the full consent
+notice, the list of what the AI found, the proof) in a disclosure that
+starts closed. Text runs in one column of at most about 65 characters.
+`tests/fit.test.js` checks this for every road screen at 839x945 and
+1259x1418 with a layout model built on the stylesheet's own rules; it is a
+model, not a browser.
+
 ## Running it
 
 Python 3.10 or newer, standard library only; no packages to install.
