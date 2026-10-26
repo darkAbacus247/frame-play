@@ -92,6 +92,20 @@ export function holdBar(section, bar, minBodyRem = 10) {
   return ro;
 }
 
+// ---- the room the play board may take ----
+// The board is top-aligned under the status line and sized from the space,
+// never from a stretched row: the width is what the side column leaves (all
+// of it when the side column flows below), the height is main's space less
+// the status line, the line under the board, their gaps and, when it flows
+// below, the side column, so the room and its controls are in view together.
+// Never under minH; the page scrolls instead.
+export function boardRoom({ playW, spaceH, ruleH, labelH, rowGap, colGap, sideW, sideH, sideBeside, minH }) {
+  const w = sideBeside ? playW - sideW - colGap : playW;
+  const below = sideBeside ? 0 : sideH + rowGap;
+  const h = spaceH - ruleH - labelH - 2 * rowGap - below;
+  return { w: Math.max(0, w), h: Math.max(minH, h) };
+}
+
 // Keep a box at least as tall as it is now, so new contents cannot shrink it
 // and shift what sits below (keep), or let it size itself again (!keep).
 export function reserveHeight(box, keep) {

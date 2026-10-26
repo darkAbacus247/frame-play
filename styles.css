@@ -158,22 +158,31 @@ button { font: inherit; color: inherit; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
 .sparse .actions { justify-content: center; }
 
-/* ---- play ---- */
+/* ---- play ----
+   Top-aligned, never centred in a stretched row: the status line, then the
+   board with the side column level with its top, then the line under the
+   board. The board column is as wide as the board (game.js sizes it from
+   the space, ui.js boardRoom), so the side column sits right beside it; the
+   last row only takes up a side column taller than the board and its line. */
 .play {
+  --stage-min: 12rem;
   display: grid;
-  height: 100%;
   min-height: fit-content;
+  align-content: start;
+  justify-content: start;
   gap: var(--s4) var(--gap);
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(12rem, 1fr) auto;
-  grid-template-areas: "rule side" "stage side" "label side";
+  grid-template-columns: minmax(0, max-content) auto;
+  grid-template-rows: auto auto auto 1fr;
+  grid-template-areas: "rule rule" "stage side" "label side" ". side";
 }
-.rule-row { grid-area: rule; min-height: 1.5rem; font-weight: 600; max-width: none; }
-.stage { grid-area: stage; min-height: 0; min-width: 0; display: grid; place-items: center; }
+/* these two wrap to the board's width instead of widening its column */
+.rule-row { grid-area: rule; min-height: 1.5rem; font-weight: 600; max-width: none; contain: inline-size; }
+.stage { grid-area: stage; min-width: 0; display: grid; justify-items: start; align-items: start; }
 .game { position: relative; line-height: 0; border-radius: var(--s1); touch-action: none; cursor: pointer; }
 .game canvas { display: block; border-radius: var(--s1); }
 .side { grid-area: side; display: flex; flex-direction: column; gap: var(--s4); width: 16rem; }
 .level-label { grid-area: label; color: var(--muted); max-width: none; }
+.play .level-label { contain: inline-size; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .chip {
   min-height: var(--target); padding: 0 var(--s3); border-radius: 999px;
@@ -209,8 +218,8 @@ button { font: inherit; color: inherit; }
 @media (max-width: 719px) {
   .play {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(12rem, 1fr) auto auto;
-    grid-template-areas: "rule" "stage" "side" "label";
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas: "rule" "stage" "label" "side";
   }
   .side { width: auto; flex-direction: row; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
   .side .chips { flex: 1 1 12rem; }
@@ -220,12 +229,9 @@ button { font: inherit; color: inherit; }
    the pad gets shorter but keeps full-size touch targets. Everything stays
    in flow, so nothing can overlap; the page scrolls only if it must. */
 @media (max-height: 40rem) {
-  .play { row-gap: var(--s3); grid-template-rows: auto minmax(8rem, 1fr) auto; }
+  .play { --stage-min: 8rem; row-gap: var(--s3); }
   .pad { grid-template-columns: repeat(3, 3.5rem); grid-template-rows: repeat(3, var(--target)); }
   .pad-btn { width: 3.5rem; height: var(--target); }
-}
-@media (max-height: 40rem) and (max-width: 719px) {
-  .play { grid-template-rows: auto minmax(8rem, 1fr) auto auto; }
 }
 
 /* ---- cards (modal) ---- */
@@ -328,8 +334,10 @@ dialog.card .label { color: var(--muted); }
 }
 
 /* ---- your two rooms ---- */
-.two-rooms { display: grid; gap: var(--gap); grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.room-sum { display: grid; gap: var(--s3); align-content: start; padding: var(--s4); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+/* the pictures sit close under the heading: 16 + 1 + 12 px, under 2rem */
+.compare { row-gap: var(--s4); }
+.two-rooms { display: grid; gap: var(--gap); align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.room-sum { display: grid; gap: var(--s3); align-content: start; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .two-pic { min-width: 0; line-height: 0; }
 @media (max-width: 719px) {
   .two-rooms { grid-template-columns: minmax(0, 1fr); }

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { barMode, holdBar } from '../src/ui.js';
+import { barMode, holdBar, boardRoom } from '../src/ui.js';
+import { fitSize } from '../src/render.js';
 
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 function rule(selector) {
@@ -50,14 +51,195 @@ test('short windows: the board may shrink, the pad keeps full-size targets, all 
   const at = css.indexOf('@media (max-height: 40rem) {');
   assert.ok(at > 0, 'a rule set for short windows');
   const block = css.slice(at, css.indexOf('\n}', at));
-  assert.match(block, /\.play \{[^}]*minmax\(8rem, 1fr\)/, 'the stage row may shrink to 8rem; the board scales to it');
+  assert.match(block, /\.play \{[^}]*--stage-min: 8rem/, 'the board may shrink to 8rem before the page scrolls');
   assert.match(block, /\.pad-btn \{[^}]*height: var\(--target\)/, 'pad buttons keep the 2.75rem target');
   assert.match(block, /\.pad \{[^}]*repeat\(3, var\(--target\)\)/);
   assert.doesNotMatch(block, /position|overflow:\s*hidden/, 'nothing taken out of flow or clipped');
-  const narrow = css.indexOf('@media (max-height: 40rem) and (max-width: 719px)');
-  assert.ok(narrow > at, 'the one-column layout gets the same shrinkable stage, after the general rule');
-  assert.match(css.slice(narrow, css.indexOf('\n}', narrow)), /minmax\(8rem, 1fr\) auto auto/);
   assert.match(rule('.play'), /min-height:\s*fit-content/, 'the play grid never squeezes its rows over each other');
+});
+
+// ---- picture screens: a small layout model read from the real cascade ----
+const flat = css.replace(/\/\*[\s\S]*?\*\//g, '');
+const RULES = [];
+(function parse(text, media) {
+  let pos = 0;
+  for (;;) {
+    const open = text.indexOf('{', pos);
+    if (open < 0) return;
+    const prelude = text.slice(pos, open).trim();
+    let depth = 1, j = open + 1;
+    while (depth) { if (text[j] === '{') depth++; else if (text[j] === '}') depth--; j++; }
+    const body = text.slice(open + 1, j - 1);
+    if (prelude.startsWith('@media')) parse(body, prelude);
+    else if (!prelude.startsWith('@')) RULES.push({ sels: prelude.split(',').map((s) => s.trim()), body, media });
+    pos = j;
+  }
+})(flat, null);
+const px = (v) => (v.endsWith('rem') ? parseFloat(v) * 16 : parseFloat(v));
+function mediaHolds(media, vw, vh) {
+  if (!media) return true;
+  return [...media.matchAll(/\((min|max)-(width|height):\s*([\d.]+(?:px|rem))\)/g)].every(([, mm, dim, v]) => {
+    const have = dim === 'width' ? vw : vh;
+    return mm === 'min' ? have >= px(v) : have <= px(v);
+  });
+}
+const VARS = { '--s1': 4, '--s2': 8, '--s3': 12, '--s4': 16, '--s5': 24, '--s6': 32, '--s7': 48 };
+function cascade(selector, vw, vh) {
+  const out = {};
+  for (const r of RULES) {
+    if (!r.sels.includes(selector) || !mediaHolds(r.media, vw, vh)) continue;
+    for (const d of r.body.split(';')) {
+      const k = d.indexOf(':');
+      if (k > 0) out[d.slice(0, k).trim()] = d.slice(k + 1).trim();
+    }
+  }
+  return out;
+}
+function length(v, vw, vh) {
+  if (v == null) return 0;
+  const m = /^var\((--[\w-]+)\)$/.exec(v);
+  if (m) {
+    if (VARS[m[1]] != null) return VARS[m[1]];
+    return length(cascade(':root', vw, vh)[m[1]], vw, vh);
+  }
+  return px(v);
+}
+function gaps(decl, vw, vh) {
+  const [row, col = row] = (decl.gap || '0').split(/\s+(?![^(]*\))/);
+  return {
+    rowGap: length(decl['row-gap'] || row, vw, vh),
+    colGap: length(decl['column-gap'] || col, vw, vh),
+  };
+}
+const tracks = (v) => v.trim().split(/\s+(?![^(]*\))/);
+const flexible = (t) => /fr\b/.test(t);
+const centred = (d) => /center/.test(`${d['place-items'] || ''} ${d['align-items'] || ''} ${d['align-content'] || ''} ${d['place-content'] || ''}`);
+
+// header and dock as in the zoom cases above; the side column's height as
+// the sample rooms fill it (three chips, the pad, Describe this room)
+const HEADER = 61, DOCK = 61, RULE_H = 24, LABEL_H = 24;
+function layPlay(vw, vh) {
+  const pad = length('var(--pad)', vw, vh);
+  const spaceH = vh - HEADER - DOCK - 2 * pad;
+  const playW = vw - 2 * pad;
+  const play = cascade('.play', vw, vh);
+  const stage = cascade('.stage', vw, vh);
+  const { rowGap, colGap } = gaps(play, vw, vh);
+  const areas = [...play['grid-template-areas'].matchAll(/"([^"]+)"/g)].map((m) => m[1].trim().split(/\s+/));
+  const rows = tracks(play['grid-template-rows']);
+  assert.equal(rows.length, areas.length, `${vw}x${vh}: one track per row of areas`);
+  const rowsOf = (name) => areas.flatMap((r, i) => (r.includes(name) ? [i] : []));
+  const sideBeside = areas.some((r) => r.includes('stage') && r.includes('side'));
+  const short = vh <= 640;
+  const sideW = sideBeside ? length(cascade('.side', vw, vh).width, vw, vh) : playW;
+  const padH = short ? 3 * 44 + 2 * 4 : 3 * 56 + 2 * 4;
+  const sideH = sideBeside ? 3 * 44 + 2 * 8 + 16 + padH + 16 + 44 : padH + 16 + 44;
+  const minH = length(play['--stage-min'] || '12rem', vw, vh);
+  const room = boardRoom({ playW, spaceH, ruleH: RULE_H, labelH: LABEL_H, rowGap, colGap, sideW, sideH, sideBeside, minH });
+  const board = fitSize(Math.max(80, room.w), Math.max(60, room.h), 1024, 768);
+  // row heights: single-row items size auto rows; a definite-height grid
+  // hands what is left to its fr rows, and a side column taller than the
+  // rows it spans grows the fr rows among them
+  const content = { rule: RULE_H, stage: board.cssH, label: LABEL_H };
+  const h = rows.map((t, i) => {
+    if (flexible(t)) return 0;
+    const names = areas[i].filter((n) => n !== '.' && rowsOf(n).length === 1);
+    return Math.max(0, ...names.map((n) => content[n] || 0));
+  });
+  const flex = rows.flatMap((t, i) => (flexible(t) ? [i] : []));
+  const total = () => h.reduce((a, b) => a + b, 0) + rowGap * (rows.length - 1);
+  if (play.height === '100%' && flex.length) {
+    const left = Math.max(0, spaceH - total());
+    for (const i of flex) h[i] = Math.max(length(/minmax\(([^,]+),/.exec(rows[i])?.[1] || '0', vw, vh), left / flex.length);
+  }
+  const sideRows = rowsOf('side');
+  const spanned = sideRows.reduce((a, i) => a + h[i], 0) + rowGap * (sideRows.length - 1);
+  const flexIn = sideRows.filter((i) => flexible(rows[i]));
+  if (sideH > spanned && flexIn.length) for (const i of flexIn) h[i] += (sideH - spanned) / flexIn.length;
+  const top = (i) => h.slice(0, i).reduce((a, b) => a + b, 0) + rowGap * i;
+  const si = rowsOf('stage')[0];
+  const cell = { top: top(si), h: h[si] };
+  const boardTop = cell.top + (centred(stage) ? (cell.h - board.cssH) / 2 : 0);
+  const li = rowsOf('label')[0];
+  return {
+    sideBeside, playW, spaceH, fit: board, room, minH,
+    rule: { top: top(rowsOf('rule')[0]), bottom: top(rowsOf('rule')[0]) + RULE_H },
+    board: { top: boardTop, bottom: boardTop + board.cssH, left: 0, right: board.cssW },
+    side: { top: top(sideRows[0]), left: sideBeside ? board.cssW + colGap : 0, right: sideBeside ? board.cssW + colGap + sideW : playW },
+    label: { top: top(li), bottom: top(li) + LABEL_H },
+  };
+}
+
+// 1259 by 1418 (the reported window) at 67, 100, 150 and 200%, the spec's
+// 1280 by 720, the 150% and 200% cases above, and a phone on its side
+const VIEWS = [
+  ...[0.67, 1, 1.5, 2].map((z) => ({ name: `1259x1418 at ${Math.round(z * 100)}%`, vw: Math.round(1259 / z), vh: Math.round(1418 / z) })),
+  { name: '1280x720', vw: 1280, vh: 720 },
+  { name: '150%', vw: 559, vh: 630 },
+  { name: '200%', vw: 420, vh: 472 },
+  { name: 'landscape phone', vw: 568, vh: 320 },
+];
+
+test('play: the board starts under the status line, level with the side column, its line right under it', () => {
+  for (const v of VIEWS) {
+    const L = layPlay(v.vw, v.vh);
+    const band = L.board.top - L.rule.bottom;
+    assert.ok(band <= 32, `${v.name}: ${band}px of empty band between the status line and the board`);
+    if (L.sideBeside) {
+      assert.ok(Math.abs(L.board.top - L.side.top) <= 8, `${v.name}: board top ${L.board.top}, side column top ${L.side.top}`);
+      assert.ok(L.board.right <= L.side.left, `${v.name}: the side column sits beside the board, not over it`);
+      assert.ok(L.side.right <= L.playW + 0.5, `${v.name}: the side column stays in main`);
+    } else {
+      assert.ok(L.side.top >= L.label.bottom, `${v.name}: the side column flows below the board and its line`);
+    }
+    const under = L.label.top - L.board.bottom;
+    assert.ok(under >= 0 && under <= 32, `${v.name}: the line under the board is ${under}px below it`);
+    assert.ok(L.board.right <= L.playW, `${v.name}: the board fits main's width`);
+    if (L.room.h > L.minH) assert.ok(L.label.bottom <= L.spaceH + 0.5, `${v.name}: when it can, the board and its line fit above the dock`);
+  }
+  // wide windows: the board takes the whole width beside the side column or
+  // the whole height, whichever runs out first
+  const wide = layPlay(1880, 2116);
+  assert.ok(wide.fit.cssW >= wide.room.w - 1 || wide.fit.cssH >= wide.room.h - 1);
+});
+
+test('play: no stretched or centred row can float the board; side and line follow it', () => {
+  for (const v of VIEWS) {
+    const play = cascade('.play', v.vw, v.vh);
+    assert.ok(!centred(play) && !centred(cascade('.stage', v.vw, v.vh)), `${v.name}: nothing centres the board vertically`);
+    assert.notEqual(play.height, '100%', `${v.name}: the play grid is as tall as its content`);
+    assert.match(play['align-content'] || '', /start/, v.name);
+  }
+  assert.doesNotMatch(flat, /position\s*:\s*(sticky|fixed)/);
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  assert.match(game, /boardRoom\(/, 'the board is sized from the space, not from a stretched stage');
+});
+
+test('reveal and compare: the picture sits right under the heading, top-aligned with its column', () => {
+  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  assert.match(app, /'found-grid' \}, \[\s*pic,/, 'the reveal picture leads its grid');
+  assert.match(app, /'room-sum' \}, \[\s*pic,/, 'each compare picture leads its card');
+  assert.match(app, /class: 'screen compare'/);
+  for (const v of VIEWS) {
+    const screen = cascade('.screen', v.vw, v.vh);
+    assert.match(screen['align-content'], /start/, v.name);
+    const found = cascade('.found-grid', v.vw, v.vh);
+    assert.match(found['align-items'], /start/, `${v.name}: the reveal picture and its column share a top`);
+    assert.ok(!centred(cascade('.found-pic', v.vw, v.vh)) && !cascade('.found-pic', v.vw, v.vh)['margin-top']);
+    const revealBand = gaps(screen, v.vw, v.vh).rowGap;
+    assert.ok(revealBand <= 32, `${v.name}: reveal band ${revealBand}px`);
+    const compare = { ...screen, ...cascade('.compare', v.vw, v.vh) };
+    const card = cascade('.room-sum', v.vw, v.vh);
+    assert.match(card['align-content'], /start/, v.name);
+    assert.match(cascade('.two-rooms', v.vw, v.vh)['align-items'] || '', /start/, `${v.name}: the two cards share a top`);
+    const compareBand = gaps(compare, v.vw, v.vh).rowGap + 1 + length(card.padding, v.vw, v.vh);
+    assert.ok(compareBand <= 32, `${v.name}: compare band ${compareBand}px`);
+  }
+  for (const r of RULES) {
+    if (r.sels.some((s) => /found|two-|room-sum|compare|\.play|\.stage/.test(s))) {
+      assert.doesNotMatch(r.body, /margin-top:\s*auto|(align|place)-(items|content):\s*center/, r.sels.join(', '));
+    }
+  }
 });
 
 test('pinned, the body scrolls in its own box and the bar takes its own height in flow', () => {

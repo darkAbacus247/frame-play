@@ -660,7 +660,7 @@ function endOfRound(slot, r, level) {
 
 async function screenTwo(main, token) {
   const cards = el('div', { class: 'two-rooms' });
-  main.replaceChildren(el('section', { class: 'screen' }, [
+  main.replaceChildren(el('section', { class: 'screen compare' }, [
     el('h1', { text: 'Your two rooms' }),
     cards,
     el('div', { class: 'actions' }, [

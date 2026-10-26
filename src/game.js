@@ -5,7 +5,7 @@ import { createRound, stepRound, walkToObject, walkToPoint, nextGoal, routeRatio
 import { Renderer, fitSize, unlockPulse } from './render.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
-import { el } from './ui.js';
+import { el, boardRoom } from './ui.js';
 
 const KEY_DIRS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -213,15 +213,34 @@ export function mountPlay(root, opts) {
   game.addEventListener('keyup', (e) => { held.delete(e.key); });
   game.addEventListener('blur', () => held.clear());
 
+  // the board sits at the top of its cell; its size comes from the space
+  // (ui.js boardRoom), not from a stretched row it would float in
+  let fitted = '';
   const ro = new ResizeObserver(() => {
-    const r = stage.getBoundingClientRect();
-    const cs = getComputedStyle(stage);
-    const w = r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-    const h = r.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    const f = fitSize(Math.max(80, w), Math.max(60, h), level.picture.width, level.picture.height);
-    renderer.resize(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
+    if (!wrap.isConnected) return;
+    const ms = getComputedStyle(root);
+    const ps = getComputedStyle(wrap);
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const room = boardRoom({
+      playW: wrap.clientWidth,
+      spaceH: root.clientHeight - parseFloat(ms.paddingTop) - parseFloat(ms.paddingBottom),
+      ruleH: rule.offsetHeight,
+      labelH: label.offsetHeight,
+      rowGap: parseFloat(ps.rowGap) || 0,
+      colGap: parseFloat(ps.columnGap) || 0,
+      sideW: side.offsetWidth,
+      sideH: side.offsetHeight,
+      sideBeside: /"stage side"/.test(ps.gridTemplateAreas),
+      minH: (parseFloat(ps.getPropertyValue('--stage-min')) || 12) * rem,
+    });
+    const f = fitSize(Math.max(80, room.w), Math.max(60, room.h), level.picture.width, level.picture.height);
+    const dpr = globalThis.devicePixelRatio || 1;
+    const key = `${f.cssW}x${f.cssH}@${dpr}`;
+    if (key === fitted) return;
+    fitted = key;
+    renderer.resize(f.cssW, f.cssH, dpr);
   });
-  ro.observe(stage);
+  for (const e of [root, wrap, rule, label, side]) ro.observe(e);
 
   refreshRule();
   goalChips();
