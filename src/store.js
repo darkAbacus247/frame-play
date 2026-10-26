@@ -60,6 +60,39 @@ export function setContrast(on) {
   return writePref('contrast', on ? 'on' : 'off');
 }
 
+// The level store: the last 12 levels made from photos, keyed by the photo
+// file's sha256. Levels hold outlines, names and roles, never the photo. A
+// damaged or foreign entry is dropped; with storage blocked nothing is kept.
+export const LEVEL_STORE_SIZE = 12;
+const LEVELS = 'levels';
+const SHA = /^[0-9a-f]{64}$/;
+
+function readLevels() {
+  const list = readPref(LEVELS, []);
+  if (!Array.isArray(list)) return [];
+  return list.filter((e) => e && typeof e === 'object' && SHA.test(e.sha256) && e.level
+    && e.level.schema === 'frameplay.level/2' && e.level.picture && e.level.picture.sha256 === e.sha256
+    && (e.level.origin === 'live' || e.level.origin === 'rehearsal'));
+}
+
+export function saveLevel(sha256, level, extra = {}) {
+  if (!SHA.test(sha256)) return false;
+  const list = readLevels().filter((e) => e.sha256 !== sha256);
+  list.unshift({ sha256, level, ...extra, saved: new Date().toISOString() });
+  let keep = list.slice(0, LEVEL_STORE_SIZE);
+  // a full device drops the oldest until the newest fits
+  while (keep.length && !writePref(LEVELS, keep)) keep = keep.slice(0, -1);
+  return keep.length > 0;
+}
+
+export function loadLevel(sha256) {
+  return readLevels().find((e) => e.sha256 === sha256) || null;
+}
+
+export function storedLevelCount() {
+  return readLevels().length;
+}
+
 export function outlinesWhilePlaying() {
   return readPref('outlines', true) !== false;
 }

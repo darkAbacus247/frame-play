@@ -2,7 +2,7 @@
 // sound (on by default), the opt-in tour, welcome back and history.
 import { loadRoom } from './src/rooms.js';
 import { paintRoom } from './src/painter.js';
-import { buildLevel, inputFromRoom, objectWords } from './src/level.js';
+import { buildLevel, inputFromRoom, objectWords, validateLevel } from './src/level.js';
 import { pictureFromRGBA } from './src/render.js';
 import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
@@ -12,6 +12,8 @@ import { el, showCard, cardOpen, initTooltips, speak, hideTip } from './src/ui.j
 import * as R from './src/road.js';
 import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
+import { acceptReply, inputFromReply, readSummary, boxRings } from './src/reply.js';
+import { readPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -29,6 +31,8 @@ const A = {
   modeWhy: '',
   road: R.newRoad(),
   samples: new Map(),
+  live: new Map(), // levels made through the live path this visit, by refKey
+  busy: false,
   view: null,
   reveals: [],
   free: null,
@@ -94,9 +98,116 @@ async function sample(id) {
   return entry;
 }
 
+function refKey(ref) {
+  return ref.kind === 'photo' ? `photo:${ref.sha256}` : `${ref.kind}:${ref.id}`;
+}
+
 async function levelFor(ref) {
-  if (ref && ref.kind === 'sample') return sample(ref.id);
-  return null;
+  if (!ref) return null;
+  if (ref.kind === 'sample') return sample(ref.id);
+  return A.live.get(refKey(ref)) || null;
+}
+
+// ---- the live path (and its rehearsal) ----
+// Each object's outline. The seam S14 fills with the tracer; here the box.
+async function outlinesFor(reply) {
+  return reply.objects.map((o) => ({ source: 'box', rings: boxRings(o.box) }));
+}
+
+async function levelFromReply(reply, picture, pictureRef) {
+  const outlines = await outlinesFor(reply, pixelsOf(picture));
+  const built = buildLevel(inputFromReply(reply, pictureRef, (o, k) => outlines[k]));
+  return { picture, built, summary: readSummary(reply) };
+}
+
+// A level kept on this device for this photo: validated again (a stored
+// proof is never trusted) against the very copy just made.
+function storedEntry(photo) {
+  const kept = S.loadLevel(photo.sha256);
+  if (!kept) return null;
+  const level = kept.level;
+  if (level.picture.width !== photo.width || level.picture.height !== photo.height) return null;
+  const v = validateLevel(level);
+  if (!v.ok) return null;
+  level.proof = v.proof;
+  return { picture: photo.picture, built: { level, rt: v.rt }, summary: kept.summary || null, fromDevice: true };
+}
+
+function setBusy(on) {
+  A.busy = on;
+  for (const b of document.querySelectorAll('#main button, #road button')) {
+    if (on) { b.dataset.wasDisabled = b.disabled ? '1' : ''; b.disabled = true; } else if (b.dataset.wasDisabled === '') b.disabled = false;
+  }
+}
+
+function progressPanel(panel, lines, current, error) {
+  panel.hidden = false;
+  panel.replaceChildren(
+    el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
+      class: i < current ? 'done' : i === current && !error ? 'now' : 'todo',
+      text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
+    }))),
+    error ? el('p', { class: 'error', role: 'alert', text: error }) : null,
+  );
+}
+
+const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
+
+async function runLivePath(slot, panel, make) {
+  if (A.busy) return;
+  setBusy(true);
+  let step = 0;
+  progressPanel(panel, LIVE_LINES, step);
+  try {
+    const { ref, entry } = await make((words) => {
+      const i = LIVE_LINES.indexOf(words);
+      if (i >= 0) { step = i; progressPanel(panel, LIVE_LINES, step); say(words); }
+    });
+    if (entry.built.error) throw new Error(entry.built.error);
+    A.live.set(refKey(ref), entry);
+    setBusy(false);
+    setRoad(R.chooseRoom(A.road, slot, ref));
+  } catch (e) {
+    setBusy(false);
+    progressPanel(panel, LIVE_LINES, step, `${e.message} You can try another photo, or play a sample room below.`);
+    say(e.message);
+  }
+}
+
+async function readThroughServer(blob, copy, picture, pictureRef, onWords) {
+  const reply = await sendPhoto(blob, (m) => onWords(m.words));
+  const ok = acceptReply(A.mode, reply, copy);
+  if (!ok.ok) throw new Error(ok.why);
+  onWords('Tracing the outlines');
+  await new Promise((r) => setTimeout(r, 0)); // let the words show
+  return levelFromReply(reply, picture, pictureRef);
+}
+
+function choosePhoto(slot, file, panel) {
+  return runLivePath(slot, panel, async (onWords) => {
+    const photo = await readPhoto(file);
+    const ref = { kind: 'photo', sha256: photo.sha256 };
+    const kept = storedEntry(photo);
+    if (kept) {
+      say('This photo’s level was on this device: no model was called.');
+      return { ref, entry: kept };
+    }
+    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords);
+    if (!entry.built.error) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
+    return { ref, entry };
+  });
+}
+
+// Rehearsal: the stand-in's own sample picture goes through the live path,
+// so a stand-in level is never drawn over a photo.
+function rehearseRoom(slot, id, panel) {
+  return runLivePath(slot, panel, async (onWords) => {
+    const s = await sample(id);
+    const blob = await canvasJpeg(s.picture);
+    const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
+    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords);
+    return { ref: { kind: 'rehearsal', id }, entry };
+  });
 }
 
 // ---- the road ----
@@ -269,7 +380,8 @@ function screenWelcome(main) {
 
 function photoOffWords() {
   if (A.mode === 'live') return null;
-  if (A.mode === 'rehearsal') return 'Off in REHEARSAL: the stand-in reads only its own sample room.';
+  if (A.mode === 'rehearsal') return 'Off in REHEARSAL: the stand-in reads only its own sample room, so no photo is ever sent.';
+  if (!A.health) return `Off: ${A.modeWhy}`;
   return 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.';
 }
 
@@ -290,13 +402,31 @@ function roomCard(entry, { disabledWhy, onPick, tour = true }) {
 async function screenRoom(main, slot, token) {
   const off = photoOffWords();
   const cards = el('div', { class: 'room-cards' });
+  const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
+  const input = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true' });
+  input.addEventListener('change', () => {
+    const f = input.files && input.files[0];
+    input.value = '';
+    if (f) choosePhoto(slot, f, panel);
+  });
+  const choose = el('button', {
+    type: 'button', class: 'btn', disabled: !!off, text: 'Choose a photo', 'data-tour': off ? null : 'room-card',
+    tip: 'Pick a photo of a room or a desk top. It is shrunk on this device first', onclick: () => input.click(),
+  });
+  const rehearsal = A.mode === 'rehearsal' && A.health && A.health.rehearsal ? A.health.rehearsal.room : null;
+  const actions = el('div', { class: 'actions' }, [choose, input, off ? el('span', { class: 'why', text: off }) : null]);
+  if (rehearsal && SAMPLES.some((x) => x.id === rehearsal)) {
+    actions.append(el('button', {
+      type: 'button', class: 'btn', text: 'Rehearse the live path',
+      tip: `Sends the ${rehearsal} sample picture to the local stand-in, not Meta, and builds its level the live way`,
+      onclick: () => rehearseRoom(slot, rehearsal, panel),
+    }));
+  }
   main.replaceChildren(el('section', { class: 'screen' }, [
     el('h1', { text: slot === 0 ? 'Your room: pick a photo' : 'Another room: pick a second photo' }),
     el('p', { class: 'advice', text: 'Objects with clear edges on a plain floor or desk work best. No people.' }),
-    el('div', { class: 'actions' }, [
-      el('button', { type: 'button', class: 'btn', disabled: !!off, text: 'Choose a photo', tip: 'Pick a photo of a room or a desk top' }),
-      off ? el('span', { class: 'why', text: off }) : null,
-    ]),
+    actions,
+    panel,
     el('h2', { text: 'Sample rooms' }),
     cards,
   ]));
@@ -310,6 +440,44 @@ async function screenRoom(main, slot, token) {
       onPick: () => setRoad(R.chooseRoom(A.road, slot, { kind: 'sample', id: s.id })),
     }));
   }
+  if (A.busy) setBusy(true);
+}
+
+// A room on the road whose level is not in memory: a photo's level needs
+// the same photo picked again (the photo is never stored); a rehearsal
+// room is sent through the stand-in again.
+function missingRoom(main, slot) {
+  const ref = A.road.rooms[slot];
+  const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
+  const back = () => { A.road = { ...A.road, step: slot === 0 ? 2 : 5 }; };
+  const kids = [];
+  if (ref && ref.kind === 'photo') {
+    kids.push(el('h1', { text: 'Pick the same photo again' }),
+      el('p', { text: 'The photo itself is never stored. Pick the same photo again and its level loads from this device, with no model call.' }));
+    if (A.mode === 'live') {
+      const input = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true' });
+      input.addEventListener('change', () => {
+        const f = input.files && input.files[0];
+        input.value = '';
+        if (f) { back(); choosePhoto(slot, f, panel); }
+      });
+      kids.push(el('div', { class: 'actions' }, [
+        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Choose the photo again', tip: 'Pick the same photo; nothing is sent if its level is on this device', onclick: () => input.click() }),
+        input,
+      ]), panel);
+    } else {
+      kids.push(el('p', { class: 'why', text: 'This server is not live now. Go back one step and pick a sample room.' }));
+    }
+  } else if (ref && ref.kind === 'rehearsal' && A.mode === 'rehearsal') {
+    kids.push(el('h1', { text: 'Rehearse this room again' }),
+      el('p', { text: 'The stand-in’s level is made again on each visit.' }),
+      el('div', { class: 'actions' }, [
+        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Send it through the stand-in', tip: 'The local stand-in, not Meta', onclick: () => { back(); rehearseRoom(slot, ref.id, panel); } }),
+      ]), panel);
+  } else {
+    kids.push(el('h1', { text: 'This room is not here any more' }), el('p', { text: 'Go back one step and pick a room.' }));
+  }
+  main.replaceChildren(el('section', { class: 'screen sparse' }, kids));
 }
 
 const SOURCE_WORDS = {
@@ -319,13 +487,16 @@ const SOURCE_WORDS = {
   box: 'SAM’s box (the trace was not tight enough)',
 };
 
-function summaryLine(level) {
+function summaryLine(level, summary) {
   if (level.origin === 'mock') {
     return 'This sample room was drawn by code: no model was called, and its outlines are the exact shapes code painted. Code proved the room can be won.';
   }
   const c = level.provenance.outline_sources || {};
   const n = level.objects.length;
-  return `Muse Spark named the things in your room and gave each a role. SAM 3.1 found ${n} of them. Code traced ${c.traced_in_box || 0} outlines inside SAM’s boxes and kept ${c.box || 0} as boxes, then proved the room can be won.`;
+  const named = summary ? summary.named : n;
+  const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
+  const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code traced ${plural(c.traced_in_box || 0, 'outline', 'outlines')} inside SAM’s boxes and kept ${plural(c.box || 0, 'as a box', 'as boxes')}, then proved the room can be won.`;
 }
 
 function proofLine(level) {
@@ -349,8 +520,9 @@ function describeSection(section, level, rt, state) {
 async function screenFound(main, slot, token) {
   const entry = await levelFor(A.road.rooms[slot]);
   if (token !== A.renderToken) return;
-  if (!entry || entry.built.error) {
-    main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: 'No level from this picture' }), el('p', { text: entry ? entry.built.error : 'This room is not on this device any more.' })]));
+  if (!entry) return missingRoom(main, slot);
+  if (entry.built.error) {
+    main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: 'No level from this picture' }), el('p', { text: entry.built.error })]));
     return;
   }
   const { level, rt } = entry.built;
@@ -388,7 +560,8 @@ async function screenFound(main, slot, token) {
     el('div', { class: 'found-grid' }, [
       pic,
       el('div', { class: 'found-info' }, [
-        el('p', { class: 'summary', text: summaryLine(level) }),
+        el('p', { class: 'summary', text: summaryLine(level, entry.summary) }),
+        entry.fromDevice ? el('p', { class: 'why', text: 'Loaded from this device: no model was called this time.' }) : null,
         el('div', { class: 'actions' }, [
           el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Start playing this room', text: 'Play this room', onclick: () => setRoad(R.startPlay(A.road)) }),
           el('button', { type: 'button', class: 'btn', text: 'Describe this room', tip: 'Every object, its role and where it is, in words', onclick: () => describeSection(desc, level, rt, null) }),
@@ -396,6 +569,10 @@ async function screenFound(main, slot, token) {
         ]),
         desc,
         list,
+        entry.summary && entry.summary.scenery.length
+          ? el('p', { text: `Also seen, as scenery (never a wall, never sent to SAM): ${entry.summary.scenery.join(', ')}.` }) : null,
+        entry.summary && entry.summary.warnings.length
+          ? el('ul', { class: 'changes' }, entry.summary.warnings.map((w) => el('li', { text: w }))) : null,
         el('p', { class: 'proof', text: proofLine(level) }),
         el('h2', { class: 'small-h', text: 'Changes by code' }),
         changes,
@@ -409,6 +586,7 @@ async function screenFound(main, slot, token) {
 async function screenPlay(main, slot, ref, token) {
   const entry = await levelFor(ref || A.road.rooms[slot]);
   if (token !== A.renderToken) return;
+  if (!entry && slot >= 0) return missingRoom(main, slot);
   if (!entry || entry.built.error) {
     main.replaceChildren(el('p', { text: entry ? entry.built.error : 'This room is not on this device any more.' }));
     return;
@@ -470,7 +648,13 @@ async function screenTwo(main, token) {
     const ref = A.road.rooms[slot];
     const entry = await levelFor(ref);
     if (token !== A.renderToken) return;
-    if (!entry || entry.built.error) continue;
+    if (!entry || entry.built.error) {
+      cards.append(el('article', { class: 'room-sum' }, [
+        el('h2', { text: slot === 0 ? 'Your first room' : 'Your second room' }),
+        el('p', { text: ref && ref.kind === 'photo' ? 'The photo is never stored: pick it again on its step to see this room here.' : 'This room is not in memory on this visit.' }),
+      ]));
+      continue;
+    }
     const { level, rt } = entry.built;
     const best = A.road.best[slot];
     const pic = el('div', { class: 'two-pic' });
@@ -631,6 +815,10 @@ async function boot() {
   A.tour.on = readPref('tour', false) === true;
   applyClasses();
   await detectMode();
+  if (A.mode === 'rehearsal') {
+    // a band on every screen: nothing in a rehearsal comes from Meta
+    $('top').append(el('p', { class: 'band', text: 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.' }));
+  }
   const saved = R.sanitizeRoad(readPref('road', null));
   if (saved && saved.step > 1) {
     A.road = R.newRoad();

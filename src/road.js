@@ -114,7 +114,7 @@ export function towardStep(road, step) {
 }
 
 export function sameRef(a, b) {
-  return !!a && !!b && a.kind === b.kind && (a.kind === 'sample' ? a.id === b.id : a.sha256 === b.sha256);
+  return !!a && !!b && a.kind === b.kind && (a.kind === 'photo' ? a.sha256 === b.sha256 : a.id === b.id);
 }
 
 export function counterText(road) {
@@ -146,7 +146,7 @@ export function sanitizeRoad(o) {
   if (!step) return null;
   const ref = (r) => {
     if (!r || typeof r !== 'object') return null;
-    if (r.kind === 'sample' && typeof r.id === 'string' && /^[a-z0-9_-]{1,32}$/.test(r.id)) return { kind: 'sample', id: r.id };
+    if ((r.kind === 'sample' || r.kind === 'rehearsal') && typeof r.id === 'string' && /^[a-z0-9_-]{1,32}$/.test(r.id)) return { kind: r.kind, id: r.id };
     if (r.kind === 'photo' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)) return { kind: 'photo', sha256: r.sha256 };
     return null;
   };
