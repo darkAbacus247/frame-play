@@ -1,0 +1,11 @@
+{
+  "name": "frameplay",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Photograph your room. Play it.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
