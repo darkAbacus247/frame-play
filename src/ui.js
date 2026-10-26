@@ -23,10 +23,8 @@ export function showCard(dialog, { title, lines = [], label, primary, secondary 
   for (const t of lines) if (t) body.append(el('p', { text: t }));
   if (label) body.append(el('p', { class: 'label', text: label }));
   const bar = el('div', { class: 'actions' });
-  let first = null;
   if (primary) {
-    first = el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: primary.label, onclick: () => { closeCard(dialog); primary.onClick(); } });
-    bar.append(first);
+    bar.append(el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: primary.label, onclick: () => { closeCard(dialog); primary.onClick(); } }));
   }
   for (const s of secondary) {
     bar.append(el('button', { type: 'button', class: 'btn', text: s.label, onclick: () => { closeCard(dialog); s.onClick(); } }));
@@ -34,15 +32,31 @@ export function showCard(dialog, { title, lines = [], label, primary, secondary 
   body.append(bar);
   dialog.append(body);
   if (!dialog.dataset.bound) {
+    // Only the card's own buttons may close it. Escape is stopped before the
+    // dialog sees it; 'cancel' is refused too (browsers honour that refusal
+    // only once without a new click); and should the dialog close anyway
+    // while the card is still required, it is shown again at once.
+    dialog.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); e.stopPropagation(); }
+    }, { capture: true });
     dialog.addEventListener('cancel', (e) => e.preventDefault());
+    dialog.addEventListener('close', () => {
+      if (dialog.dataset.required) openCard(dialog);
+    });
     dialog.dataset.bound = '1';
   }
+  dialog.dataset.required = '1';
   hideTip();
+  openCard(dialog);
+}
+
+function openCard(dialog) {
   if (!dialog.open) dialog.showModal();
-  (first || bar.querySelector('button'))?.focus();
+  (dialog.querySelector('[data-primary]') || dialog.querySelector('button'))?.focus();
 }
 
 export function closeCard(dialog) {
+  delete dialog.dataset.required;
   if (dialog.open) dialog.close();
 }
 

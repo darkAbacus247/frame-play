@@ -1,5 +1,9 @@
 // A tiny stand-in for the page, enough for ui.js: elements, attributes,
 // events, focus and a modal dialog. Not a browser; only what the tests use.
+// Escape on a modal dialog follows Chrome: keydown runs first (capture, then
+// bubble) and, unless its default is prevented, the dialog gets 'cancel'.
+// Refusing 'cancel' works only once until the next click (user activation);
+// after that 'cancel' cannot be refused and the dialog closes, firing 'close'.
 class FakeClassList {
   constructor(e) { this.e = e; }
   get set() { return new Set(this.e.className.split(/\s+/).filter(Boolean)); }
@@ -61,16 +65,19 @@ class FakeElement {
     return false;
   }
   closest() { return null; }
-  addEventListener(type, fn) {
-    if (!this.listeners.has(type)) this.listeners.set(type, []);
-    this.listeners.get(type).push(fn);
+  addEventListener(type, fn, opts) {
+    addListener(this.listeners, type, fn, opts);
   }
   dispatch(type, ev = {}) {
-    const e = { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...ev };
-    for (const fn of this.listeners.get(type) || []) fn(e);
+    const e = makeEvent(type, this, ev);
+    for (const { fn } of this.listeners.get(type) || []) fn(e);
     return e;
   }
-  click() { if (!this.disabled) this.dispatch('click'); }
+  click() {
+    if (this.disabled) return;
+    this.ownerDocument.activated = true;
+    this.dispatch('click');
+  }
   focus() { this.ownerDocument.activeElement = this; }
   all() {
     const out = [];
@@ -87,8 +94,42 @@ class FakeElement {
   }
   getBoundingClientRect() { return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }; }
   // dialog
-  showModal() { this.open = true; this.ownerDocument.modal = this; }
-  close() { this.open = false; if (this.ownerDocument.modal === this) this.ownerDocument.modal = null; }
+  showModal() {
+    if (this.open) throw new Error('InvalidStateError: the dialog is already open');
+    this.returnFocus = this.ownerDocument.activeElement;
+    this.open = true;
+    this.ownerDocument.modal = this;
+  }
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    if (this.ownerDocument.modal === this) this.ownerDocument.modal = null;
+    this.ownerDocument.activeElement = this.returnFocus || null;
+    this.dispatch('close');
+  }
+  // Chrome's close request (Escape, or the back gesture)
+  requestClose() {
+    const doc = this.ownerDocument;
+    const cancelable = !this.refusedOnce || doc.activated;
+    doc.activated = false;
+    const e = this.dispatch('cancel', { cancelable });
+    if (cancelable && e.defaultPrevented) { this.refusedOnce = true; return; }
+    this.close();
+  }
+}
+
+function addListener(map, type, fn, opts) {
+  if (!map.has(type)) map.set(type, []);
+  map.get(type).push({ fn, capture: opts === true || !!(opts && opts.capture) });
+}
+
+function makeEvent(type, target, ev = {}) {
+  return {
+    type, target, cancelable: true, defaultPrevented: false, stopped: false,
+    preventDefault() { if (this.cancelable) this.defaultPrevented = true; },
+    stopPropagation() { this.stopped = true; },
+    ...ev,
+  };
 }
 
 export function fakeDocument() {
@@ -100,9 +141,25 @@ export function fakeDocument() {
     getElementById(id) { return doc.body.all().find((e) => e.id === id) || null; },
     querySelector(sel) { return doc.body.querySelector(sel); },
     querySelectorAll(sel) { return doc.body.querySelectorAll(sel); },
-    addEventListener(type, fn) {
-      if (!doc.listeners.has(type)) doc.listeners.set(type, []);
-      doc.listeners.get(type).push(fn);
+    addEventListener(type, fn, opts) {
+      addListener(doc.listeners, type, fn, opts);
+    },
+    // a key press on the focused element: capture from the document down,
+    // bubble back up, then the browser's default action
+    pressKey(key) {
+      const target = doc.activeElement || doc.body;
+      const path = [];
+      for (let n = target; n; n = n.parentNode) path.unshift(n);
+      const e = makeEvent('keydown', target, { key });
+      const run = (map, capture) => {
+        for (const l of map.get('keydown') || []) if (l.capture === capture && !e.stopped) l.fn(e);
+      };
+      run(doc.listeners, true);
+      for (const n of path) run(n.listeners, true);
+      for (const n of [...path].reverse()) run(n.listeners, false);
+      run(doc.listeners, false);
+      if (!e.defaultPrevented && key === 'Escape' && doc.modal) doc.modal.requestClose();
+      return e;
     },
   };
   doc.body = new FakeElement(doc, 'body');
