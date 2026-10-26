@@ -17,6 +17,7 @@ const LINES = {
   9: { target: 'primary', line: 'Try a photo of your own room, or press Continue to the end.' },
   10: { target: 'primary', line: 'These outlines come from your own photo. Press Play this room.' },
   11: { target: 'chip', line: 'Your own room: collect every star, then reach the exit.' },
+  12: { target: 'primary', line: 'You have completed the road. Press Free play, or play a room again.' },
   [FREE_PLAY]: { target: 'room-card', line: 'Free play: pick any room to play it again.' },
 };
 

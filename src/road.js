@@ -1,5 +1,6 @@
-// The road: one road of 11 steps and one counter, then Free play. Two
-// sample rooms, the two side by side, then your own room. Back moves one
+// The road: one road of 12 steps and one counter, then Free play. Two
+// sample rooms, the two side by side, your own room, then the closing
+// screen that says the circuit is complete. Back moves one
 // step left; Forward one step right, only when allowed, and it says why when
 // it waits. Primary buttons only ever move forward. Pure logic.
 //
@@ -20,11 +21,12 @@ export const STEP_NAMES = [
   'Your own room',
   'What the AI found',
   'Play',
+  'The end',
   'Free play',
 ];
 export const OWN_STEP = 9;
-export const LAST_STEP = 11;
-export const FREE_PLAY = 12;
+export const LAST_STEP = 12;
+export const FREE_PLAY = 13;
 // where the road goes on after your own room, made or skipped
 export const AFTER_OWN = OWN_STEP + 3;
 // the step on which each room slot is picked
@@ -44,11 +46,12 @@ export function slotOf(step) {
   return k;
 }
 
-// What a step shows: welcome, pick, found, play, two, own, free.
+// What a step shows: welcome, pick, found, play, two, own, end, free.
 export function stepKind(step) {
   if (step === 1) return 'welcome';
   if (step === 8) return 'two';
   if (step === OWN_STEP) return 'own';
+  if (step === LAST_STEP) return 'end';
   if (step >= FREE_PLAY) return 'free';
   const slot = slotOf(step);
   if (slot < 0) return 'free';
@@ -178,6 +181,7 @@ export function lapText(road) {
   if (road.step <= 7) return 'A second room';
   if (road.step === 8) return 'Two rooms';
   if (road.step <= OWN_STEP + 2) return 'Your own room';
+  if (road.step === LAST_STEP) return 'Circuit complete';
   return 'Free play';
 }
 
@@ -189,7 +193,8 @@ export function primaryLabel(road) {
     case 7: return 'Continue: your two rooms';
     case 8: return 'Continue: your own room';
     case OWN_STEP: return 'Continue to the end';
-    case OWN_STEP + 2: return 'Continue: free play';
+    case OWN_STEP + 2: return 'Continue: the end';
+    case LAST_STEP: return 'Free play';
     default: return null;
   }
 }

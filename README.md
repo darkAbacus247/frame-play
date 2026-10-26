@@ -28,6 +28,12 @@ so plainly:
   room's own picture, which the page offers to save. Any other photo is
   refused in words, and no level is made from it.
 
+The road ends on a closing screen (the counter's last step) that says the
+circuit is complete: each room with whether you won and your best route,
+one sentence on what the AI did in it, and the ways on: Free play, Play
+again for any room, Try your own room (or, in MOCK, why it needs the live
+AI), and Start over.
+
 ## Running it
 
 Python 3.10 or newer, standard library only; no packages to install.

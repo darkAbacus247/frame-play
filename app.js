@@ -15,6 +15,7 @@ import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
 import { acceptReply } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
 import { levelFromReply, makeOwnRoom, signature, MOCK_WORDS } from './src/own.js';
+import { closingRooms, closingView } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -344,6 +345,7 @@ async function render() {
     else if (kind === 'play') await screenPlay(main, slot, null, token);
     else if (kind === 'two') await screenTwo(main, token);
     else if (kind === 'own') await screenOwn(main, token);
+    else if (kind === 'end') await screenEnd(main, token);
     else await screenFree(main, token);
   } catch (e) {
     if (token === A.renderToken) main.replaceChildren(el('p', { text: `Something went wrong: ${e.message}` }));
@@ -708,6 +710,33 @@ async function screenFree(main, token) {
   const ownEntry = own && !A.road.own ? await levelFor(own) : null;
   if (token !== A.renderToken) return;
   if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { onPick: () => { A.free = own; render(); } }));
+}
+
+// ---- the closing screen ----
+// The last step of the road: the circuit is complete, each room with what
+// happened and what the AI did, then the ways on.
+async function screenEnd(main, token) {
+  const entries = [];
+  for (const [slot, ref] of A.road.rooms.entries()) {
+    const skipped = slot === 2 && A.road.own === 'skipped';
+    const entry = ref && !skipped ? await levelFor(ref) : null;
+    if (token !== A.renderToken) return;
+    entries.push(entry && !entry.built.error ? entry : null);
+  }
+  const rooms = closingRooms({
+    road: A.road, mode: A.mode,
+    levels: entries.map((e) => (e ? e.built.level : null)),
+    summaries: entries.map((e) => (e ? e.summary : null)),
+  });
+  main.replaceChildren(closingView({
+    rooms, mode: A.mode, primaryLabel: R.primaryLabel(A.road),
+    actions: {
+      freePlay: () => setRoad(R.startFreePlay(A.road)),
+      playAgain: (ref) => { A.free = ref; setRoad(R.startFreePlay(A.road)); },
+      ownRoom: () => setRoad({ ...A.road, step: R.OWN_STEP }),
+      startOver,
+    },
+  }));
 }
 
 // ---- your own room ----

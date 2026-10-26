@@ -366,6 +366,18 @@ dialog.card .label { color: var(--muted); }
   .two-rooms { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ---- the closing screen ----
+   One compact row per room: its words, and Play again beside them (below
+   them when narrow), then the ways on. */
+.closing-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
+.closing-rooms > li {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s4);
+  padding: var(--s3) var(--s4); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+}
+.closing-text { flex: 1 1 20rem; min-width: 0; display: grid; gap: var(--s1); }
+.closing .result { font-weight: 600; }
+.closing .ai { color: var(--muted); }
+
 /* ---- settings ---- */
 .drawer h2 { margin-bottom: var(--s3); }
 .drawer h3 { margin: var(--s4) 0 var(--s2); }

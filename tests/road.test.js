@@ -40,23 +40,25 @@ function walkThePrimaries({ skip = false } = {}) {
 
 test('primaries only move forward, one step at a time, never to a step already left', () => {
   const { r, seen } = walkThePrimaries();
-  assert.deepEqual(seen, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.deepEqual(seen, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
   assert.equal(r.step, FREE_PLAY);
   assert.deepEqual(r.best, [1.2, null, 1.0]);
   assert.deepEqual(r.rooms, [desk, living, mine]);
 });
 
 test('your own room: the third room, or passed by straight to what follows it', () => {
-  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(stepKind),
-    ['welcome', 'pick', 'found', 'play', 'pick', 'found', 'play', 'two', 'own', 'found', 'play', 'free']);
-  assert.deepEqual([2, 4, 5, 7, 8, 9, 11, 12].map(slotOf), [0, 0, 1, 1, -1, 2, 2, -1]);
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(stepKind),
+    ['welcome', 'pick', 'found', 'play', 'pick', 'found', 'play', 'two', 'own', 'found', 'play', 'end', 'free']);
+  assert.deepEqual([2, 4, 5, 7, 8, 9, 11, 12, 13].map(slotOf), [0, 0, 1, 1, -1, 2, 2, -1, -1]);
+  assert.equal(AFTER_OWN, LAST_STEP, 'made or passed by, your own room leads to the closing screen');
   const { r, seen } = walkThePrimaries({ skip: true });
-  assert.deepEqual(seen.slice(-2), [OWN_STEP, AFTER_OWN], 'skipping goes straight past its reveal and play');
+  assert.deepEqual(seen.slice(-3), [OWN_STEP, AFTER_OWN, FREE_PLAY], 'skipping goes straight past its reveal and play to the end');
   assert.equal(r.own, 'skipped');
   assert.equal(r.rooms[2], null);
   // the arrows agree with the skip, both ways
   const at = { ...r, step: OWN_STEP };
   assert.equal(forward(at).step, AFTER_OWN);
+  assert.equal(back(r).step, AFTER_OWN, 'Back from free play comes to the closing screen');
   assert.equal(back({ ...r, step: AFTER_OWN }).step, OWN_STEP);
   assert.equal(towardStep({ ...r, step: AFTER_OWN }, 10).step, OWN_STEP, 'Back never lands on a reveal that was never made');
   // the own room's step waits with a reason, and choosing a photo later undoes the skip
@@ -128,19 +130,24 @@ test('choosing a different room clears that room’s finished round', () => {
 
 test('counter, lap line and primary labels', () => {
   let r = newRoad();
-  assert.equal(counterText(r), 'Step 1 of 11: Welcome');
+  assert.equal(counterText(r), 'Step 1 of 12: Welcome');
   assert.equal(lapText(r), 'One photo, one room');
   assert.equal(primaryLabel(r), 'I am 18 or over and I understand. Continue');
   r = { ...r, step: 5 };
-  assert.equal(counterText(r), 'Step 5 of 11: Another room');
+  assert.equal(counterText(r), 'Step 5 of 12: Another room');
   assert.equal(lapText(r), 'A second room');
   r = { ...r, step: 8 };
   assert.equal(lapText(r), 'Two rooms');
   assert.equal(primaryLabel(r), 'Continue: your own room');
   r = { ...r, step: OWN_STEP };
-  assert.equal(counterText(r), 'Step 9 of 11: Your own room');
+  assert.equal(counterText(r), 'Step 9 of 12: Your own room');
   assert.equal(lapText(r), 'Your own room');
   assert.equal(primaryLabel(r), 'Continue to the end');
+  assert.equal(primaryLabel({ ...r, step: OWN_STEP + 2 }), 'Continue: the end');
+  r = { ...r, step: LAST_STEP };
+  assert.equal(counterText(r), 'Step 12 of 12: The end', 'the closing screen is the last step');
+  assert.equal(lapText(r), 'Circuit complete');
+  assert.equal(primaryLabel(r), 'Free play');
   assert.equal(counterText({ ...r, step: FREE_PLAY }), 'Free play');
 });
 
