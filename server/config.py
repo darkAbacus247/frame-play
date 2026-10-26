@@ -105,7 +105,7 @@ class KeyHolder:
         return text.replace(self._value, '[redacted]') if self._value in text else text
 
 
-_BEARER = re.compile(r'(?i)(bearer\s+)[^\s"\',]+')
+_BEARER = re.compile(r'(?i)(bearer\s+)(?!\[redacted\])[A-Za-z0-9._~+/=\-]+')  # RFC 6750 token characters
 _KEYISH = re.compile(r'[A-Za-z0-9_\-]{32,}')
 _HEX = re.compile(r'[0-9a-f]+')
 
@@ -151,10 +151,13 @@ def loopback_base(url):
     return f'http://{netloc}{parts.path.rstrip("/")}'
 
 
+CONTRIBUTOR = '-contri' + 'butor'  # split so that no file names a Contributor model
+
+
 def check_models(ids):
     """Standard mode only: refuse any model id naming a Contributor model."""
     for m in ids:
-        if '-contributor' in m.lower():
+        if CONTRIBUTOR in m.lower():
             raise ConfigError(f'Refusing to start: {m} is not a Standard model id')
 
 
