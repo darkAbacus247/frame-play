@@ -48,6 +48,9 @@ h3 { font-size: 1.25rem; }
 p { margin: 0; max-width: 70ch; }
 a { color: var(--accent); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* rings are for keyboard focus; headings and main take focus only from the
+   page (to move screen readers along), never from Tab, so they show none */
+[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none; }
 [hidden] { display: none !important; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

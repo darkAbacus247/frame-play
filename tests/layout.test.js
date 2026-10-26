@@ -24,6 +24,16 @@ test('no bar can be an overlay: nothing sticky or fixed anywhere in the styleshe
   assert.ok(!/position\s*:\s*(sticky|fixed)/.test(css));
 });
 
+test('focus rings are for keyboard focus only; script-focused headings show none', () => {
+  assert.match(rule(':focus-visible'), /outline:\s*3px solid/);
+  assert.match(rule('[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible'), /outline:\s*none/);
+  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  assert.match(app, /h\.tabIndex = -1; h\.focus\(/, 'the heading still takes focus for screen readers');
+  for (const m of css.matchAll(/([^{}]*):focus(?!-visible)([^{}]*)\{([^}]*)\}/g)) {
+    assert.ok(/tabindex="-1"/.test(m[1]) || !/outline:\s*[^n]/.test(m[3]), `a ring on plain :focus: ${m[0].trim()}`);
+  }
+});
+
 test('pinned, the body scrolls in its own box and the bar takes its own height in flow', () => {
   const screen = rule('.with-bar');
   assert.match(screen, /display:\s*flex/);
