@@ -30,9 +30,18 @@ export function allTourSteps() {
 }
 
 // The small offer appears once per visit, after OFFER_AFTER_MS without
-// progress, never while the tour runs or a card is up.
-export function offerDue({ now, lastProgress, offered, tourOn, cardOpen }) {
-  return !offered && !tourOn && !cardOpen && now - lastProgress >= OFFER_AFTER_MS;
+// progress, never while the tour runs or a card is up, and not again on a
+// step where it did not fit (step, notOn).
+export function offerDue({ now, lastProgress, offered, tourOn, cardOpen, step = 0, notOn = null }) {
+  return !offered && !tourOn && !cardOpen && step !== notOn && now - lastProgress >= OFFER_AFTER_MS;
+}
+
+// The offer takes its height from main (the page grid's tour row). It may
+// stay only if main and any bar body still fit without scrolling, measured
+// in whole pixels the moment it is drawn; otherwise it is taken back before
+// it is painted and offered again on a later step.
+export function offerFits({ scrollH, clientH, barsOver = false }) {
+  return scrollH <= clientH && !barsOver;
 }
 
 // The veil: four rectangles around the lit control (grown by a margin),

@@ -57,6 +57,8 @@ test('the offer appears once per visit, after the wait, never over the tour or a
   assert.equal(offerDue({ ...base, tourOn: true }), false);
   assert.equal(offerDue({ ...base, cardOpen: true }), false);
   assert.equal(offerDue({ ...base, lastProgress: base.now - 1000 }), false);
+  assert.equal(offerDue({ ...base, step: 3, notOn: 3 }), false, 'not again on a step where it did not fit');
+  assert.equal(offerDue({ ...base, step: 4, notOn: 3 }), true, 'tried again on a later step');
 });
 
 test('Take the tour pulses once on a first visit, never under reduced motion', () => {

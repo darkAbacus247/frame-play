@@ -319,7 +319,8 @@ dialog.card .label { color: var(--muted); }
 /* ---- rooms ---- */
 .advice { color: var(--muted); }
 .why { color: var(--muted); }
-.room-cards { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fill, minmax(14rem, 18rem)); }
+/* at most 15.5rem a card, so three share one row in an 839 px window */
+.room-cards { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fill, minmax(14rem, 15.5rem)); }
 .room-card {
   display: grid; gap: var(--s2); padding: var(--s3); text-align: left;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); cursor: pointer;

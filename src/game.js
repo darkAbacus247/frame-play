@@ -5,7 +5,7 @@ import { createRound, stepRound, walkToObject, walkToPoint, nextGoal, routeRatio
 import { Renderer, fitSize, unlockPulse } from './render.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
-import { el, boardRoom } from './ui.js';
+import { el, boardRoom, ceilH, ceilW, floorW, spaceH } from './ui.js';
 
 const KEY_DIRS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -25,7 +25,7 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
   let timer = 0;
   const draw = () => renderer.draw(null, { ...ui(), reveal: true, outlineCount: count, walls });
   const fit = () => {
-    const w = root.clientWidth;
+    const w = floorW(root);
     const h = maxHeight ? maxHeight() : (w * level.picture.height) / level.picture.width;
     const f = fitSize(Math.max(80, w), Math.max(60, h), level.picture.width, level.picture.height);
     renderer.resize(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
@@ -33,6 +33,10 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
   };
   const ro = new ResizeObserver(fit);
   ro.observe(root);
+  // main too: when the tour strip or the settings drawer takes height from
+  // it, the reveal gives way, and grows back when they close
+  const host = root.closest('main');
+  if (host) ro.observe(host);
   if (count < n) {
     timer = setInterval(() => {
       count++;
@@ -218,18 +222,18 @@ export function mountPlay(root, opts) {
   let fitted = '';
   const ro = new ResizeObserver(() => {
     if (!wrap.isConnected) return;
-    const ms = getComputedStyle(root);
     const ps = getComputedStyle(wrap);
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    // the space rounded down, what is taken from it rounded up (ui.js)
     const room = boardRoom({
-      playW: wrap.clientWidth,
-      spaceH: root.clientHeight - parseFloat(ms.paddingTop) - parseFloat(ms.paddingBottom),
-      ruleH: rule.offsetHeight,
-      labelH: label.offsetHeight,
+      playW: floorW(wrap),
+      spaceH: spaceH(root),
+      ruleH: ceilH(rule),
+      labelH: ceilH(label),
       rowGap: parseFloat(ps.rowGap) || 0,
       colGap: parseFloat(ps.columnGap) || 0,
-      sideW: side.offsetWidth,
-      sideH: side.offsetHeight,
+      sideW: ceilW(side),
+      sideH: ceilH(side),
       sideBeside: /"stage side"/.test(ps.gridTemplateAreas),
       minH: (parseFloat(ps.getPropertyValue('--stage-min')) || 12) * rem,
     });

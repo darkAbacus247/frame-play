@@ -346,7 +346,9 @@ export class Layout {
       if (/^\d+$/.test(rep[1])) { for (let i = 0; i < +rep[1]; i++) toks.push(rep[2]); continue; }
       const mm = /^minmax\(([^,]+),\s*(.+)\)$/.exec(rep[2]);
       const lo = this.len(mm ? mm[1] : rep[2]), hi = mm ? this.len(mm[2]) : lo;
-      const n = Math.max(1, Math.floor((inner + col) / (lo + col)));
+      // as browsers do: the number of tracks comes from the maximum size
+      // when it is definite, else from the minimum
+      const n = Math.max(1, Math.floor((inner + col) / ((hi ?? lo) + col)));
       const w = hi == null ? (inner - col * (n - 1)) / n : Math.min(hi, (inner - col * (n - 1)) / n);
       return Array(n).fill(w);
     }

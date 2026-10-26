@@ -53,8 +53,12 @@ line up front, short labelled facts, and the longer text (the full consent
 notice, the list of what the AI found, the proof) in a disclosure that
 starts closed. Text runs in one column of at most about 65 characters.
 `tests/fit.test.js` checks this for every road screen at 839x945 and
-1259x1418 with a layout model built on the stylesheet's own rules; it is a
-model, not a browser.
+1259x1418 with a layout model built on the stylesheet's own rules, with no
+tolerance; it is a model, not a browser. A picture sized to fill the space
+left (the reveal, the play board) rounds what it subtracts up and the space
+down, so it never overshoots by a fraction of a pixel. The small tour offer
+that appears by itself after 45 seconds without progress stays only where
+it fits without making the screen scroll.
 
 ## Running it
 

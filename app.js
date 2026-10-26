@@ -8,9 +8,9 @@ import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
 import { readPref, writePref, soundOn, setSound } from './src/store.js';
 import * as S from './src/store.js';
-import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight } from './src/ui.js';
+import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight, ceilH, floorW, spaceH } from './src/ui.js';
 import * as R from './src/road.js';
-import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
+import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
@@ -47,7 +47,7 @@ const A = {
   pulsed: false,
   headerStep: 0, // the step the header was last drawn for
   missingWhy: null, // the header's reason while a room's level is missing
-  tour: { on: false, offered: false, lastProgress: Date.now() },
+  tour: { on: false, offered: false, lastProgress: Date.now(), notOn: null },
 };
 
 const audio = new Synth();
@@ -507,15 +507,15 @@ async function screenFound(main, slot, token) {
   });
   main.replaceChildren(section);
   // the heading, the picture and the info's first lines fit main together
+  // (src/ui.js: the space rounded down, what is taken from it rounded up,
+  // so the picture never overshoots by a fraction of a pixel)
   const maxHeight = () => {
-    const m = $('main');
-    const cs = getComputedStyle(m);
     const gap = parseFloat(getComputedStyle(section).rowGap) || 0;
     return revealHeight({
-      width: pic.clientWidth, aspect: level.picture.height / level.picture.width,
-      spaceH: m.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom),
-      headH: section.querySelector('h1').offsetHeight, gap,
-      infoH: info.offsetHeight, beside: info.offsetLeft > pic.offsetLeft + 1,
+      width: floorW(pic), aspect: level.picture.height / level.picture.width,
+      spaceH: spaceH($('main')),
+      headH: ceilH(section.querySelector('h1')), gap,
+      infoH: ceilH(info), beside: info.getBoundingClientRect().left > pic.getBoundingClientRect().left + 1,
     });
   };
   A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags, maxHeight }));
@@ -805,17 +805,26 @@ function hideOffer() {
   if (o) $('tour-strip').replaceChildren();
 }
 
+// Drawn, measured and, if it would make a fitted screen scroll, taken back
+// in the same task, before anything is painted (src/tour.js offerFits).
 function showOffer() {
-  A.tour.offered = true;
   $('tour-strip').replaceChildren(el('div', { class: 'inner offer' }, [
     el('p', { text: 'New here? Take the tour.' }),
     el('button', { type: 'button', class: 'btn', text: 'Take the tour', tip: 'A short guided tour, one step at a time', onclick: startTour }),
     el('button', { type: 'button', class: 'btn quiet', text: 'Not now', tip: 'Hides this offer for this visit', onclick: hideOffer }),
   ]));
+  const m = $('main');
+  const barsOver = [...m.querySelectorAll('.bar-body')].some((b) => b.scrollHeight > b.clientHeight);
+  if (!offerFits({ scrollH: m.scrollHeight, clientH: m.clientHeight, barsOver })) {
+    $('tour-strip').replaceChildren();
+    A.tour.notOn = A.road.step;
+    return;
+  }
+  A.tour.offered = true;
 }
 
 setInterval(() => {
-  if (offerDue({ now: Date.now(), lastProgress: A.tour.lastProgress, offered: A.tour.offered, tourOn: A.tour.on, cardOpen: cardOpen() })) showOffer();
+  if (offerDue({ now: Date.now(), lastProgress: A.tour.lastProgress, offered: A.tour.offered, tourOn: A.tour.on, cardOpen: cardOpen(), step: A.road.step, notOn: A.tour.notOn })) showOffer();
   if (A.tour.on) lightControl();
 }, 1000);
 addEventListener('resize', () => { if (A.tour.on) lightControl(); });

@@ -92,6 +92,20 @@ export function holdBar(section, bar, minBodyRem = 10) {
   return ro;
 }
 
+// ---- reads for sizing, rounded the safe way ----
+// A picture sized to fill exactly the space left must never overshoot it:
+// offsetHeight and clientHeight round to whole pixels (a 38.39 px heading
+// reads 38), and a fraction of a pixel too much makes main scroll. So what
+// is taken away is rounded up, and the space rounded down.
+export const ceilH = (e) => Math.ceil(e.getBoundingClientRect().height);
+export const ceilW = (e) => Math.ceil(e.getBoundingClientRect().width);
+export const floorW = (e) => Math.floor(e.getBoundingClientRect().width);
+// a box's inner height (no border by rule), rounded down
+export function spaceH(host) {
+  const cs = getComputedStyle(host);
+  return Math.floor(host.getBoundingClientRect().height) - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+}
+
 // ---- the room the play board may take ----
 // The board is top-aligned under the status line and sized from the space,
 // never from a stretched row: the width is what the side column leaves (all
