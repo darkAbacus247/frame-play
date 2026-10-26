@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   newRoad, forward, back, canForward, giveConsent, chooseRoom, startPlay, finishRound, continueAfterRound,
-  startFreePlay, counterText, lapText, sanitizeRoad, primaryLabel, LAST_STEP, FREE_PLAY,
+  startFreePlay, towardStep, counterText, lapText, sanitizeRoad, primaryLabel, LAST_STEP, FREE_PLAY,
 } from '../src/road.js';
 
 const desk = { kind: 'sample', id: 'desk' };
@@ -61,6 +61,17 @@ test('Back goes one left, Forward one right, and Forward waits with a reason', (
     assert.equal(back(at).step, s - 1);
     if (s < FREE_PLAY) assert.equal(forward(back(at)).step, s);
   }
+});
+
+test('browser Back and Forward follow the road, never past what is allowed', () => {
+  const { r: end } = walkThePrimaries();
+  const at4 = { ...end, step: 4 };
+  assert.equal(towardStep(at4, 2).step, 2);
+  assert.equal(towardStep({ ...at4, step: 2 }, 4).step, 4);
+  let r = chooseRoom(giveConsent(newRoad()), 0, desk);
+  r = startPlay(r);
+  assert.equal(towardStep(r, 8).step, 4, 'Forward stops where a round must be finished');
+  assert.equal(towardStep(newRoad(), 3).step, 1, 'no skipping consent');
 });
 
 test('a primary from the wrong step does nothing', () => {

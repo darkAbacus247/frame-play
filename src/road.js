@@ -104,6 +104,15 @@ export function startFreePlay(road) {
   return go(road, FREE_PLAY);
 }
 
+// The browser's Back and Forward: walk the road toward a step, one step at
+// a time, never past a step that is not allowed yet.
+export function towardStep(road, step) {
+  let r = road;
+  while (r.step > step && canBack(r)) r = back(r);
+  while (r.step < step && canForward(r).ok) r = forward(r);
+  return r;
+}
+
 export function sameRef(a, b) {
   return !!a && !!b && a.kind === b.kind && (a.kind === 'sample' ? a.id === b.id : a.sha256 === b.sha256);
 }

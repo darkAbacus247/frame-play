@@ -10,7 +10,7 @@ import { readPref, writePref, soundOn, setSound } from './src/store.js';
 import * as S from './src/store.js';
 import { el, showCard, cardOpen, initTooltips, speak, hideTip } from './src/ui.js';
 import * as R from './src/road.js';
-import { tourStep, offerDue, shouldPulse } from './src/tour.js';
+import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
 
 const $ = (id) => document.getElementById(id);
@@ -197,7 +197,7 @@ function renderDrawer() {
     el('h3', { text: 'About' }),
     el('p', { class: 'about', text: DISCLOSURE }),
     el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
-    el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', text: 'Close settings', onclick: toggleDrawer })]),
+    el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', text: 'Close settings', tip: 'Closes this drawer', onclick: toggleDrawer })]),
   );
 }
 
@@ -523,16 +523,8 @@ function lightControl() {
   c.classList.add('tour-lit');
   const app = $('app').getBoundingClientRect();
   const r = c.getBoundingClientRect();
-  const m = 6;
-  const hole = { l: r.left - m - app.left, t: r.top - m - app.top, r: r.right + m - app.left, b: r.bottom + m - app.top };
-  const W = app.width, H = app.height;
-  const parts = [
-    [0, 0, W, Math.max(0, hole.t)],
-    [0, hole.b, W, Math.max(0, H - hole.b)],
-    [0, hole.t, Math.max(0, hole.l), hole.b - hole.t],
-    [hole.r, hole.t, Math.max(0, W - hole.r), hole.b - hole.t],
-  ];
-  for (const [x, y, w, h] of parts) {
+  const hole = { left: r.left - app.left, top: r.top - app.top, right: r.right - app.left, bottom: r.bottom - app.top };
+  for (const [x, y, w, h] of veilRects(app.width, app.height, hole)) {
     const v = el('div', { class: 'veil', 'aria-hidden': 'true' });
     v.style.left = `${x}px`; v.style.top = `${y}px`; v.style.width = `${w}px`; v.style.height = `${h}px`;
     $('app').append(v);
@@ -587,8 +579,8 @@ function showOffer() {
   A.tour.offered = true;
   $('tour-strip').replaceChildren(el('div', { class: 'inner offer' }, [
     el('p', { text: 'New here? Take the tour.' }),
-    el('button', { type: 'button', class: 'btn', text: 'Take the tour', onclick: startTour }),
-    el('button', { type: 'button', class: 'btn quiet', text: 'Not now', onclick: hideOffer }),
+    el('button', { type: 'button', class: 'btn', text: 'Take the tour', tip: 'A short guided tour, one step at a time', onclick: startTour }),
+    el('button', { type: 'button', class: 'btn quiet', text: 'Not now', tip: 'Hides this offer for this visit', onclick: hideOffer }),
   ]));
 }
 
@@ -602,11 +594,11 @@ $('main').addEventListener('scroll', () => { if (A.tour.on) lightControl(); }, {
 // ---- history: Back and Forward follow the road ----
 addEventListener('popstate', (e) => {
   const s = e.state && e.state.step;
-  if (!s || s === A.road.step || cardOpen()) return;
-  let r = A.road;
-  if (s < r.step) r = { ...r, step: s };
-  else while (r.step < s && R.canForward(r).ok) r = R.forward(r);
+  if (!s || s === A.road.step) return;
+  if (cardOpen()) { replaceHistory(); return; }
+  const r = R.towardStep(A.road, s);
   if (r.step !== A.road.step) setRoad(r, { push: false });
+  if (r.step !== s) replaceHistory();
 });
 
 // ---- mode ----

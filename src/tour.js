@@ -31,6 +31,21 @@ export function offerDue({ now, lastProgress, offered, tourOn, cardOpen }) {
   return !offered && !tourOn && !cardOpen && now - lastProgress >= OFFER_AFTER_MS;
 }
 
+// The veil: four rectangles around the lit control (grown by a margin),
+// covering the rest of a W by H area exactly once. Rectangles are
+// [x, y, w, h], all clipped to the area.
+export function veilRects(W, H, ctrl, margin = 6) {
+  const cl = (v, hi) => Math.max(0, Math.min(hi, v));
+  const l = cl(ctrl.left - margin, W), r = cl(ctrl.right + margin, W);
+  const t = cl(ctrl.top - margin, H), b = cl(ctrl.bottom + margin, H);
+  return [
+    [0, 0, W, t],
+    [0, b, W, H - b],
+    [0, t, l, b - t],
+    [r, t, W - r, b - t],
+  ].filter(([, , w, h]) => w > 0 && h > 0);
+}
+
 // Take the tour pulses once on the first visit, never with reduced motion.
 export function shouldPulse({ firstVisit, reducedMotion }) {
   return !!firstVisit && !reducedMotion;

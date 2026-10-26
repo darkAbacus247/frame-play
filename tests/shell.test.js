@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { soundOn, setSound, readPref, writePref } from '../src/store.js';
-import { tourStep, offerDue, shouldPulse, OFFER_AFTER_MS } from '../src/tour.js';
+import { tourStep, offerDue, shouldPulse, veilRects, OFFER_AFTER_MS } from '../src/tour.js';
 import { placeTip } from '../src/ui.js';
 import { describeRoom, announce, endCardWords, ruleRow, stepsAway } from '../src/words.js';
 import { FREE_PLAY } from '../src/road.js';
@@ -63,6 +63,23 @@ test('Take the tour pulses once on a first visit, never under reduced motion', (
   assert.equal(shouldPulse({ firstVisit: true, reducedMotion: false }), true);
   assert.equal(shouldPulse({ firstVisit: true, reducedMotion: true }), false);
   assert.equal(shouldPulse({ firstVisit: false, reducedMotion: false }), false);
+});
+
+test('the tour veil covers everything but the lit control, exactly once', () => {
+  const W = 300, H = 200;
+  const ctrl = { left: 100, top: 80, right: 160, bottom: 124 };
+  const rects = veilRects(W, H, ctrl, 6);
+  const covered = (x, y) => rects.filter(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh).length;
+  for (let y = 0; y < H; y += 2) {
+    for (let x = 0; x < W; x += 2) {
+      const inHole = x >= 94 && x < 166 && y >= 74 && y < 130;
+      assert.equal(covered(x, y), inHole ? 0 : 1, `${x},${y}`);
+    }
+  }
+  // a control at the very edge: rectangles stay inside the area
+  for (const [x, y, w, h] of veilRects(W, H, { left: -4, top: 190, right: 40, bottom: 230 })) {
+    assert.ok(x >= 0 && y >= 0 && x + w <= W && y + h <= H && w > 0 && h > 0);
+  }
 });
 
 test('a tooltip goes where it covers no control, or is not shown', () => {

@@ -84,7 +84,8 @@ main {
   overflow: auto;
   padding: var(--pad);
 }
-.tour-strip { grid-area: tour; background: var(--panel-2); }
+/* above the tour veil, so Skip the tour and Speak this line stay lit */
+.tour-strip { grid-area: tour; background: var(--panel-2); position: relative; z-index: 32; }
 .tour-strip:empty { display: none; }
 .tour-strip > .inner { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; padding: var(--s3) var(--pad); }
 .drawer {
