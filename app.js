@@ -684,14 +684,18 @@ async function screenTwo(main, token) {
     cards.append(el('article', { class: 'room-sum' }, [
       pic,
       el('h2', { text: level.title }),
-      el('p', { text: `Objects found: ${level.objects.length} · Shortest route: ${level.proof.route_length.toLocaleString('en')} px` }),
-      el('p', { text: best == null ? 'Your best: not won yet' : best <= 1.05 ? 'Your best: the shortest route' : `Your best: ${best.toFixed(1)} times the shortest` }),
+      el('ul', { class: 'facts' }, [
+        el('li', { text: `Objects found: ${level.objects.length}` }),
+        el('li', { text: `Shortest route: ${level.proof.route_length.toLocaleString('en')} px` }),
+        el('li', { text: best == null ? 'Your best: not won yet' : best <= 1.05 ? 'Your best: the shortest route' : `Your best: ${best.toFixed(1)} times the shortest` }),
+      ]),
       el('p', { class: 'level-label', text: level.label }),
       el('div', { class: 'actions' }, [
         el('button', { type: 'button', class: 'btn', text: 'Play again', tip: `Play ${level.title} again in free play`, onclick: () => { A.free = ref; setRoad(R.startFreePlay(A.road)); } }),
       ]),
     ]));
-    A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags, maxHeight: () => Math.max(160, Math.min(320, $('main').clientHeight - 260)) }));
+    // the whole card width, keeping the picture's aspect
+    A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags }));
   }
 }
 

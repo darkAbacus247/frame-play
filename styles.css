@@ -67,7 +67,6 @@ a { color: var(--accent); }
   grid-template-areas: "header" "main" "tour" "drawer" "dock";
 }
 .top {
-  grid-area: header;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -82,17 +81,15 @@ a { color: var(--accent); }
 .top .counter { font-weight: 600; }
 .top .why { color: var(--muted); }
 main {
-  grid-area: main;
   min-height: 0;
   overflow: auto;
   padding: var(--pad);
 }
 /* above the tour veil, so Skip the tour and Speak this line stay lit */
-.tour-strip { grid-area: tour; background: var(--panel-2); position: relative; z-index: 32; }
+.tour-strip { background: var(--panel-2); position: relative; z-index: 32; }
 .tour-strip:empty { display: none; }
 .tour-strip > .inner { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; padding: var(--s3) var(--pad); }
 .drawer {
-  grid-area: drawer;
   max-height: 40vh;
   overflow: auto;
   background: var(--panel);
@@ -100,7 +97,6 @@ main {
   padding: var(--s4) var(--pad);
 }
 .dock {
-  grid-area: dock;
   display: flex;
   align-items: center;
   gap: var(--s3);
@@ -109,6 +105,13 @@ main {
   border-top: 1px solid var(--line);
 }
 .dock .mark { margin-left: auto; font-weight: 800; letter-spacing: 0.04em; color: var(--muted); }
+/* grid places only ever hold under their own grid, so no other screen
+   can be pulled into a stray column (tests/layout.test.js) */
+.app > .top { grid-area: header; }
+.app > main { grid-area: main; }
+.app > .tour-strip { grid-area: tour; }
+.app > .drawer { grid-area: drawer; }
+.app > .dock { grid-area: dock; }
 .mode-chip {
   display: inline-flex; align-items: center; min-height: 2rem;
   padding: 0 var(--s3); border-radius: 999px; border: 1px solid var(--line);
@@ -176,13 +179,16 @@ button { font: inherit; color: inherit; }
   grid-template-areas: "rule rule" "stage side" "label side" ". side";
 }
 /* these two wrap to the board's width instead of widening its column */
-.rule-row { grid-area: rule; min-height: 1.5rem; font-weight: 600; max-width: none; contain: inline-size; }
-.stage { grid-area: stage; min-width: 0; display: grid; justify-items: start; align-items: start; }
+.rule-row { min-height: 1.5rem; font-weight: 600; max-width: none; contain: inline-size; }
+.stage { min-width: 0; display: grid; justify-items: start; align-items: start; }
 .game { position: relative; line-height: 0; border-radius: var(--s1); touch-action: none; cursor: pointer; }
 .game canvas { display: block; border-radius: var(--s1); }
-.side { grid-area: side; display: flex; flex-direction: column; gap: var(--s4); width: 16rem; }
-.level-label { grid-area: label; color: var(--muted); max-width: none; }
-.play .level-label { contain: inline-size; }
+.side { display: flex; flex-direction: column; gap: var(--s4); width: 16rem; }
+.level-label { color: var(--muted); max-width: none; }
+.play > .rule-row { grid-area: rule; }
+.play > .stage { grid-area: stage; }
+.play > .side { grid-area: side; }
+.play > .level-label { grid-area: label; contain: inline-size; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .chip {
   min-height: var(--target); padding: 0 var(--s3); border-radius: 999px;
@@ -209,10 +215,10 @@ button { font: inherit; color: inherit; }
   user-select: none;
   -webkit-user-select: none;
 }
-.pad-up { grid-column: 2; grid-row: 1; }
-.pad-left { grid-column: 1; grid-row: 2; }
-.pad-right { grid-column: 3; grid-row: 2; }
-.pad-down { grid-column: 2; grid-row: 3; }
+.pad > .pad-up { grid-column: 2; grid-row: 1; }
+.pad > .pad-left { grid-column: 1; grid-row: 2; }
+.pad > .pad-right { grid-column: 3; grid-row: 2; }
+.pad > .pad-down { grid-column: 2; grid-row: 3; }
 .pad-btn:active { background: var(--line); }
 
 @media (max-width: 719px) {
@@ -315,7 +321,7 @@ dialog.card .label { color: var(--muted); }
 }
 .found-pic { min-width: 0; line-height: 0; }
 .found-pic canvas, .two-pic canvas { border-radius: var(--s1); }
-.found-info { display: grid; gap: var(--s4); align-content: start; }
+.found-info { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-content: start; min-width: 0; }
 .small-h { font-size: 1.25rem; }
 .obj-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
 .obj-list li { display: grid; grid-template-columns: auto 1fr; gap: var(--s3); align-items: start; }
@@ -333,12 +339,16 @@ dialog.card .label { color: var(--muted); }
   .found-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* ---- your two rooms ---- */
-/* the pictures sit close under the heading: 16 + 1 + 12 px, under 2rem */
+/* ---- your two rooms ----
+   Each card is one column: its picture across the card's whole width, then
+   the title, the facts one per line, the sample line and Play again. The
+   cards stand side by side sharing a top, or stack on narrow windows.
+   The pictures sit close under the heading: 16 + 1 + 12 px, under 2rem. */
 .compare { row-gap: var(--s4); }
 .two-rooms { display: grid; gap: var(--gap); align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.room-sum { display: grid; gap: var(--s3); align-content: start; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.room-sum { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); align-content: start; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .two-pic { min-width: 0; line-height: 0; }
+.facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
 @media (max-width: 719px) {
   .two-rooms { grid-template-columns: minmax(0, 1fr); }
 }

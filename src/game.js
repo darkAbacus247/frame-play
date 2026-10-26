@@ -26,7 +26,7 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
   const draw = () => renderer.draw(null, { ...ui(), reveal: true, outlineCount: count, walls });
   const fit = () => {
     const w = root.clientWidth;
-    const h = maxHeight ? maxHeight() : w;
+    const h = maxHeight ? maxHeight() : (w * level.picture.height) / level.picture.width;
     const f = fitSize(Math.max(80, w), Math.max(60, h), level.picture.width, level.picture.height);
     renderer.resize(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
     draw();

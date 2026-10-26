@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadRoom } from '../src/rooms.js';
 import { buildLevel, inputFromRoom } from '../src/level.js';
-import { drawPlan, spriteBox, fitSize, badgeSpots, unlockPulse, PULSE_MS } from '../src/render.js';
+import { drawPlan, spriteBox, fitSize, badgeSpots, numberSpots, BADGE_RADII, unlockPulse, PULSE_MS } from '../src/render.js';
 import { pointInShape, distToRings } from '../src/geom.js';
 
 const room = loadRoom(JSON.parse(readFileSync(new URL('../rooms/desk.json', import.meta.url), 'utf8')));
@@ -78,4 +78,26 @@ test('sprite box and fitting', () => {
   const f = fitSize(800, 500, 1024, 768);
   assert.ok(f.cssW <= 800 && f.cssH <= 500);
   assert.ok(Math.abs(f.cssW / f.cssH - 1024 / 768) < 0.01);
+});
+
+test('numbered badges scale with the picture and never overlap; too small, outlines only', () => {
+  const living = buildLevel(inputFromRoom(loadRoom(JSON.parse(readFileSync(new URL('../rooms/living.json', import.meta.url), 'utf8'))), '2026-10-26T17:00:00Z')).level;
+  let shown = 0, hidden = 0;
+  for (const lv of [level, living]) {
+    let last = Infinity;
+    for (const cssW of [1024, 800, 600, 480, 357, 300, 240, 166, 120, 80]) {
+      const scale = fitSize(cssW, 10000, lv.picture.width, lv.picture.height).scale;
+      const got = numberSpots(lv, scale);
+      if (!got) { hidden++; last = 0; continue; }
+      shown++;
+      assert.ok(BADGE_RADII.includes(got.rCss));
+      assert.ok(got.rCss <= last, `${cssW}px: badges only shrink as the picture does`);
+      last = got.rCss;
+      got.spots.forEach((a, i) => got.spots.forEach((b, j) => {
+        if (j > i) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 2 * got.r, `${cssW}px: badges ${a.n} and ${b.n} overlap`);
+      }));
+    }
+  }
+  assert.ok(shown > 0, 'a large picture shows its numbers');
+  assert.ok(hidden > 0, 'a tiny picture shows outlines without numbers');
 });

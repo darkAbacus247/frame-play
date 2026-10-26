@@ -80,6 +80,21 @@ export function badgeSpots(level, r) {
   });
 }
 
+// The numbered badges for a picture drawn at `scale` CSS px per picture px:
+// the largest radius (12, 10 or 8 CSS px) at which no two badges touch, or
+// null when even the smallest would crowd, and the picture shows outlines
+// without numbers.
+export const BADGE_RADII = [12, 10, 8];
+export function numberSpots(level, scale) {
+  for (const rCss of BADGE_RADII) {
+    const r = rCss / scale;
+    const spots = badgeSpots(level, r);
+    const apart = spots.every((a, i) => spots.every((b, j) => j <= i || Math.hypot(a.x - b.x, a.y - b.y) >= 2 * r + 2 / scale));
+    if (apart) return { r, rCss, spots };
+  }
+  return null;
+}
+
 // The exit badge pulses once when it opens: a phase from 0 to 1 over 900 ms,
 // or null when there is no pulse (never under reduced motion).
 export const PULSE_MS = 900;
@@ -322,10 +337,11 @@ export class Renderer {
 
   drawNumbers(ui) {
     const { ctx, level } = this;
-    const r = this.px(12);
-    if (!this.spots || this.spotsR !== r) { this.spots = badgeSpots(level, r); this.spotsR = r; }
+    if (this.spotsScale !== this.scale) { this.numbers = numberSpots(level, this.scale); this.spotsScale = this.scale; }
+    if (!this.numbers) return;
+    const { r, rCss, spots } = this.numbers;
     const count = ui.outlineCount ?? level.objects.length;
-    this.spots.forEach((s, k) => {
+    spots.forEach((s, k) => {
       if (k >= count) return;
       const st = ROLE_STYLE[level.objects[k].role] || ROLE_STYLE.solid;
       ctx.save();
@@ -337,7 +353,7 @@ export class Renderer {
       ctx.strokeStyle = level.objects[k].on_surface ? st.color : '#b9b3a8';
       ctx.stroke();
       ctx.fillStyle = '#ffffff';
-      ctx.font = `700 ${this.px(13)}px system-ui, sans-serif`;
+      ctx.font = `700 ${this.px((13 * rCss) / 12)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(s.n), s.x, s.y + this.px(0.5));

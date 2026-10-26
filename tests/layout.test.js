@@ -314,3 +314,151 @@ test('holdBar measures main and the bar, sets the mode, and follows resizes', ()
     delete globalThis.document;
   }
 });
+
+// ---- grid places stay under their own grid ----
+const PLACE = /(?:^|;)\s*grid-(area|row|column|row-start|row-end|column-start|column-end)\s*:/;
+test('every grid place is scoped to its own grid: no rule can pull another screen into a stray column', () => {
+  const grids = RULES.filter((r) => /display:\s*grid/.test(r.body));
+  let seen = 0;
+  for (const r of RULES) {
+    if (!PLACE.test(r.body)) continue;
+    for (const s of r.sels) {
+      seen++;
+      const m = /^(\S+)\s*>\s*(\S+)$/.exec(s);
+      assert.ok(m, `${s}: a grid place must be written as "grid > child"`);
+      assert.ok(grids.some((g) => g.sels.includes(m[1])), `${s}: ${m[1]} is a grid`);
+      const area = /grid-area:\s*([a-z][\w-]*)\s*(?:;|$)/.exec(r.body);
+      if (area) {
+        const named = RULES.some((g) => g.sels.includes(m[1]) && new RegExp(`grid-template-areas:[^;]*\\b${area[1]}\\b`).test(g.body));
+        assert.ok(named, `${s}: ${m[1]} names the area ${area[1]}`);
+      }
+    }
+  }
+  assert.ok(seen >= 9, 'the page grid and the play grid both place their parts');
+  assert.doesNotMatch(flat, /(?:^|\n)\.level-label\s*\{[^}]*grid-area/, 'the line under a room never takes a grid area by itself');
+});
+
+// A selector matcher for the plain selectors this stylesheet uses (tags,
+// classes, descendant and child combinators), and the column count of a grid
+// as its children place themselves: the explicit tracks, plus one implicit
+// column when a child names an area the grid does not have.
+function compoundMatches(c, e) {
+  if (/[:[]/.test(c)) return false;
+  const [tag, ...cls] = c.split('.');
+  return (!tag || tag === '*' || tag === e.tag) && cls.every((k) => e.cls.includes(k));
+}
+function selectorMatches(sel, chain) {
+  const parts = sel.split(/\s*(>)\s*|\s+/).filter((p) => p !== undefined && p !== '');
+  let i = chain.length - 1;
+  if (!compoundMatches(parts.pop(), chain[i])) return false;
+  while (parts.length) {
+    const child = parts[parts.length - 1] === '>';
+    if (child) parts.pop();
+    const c = parts.pop();
+    if (child) {
+      i--;
+      if (i < 0 || !compoundMatches(c, chain[i])) return false;
+      continue;
+    }
+    do i--; while (i >= 0 && !compoundMatches(c, chain[i]));
+    if (i < 0) return false;
+  }
+  return true;
+}
+const node = (tag, cls = '') => ({ tag, cls: cls.split(/\s+/).filter(Boolean) });
+function styleOf(chain, vw, vh) {
+  const out = {};
+  for (const r of RULES) {
+    if (!mediaHolds(r.media, vw, vh) || !r.sels.some((s) => selectorMatches(s, chain))) continue;
+    for (const d of r.body.split(';')) {
+      const k = d.indexOf(':');
+      if (k > 0) out[d.slice(0, k).trim()] = d.slice(k + 1).trim();
+    }
+  }
+  return out;
+}
+function columnsOf(chain, kids, vw, vh) {
+  const g = styleOf(chain, vw, vh);
+  if (!/grid/.test(g.display || '')) return 1;
+  const names = new Set([...(g['grid-template-areas'] || '').matchAll(/[\w-]+/g)].map((m) => m[0]));
+  let n = g['grid-template-columns'] ? tracks(g['grid-template-columns']).length : 1;
+  let extra = 0;
+  for (const k of kids) {
+    const d = styleOf([...chain, k], vw, vh);
+    const place = (d['grid-area'] || d['grid-column'] || '').split('/')[0].trim();
+    if (/^[a-z][\w-]*$/i.test(place) && place !== 'auto' && !names.has(place)) extra = 1;
+    const col = parseInt(place, 10);
+    if (col > n) n = col;
+  }
+  return n + extra;
+}
+
+test('the matcher: a play-screen rule never reaches a compare card', () => {
+  const label = node('p', 'level-label');
+  assert.ok(selectorMatches('.play > .level-label', [node('div', 'play'), label]));
+  assert.ok(!selectorMatches('.play > .level-label', [node('div', 'play'), node('div', 'side'), label]));
+  assert.ok(!selectorMatches('.play > .level-label', [node('article', 'room-sum'), label]));
+  assert.ok(selectorMatches('.found-pic canvas', [node('div', 'found-pic'), node('div'), node('canvas')]));
+  assert.ok(selectorMatches('main', [node('main')]));
+  // the old global rule made a second, stray column in a plain grid
+  const was = [{ sels: ['.level-label'], body: 'grid-area: label', media: null }];
+  RULES.push(...was);
+  try {
+    assert.equal(columnsOf([node('article', 'room-sum')], [node('div', 'two-pic'), label], 839, 900), 2);
+  } finally {
+    RULES.splice(RULES.length - was.length, was.length);
+  }
+});
+
+const APP = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+const NARROW = [...VIEWS, { name: '839x900 (the reported window)', vw: 839, vh: 900 }, { name: '839x560', vw: 839, vh: 560 }];
+const COMPARE = [node('section', 'screen compare'), node('div', 'two-rooms')];
+const CARD = [...COMPARE, node('article', 'room-sum')];
+const CARD_KIDS = [node('div', 'two-pic'), node('h2'), node('ul', 'facts'), node('p', 'level-label'), node('div', 'actions')];
+
+test('compare: each card is one column, its picture across the card, its facts one per line', () => {
+  assert.match(APP, /'room-sum' \}, \[\s*pic,\s*el\('h2'[^\n]*\n\s*el\('ul', \{ class: 'facts' \}, \[\s*el\('li'[^\n]*\n\s*el\('li'[^\n]*\n\s*el\('li'/,
+    'picture, title, then the three facts as one list');
+  const call = /A\.reveals\.push\(mountReveal\(pic, \{[^\n]*\}\)\);\n\s*\}\n\}\n\nasync function screenFree/.exec(APP);
+  assert.ok(call, 'the compare screen mounts its pictures');
+  assert.doesNotMatch(call[0], /maxHeight/, 'nothing caps a compare picture below the card width');
+  for (const v of NARROW) {
+    const pad = length('var(--pad)', v.vw, v.vh);
+    const two = styleOf(COMPARE, v.vw, v.vh);
+    const n = columnsOf(COMPARE, [node('article', 'room-sum'), node('article', 'room-sum')], v.vw, v.vh);
+    assert.equal(n, v.vw >= 720 ? 2 : 1, `${v.name}: side by side on wide windows, stacked on narrow ones`);
+    const cardW = (v.vw - 2 * pad - gaps(two, v.vw, v.vh).colGap * (n - 1)) / n;
+    const card = styleOf(CARD, v.vw, v.vh);
+    const inner = cardW - 2 * length(card.padding, v.vw, v.vh) - 2;
+    const cols = columnsOf(CARD, CARD_KIDS, v.vw, v.vh);
+    const picW = fitSize(inner / cols, (inner / cols) * (768 / 1024), 1024, 768).cssW;
+    assert.ok(picW >= 0.6 * inner, `${v.name}: the picture is ${picW}px of a ${Math.round(inner)}px card`);
+    assert.equal(cols, 1, `${v.name}: the card is one column`);
+    assert.equal(columnsOf([...CARD, node('ul', 'facts')], [node('li'), node('li'), node('li')], v.vw, v.vh), 1, `${v.name}: the facts are one column`);
+  }
+});
+
+const FOUND = [node('section', 'screen found'), node('div', 'found-grid')];
+const INFO_KIDS = ['p summary', 'p why', 'div actions', 'section describe', 'ul obj-list', 'p', 'ul changes', 'p proof', 'h2 small-h', 'p level-label']
+  .map((t) => { const [tag, ...cls] = t.split(' '); return node(tag, cls.join(' ')); });
+
+test('reveal: the picture first, its info beside it on wide windows or below it, no stray column', () => {
+  assert.match(APP, /'found-grid' \}, \[\s*pic,\s*el\('div', \{ class: 'found-info' \}/);
+  for (const v of [...NARROW, { name: '1280x900', vw: 1280, vh: 900 }]) {
+    const grid = styleOf(FOUND, v.vw, v.vh);
+    const want = tracks(grid['grid-template-columns']).length;
+    assert.equal(want, v.vw >= 900 ? 2 : 1, `${v.name}: beside on wide windows, below on narrow ones`);
+    assert.equal(columnsOf(FOUND, [node('div', 'found-pic'), node('div', 'found-info')], v.vw, v.vh), want, `${v.name}: no stray column in the reveal`);
+    assert.equal(columnsOf([...FOUND, node('div', 'found-info')], INFO_KIDS, v.vw, v.vh), 1, `${v.name}: the info reads as one column`);
+  }
+});
+
+test('the play grid still places its own four parts', () => {
+  const PLAY = [node('main'), node('div', 'play')];
+  const KIDS = [node('p', 'rule-row'), node('div', 'stage'), node('div', 'side'), node('p', 'level-label')];
+  const AREAS = ['rule', 'stage', 'side', 'label'];
+  for (const v of VIEWS) {
+    KIDS.forEach((k, i) => assert.equal(styleOf([...PLAY, k], v.vw, v.vh)['grid-area'], AREAS[i], `${v.name}: .${k.cls[0]}`));
+    assert.equal(columnsOf(PLAY, KIDS, v.vw, v.vh), v.vw >= 720 ? 2 : 1, v.name);
+  }
+});
