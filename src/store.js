@@ -39,3 +39,31 @@ export function soundOn() {
 export function setSound(on) {
   return writePref('sound', !!on);
 }
+
+// Motion and High contrast follow the system setting until the person flips
+// the page's own switch; then their choice wins.
+export function reducedMotion(systemReduced) {
+  const p = readPref('motion', null);
+  return p === null ? !!systemReduced : p === 'off';
+}
+
+export function setMotion(on) {
+  return writePref('motion', on ? 'on' : 'off');
+}
+
+export function highContrast(systemMore) {
+  const p = readPref('contrast', null);
+  return p === null ? !!systemMore : p === 'on';
+}
+
+export function setContrast(on) {
+  return writePref('contrast', on ? 'on' : 'off');
+}
+
+export function outlinesWhilePlaying() {
+  return readPref('outlines', true) !== false;
+}
+
+export function setOutlinesWhilePlaying(on) {
+  return writePref('outlines', !!on);
+}

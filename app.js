@@ -7,6 +7,7 @@ import { pictureFromRGBA } from './src/render.js';
 import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
 import { readPref, writePref, soundOn, setSound } from './src/store.js';
+import * as S from './src/store.js';
 import { el, showCard, cardOpen, initTooltips, speak, hideTip } from './src/ui.js';
 import * as R from './src/road.js';
 import { tourStep, offerDue, shouldPulse } from './src/tour.js';
@@ -45,13 +46,14 @@ document.addEventListener('pointerdown', unlock, { capture: true });
 document.addEventListener('keydown', unlock, { capture: true });
 
 // ---- settings ----
-function reducedMotion() { const p = readPref('motion', null); return p === null ? sysReduced.matches : p === 'off'; }
-function highContrast() { const p = readPref('contrast', null); return p === null ? sysContrast.matches : p === 'on'; }
-function outlinesOn() { return readPref('outlines', true) !== false; }
+const reducedMotion = () => S.reducedMotion(sysReduced.matches);
+const highContrast = () => S.highContrast(sysContrast.matches);
+const outlinesOn = () => S.outlinesWhilePlaying();
 function uiFlags() { return { outlines: outlinesOn(), reducedMotion: reducedMotion(), highContrast: highContrast(), dim: highContrast() }; }
 function applyClasses() {
-  $('app').classList.toggle('rm', reducedMotion());
-  $('app').classList.toggle('hc', highContrast());
+  // on the root, so the end cards and tooltips outside #app follow too
+  document.documentElement.classList.toggle('rm', reducedMotion());
+  document.documentElement.classList.toggle('hc', highContrast());
 }
 function applySettings() {
   applyClasses();
@@ -186,9 +188,9 @@ function renderDrawer() {
     el('h2', { text: 'Settings' }),
     el('div', { class: 'settings' }, [
       sw('Sound', audio.on, () => setSoundOn(!audio.on), 'Turns every sound on or off'),
-      sw('Motion', !reducedMotion(), () => { writePref('motion', reducedMotion() ? 'on' : 'off'); applySettings(); }, 'Animations such as the outlines drawing in and the walk bob'),
-      sw('High contrast', highContrast(), () => { writePref('contrast', highContrast() ? 'off' : 'on'); applySettings(); }, 'Thicker lines, opaque badges and a dimmed picture'),
-      sw('Show outlines while playing', outlinesOn(), () => { writePref('outlines', !outlinesOn()); applySettings(); }, 'Draws the outlines the AI found while you play'),
+      sw('Motion', !reducedMotion(), () => { S.setMotion(reducedMotion()); applySettings(); }, 'Animations such as the outlines drawing in and the walk bob'),
+      sw('High contrast', highContrast(), () => { S.setContrast(!highContrast()); applySettings(); }, 'Thicker lines, opaque badges and a dimmed picture'),
+      sw('Show outlines while playing', outlinesOn(), () => { S.setOutlinesWhilePlaying(!outlinesOn()); applySettings(); }, 'Draws the outlines the AI found while you play'),
       el('button', { type: 'button', class: 'btn', text: 'Read this screen aloud', tip: 'Reads the main words on this screen', onclick: readScreen }),
       el('button', { type: 'button', class: 'btn', text: 'Start over from Step 1', tip: 'Starts the road again. Saved levels stay', onclick: startOver }),
     ]),

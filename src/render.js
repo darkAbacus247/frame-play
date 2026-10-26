@@ -80,6 +80,15 @@ export function badgeSpots(level, r) {
   });
 }
 
+// The exit badge pulses once when it opens: a phase from 0 to 1 over 900 ms,
+// or null when there is no pulse (never under reduced motion).
+export const PULSE_MS = 900;
+export function unlockPulse(unlockAt, now, reduced) {
+  if (!unlockAt || reduced) return null;
+  const t = (now - unlockAt) / PULSE_MS;
+  return t >= 0 && t < 1 ? t : null;
+}
+
 // The largest size with the picture's aspect that fits a box.
 export function fitSize(availW, availH, picW, picH) {
   const s = Math.max(0.05, Math.min(availW / picW, availH / picH));
@@ -443,6 +452,15 @@ export class Renderer {
         ctx.fillRect(x - this.px(0.9), y - u * 0.35, this.px(1.8), u * 0.6);
         ctx.fillRect(x - this.px(0.9), y + u * 0.42, this.px(1.8), this.px(1.8));
       } else if (st.badge === 'door') {
+        if (ui.pulse != null) {
+          ctx.save();
+          ctx.globalAlpha = 1 - ui.pulse;
+          ctx.lineWidth = this.px(3);
+          ctx.beginPath();
+          ctx.arc(x, y, r * (1 + 1.4 * ui.pulse), 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
         if (state.doorOpen) {
           ctx.strokeRect(x - u * 0.55, y - u * 0.85, u * 1.1, u * 1.7);
           ctx.beginPath();

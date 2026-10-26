@@ -324,11 +324,9 @@ dialog.card .label { color: var(--muted); }
 
 /* ---- high contrast and reduced motion ---- */
 .hc { --text: #ffffff; --muted: #e6e6e6; --line: #ffffff; --panel: #000000; --panel-2: #0b0b0b; --bg: #000000; }
-.hc .btn, .hc .chip, .hc .pad-btn { border-width: 2px; }
-@media (prefers-contrast: more) {
-  :root { --text: #ffffff; --muted: #e6e6e6; --line: #ffffff; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-}
+.hc .btn, .hc .chip, .hc .pad-btn, .hc .switch, .hc .room-card { border-width: 2px; }
+.hc .chip, .hc .tag, .hc .mode-chip, .hc .num { background: #000000; opacity: 1; }
+.hc .chip:disabled, .hc .btn:disabled { opacity: 0.75; }
+/* the page applies .hc and .rm from the system setting until the person
+   flips the switch in Settings, so one class decides */
 .rm *, .rm *::before, .rm *::after { animation: none !important; transition: none !important; }

@@ -2,7 +2,7 @@
 // keyboard, the on-screen pad, tap-to-move, the Walk to chips, sound and
 // the announcements. It touches the page; the rules live in play.js.
 import { createRound, stepRound, walkToObject, walkToPoint, nextGoal, routeRatio, DT } from './play.js';
-import { Renderer, fitSize } from './render.js';
+import { Renderer, fitSize, unlockPulse } from './render.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
 import { el } from './ui.js';
@@ -56,7 +56,7 @@ export function mountPlay(root, opts) {
   const held = new Set();
   let padDir = null;
   let marker = null;
-  let raf = 0, last = 0, acc = 0, ended = false, destroyed = false;
+  let raf = 0, last = 0, acc = 0, ended = false, destroyed = false, unlockAt = 0;
 
   const rule = el('p', { class: 'rule-row', id: 'rule-row' });
   const canvas = el('canvas', { 'aria-hidden': 'true' });
@@ -141,7 +141,7 @@ export function mountPlay(root, opts) {
         case 'step': audio && audio.play('step'); break;
         case 'bump': audio && audio.play('bump'); break;
         case 'collect': audio && audio.play('collect'); chipsDirty = true; break;
-        case 'unlock': audio && audio.play('unlock'); chipsDirty = true; break;
+        case 'unlock': audio && audio.play('unlock'); chipsDirty = true; unlockAt = performance.now(); break;
         case 'locked': audio && audio.play('locked'); break;
         case 'lose': audio && audio.play('hazard'); break;
         case 'win': audio && audio.play('win'); break;
@@ -182,7 +182,7 @@ export function mountPlay(root, opts) {
     if (acc > 1) acc = 0;
     if (marker && t - marker.t > 900) marker = null;
     const ui = opts.ui ? opts.ui() : {};
-    renderer.draw(state, { ...ui, marker });
+    renderer.draw(state, { ...ui, marker, pulse: unlockPulse(unlockAt, t, ui.reducedMotion) });
   }
 
   game.addEventListener('pointerdown', (e) => {
@@ -234,7 +234,7 @@ export function mountPlay(root, opts) {
     walkTo(k) { walkObject(k); },
     restart() {
       state = createRound(level, rt);
-      ended = false; acc = 0; last = 0; marker = null;
+      ended = false; acc = 0; last = 0; marker = null; unlockAt = 0;
       refreshRule();
       goalChips();
       audio && audio.play('start');
