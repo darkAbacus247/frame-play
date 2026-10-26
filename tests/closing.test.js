@@ -48,7 +48,7 @@ test('MOCK: each room, what happened, and that no model was called', () => {
   assert.deepEqual(rooms.map((r) => r.result), ['Won · best route 1.2 times the shortest', 'Lost · not won yet', 'Not made']);
   assert.equal(rooms[0].ai, 'Sample room drawn by code; no model was called.');
   assert.equal(rooms[1].ai, 'Sample room drawn by code; no model was called.');
-  assert.match(rooms[2].ai, /^Reading a real photo needs the live AI \(Meta’s models\); this copy runs without it, so no model was called and nothing was invented\.$/);
+  assert.equal(rooms[2].ai, 'No room was made from a photo of your own, and nothing was invented.');
   assert.deepEqual(rooms.map((r) => r.playable), [true, true, false]);
   assert.equal(resultLine({ best: [1.02], finished: [true] }, 0), 'Won · by the shortest route');
   assert.equal(resultLine({ best: [null], finished: [false] }, 0), 'Not played yet');
@@ -128,6 +128,50 @@ test('no sequence of road actions turns a made own room into "Not made"', () => 
   assert.ok(hits > 1000, `the own room was made often enough to tell (${hits})`);
 });
 
+// Every room whose level is not in memory, in every slot, kind and mode:
+// its line names the step it was picked on, says what it was, and gives an
+// instruction only where this mode can make it again.
+test('a room not in memory names its own step, and only what this mode can do', () => {
+  const kinds = { photo: mine, rehearsal: { kind: 'rehearsal', id: 'desk' } };
+  for (const slot of [0, 1, 2]) {
+    for (const [kind, ref] of Object.entries(kinds)) {
+      for (const mode of ['live', 'rehearsal', 'mock']) {
+        const rooms = [desk, living, null];
+        rooms[slot] = ref;
+        const road = { ...endRoad(true), rooms, own: null };
+        const line = closingRooms({ road, mode, levels: [null, null, null] })[slot].ai;
+        const at = `slot ${slot}, ${kind}, ${mode}: ${line}`;
+        for (const m of line.matchAll(/Step (\d+)/g)) assert.equal(+m[1], R.PICK_STEPS[slot], at);
+        if (/photo/.test(line)) assert.equal(kind, 'photo', at);
+        if (/stand-in/.test(line)) assert.equal(kind, 'rehearsal', at);
+        const remakes = kind === 'photo' ? mode === 'live' || (slot === 2 && mode === 'rehearsal') : mode === 'rehearsal';
+        if (!remakes) {
+          assert.doesNotMatch(line, /pick|send|Step/, at);
+          assert.match(line, /this copy cannot make it again/, at);
+        } else {
+          assert.match(line, /pick|send/, at);
+        }
+      }
+    }
+  }
+  const one = (slot, ref, mode) => {
+    const rooms = [desk, living, null];
+    rooms[slot] = ref;
+    return closingRooms({ road: { ...endRoad(true), rooms }, mode, levels: [null, null, null] })[slot].ai;
+  };
+  assert.match(one(0, mine, 'live'), /pick the same photo again on Step 2/);
+  assert.match(one(1, { kind: 'rehearsal', id: 'living' }, 'rehearsal'), /send it through the stand-in again on Step 5/);
+  assert.match(one(2, mine, 'live'), /pick the same photo again on Step 9/);
+  // the opening line counts the rooms on the road, not those in memory
+  const photos = { ...endRoad(true), rooms: [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }, { kind: 'photo', sha256: 'ef'.repeat(32) }] };
+  const rows = closingRooms({ road: photos, mode: 'live', levels: [null, null, null] });
+  assert.match(texts(closingView({ rooms: rows, mode: 'live', primaryLabel: 'Free play', actions: {} })), /That is the whole road: three rooms, and what the AI did in each\./);
+  const mock = closingRooms({ road: endRoad(false), mode: 'mock', levels: [MOCK_DESK, MOCK_LIVING, null] });
+  const mockText = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {} }));
+  assert.match(mockText, /That is the whole road: two rooms, and how each was made\./, 'MOCK: no AI did anything');
+  assert.equal((mockText.match(/live AI/g) || []).length, 1, 'one live-AI sentence');
+});
+
 function view(mode, own) {
   const calls = [];
   const levels = [MOCK_DESK, MOCK_LIVING, own ? level(mode, 'A long title for a photo of my own room', 7) : null];
@@ -181,5 +225,12 @@ test('the closing screen fits without scrolling at 839x945 and 1259x1418', () =>
       const h = screenHeight(layout, view(mode, own).section, width);
       assert.ok(h <= space, `${vw}x${vh} ${mode}: ${Math.round(h)}px of content in ${Math.round(space)}px`);
     }
+    // a LIVE road of three photos reopened: every level missing
+    const head = header({ lap: 'Circuit complete', counter: 'Step 12 of 12: The end', why: '' });
+    const { space, width, layout } = mainSpace(vw, vh, head, 'live');
+    const road = { ...endRoad(true), rooms: [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }, { kind: 'photo', sha256: 'ef'.repeat(32) }] };
+    const rooms = closingRooms({ road, mode: 'live', levels: [null, null, null] });
+    const h = screenHeight(layout, closingView({ rooms, mode: 'live', primaryLabel: 'Free play', actions: {} }), width);
+    assert.ok(h <= space, `${vw}x${vh} all missing: ${Math.round(h)}px of content in ${Math.round(space)}px`);
   }
 });

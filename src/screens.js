@@ -6,7 +6,7 @@
 // up front, short labelled facts, and the long text in a disclosure that
 // starts closed with its summary in view.
 import { el } from './ui.js';
-import { OWN_STEP } from './road.js';
+import { OWN_STEP, PICK_STEPS } from './road.js';
 import { objectWords } from './level.js';
 import { ROLE_WORDS } from './words.js';
 import { MOCK_WORDS } from './own.js';
@@ -352,18 +352,32 @@ export function closingRooms({ road, levels, summaries = [], mode }) {
       return {
         slot, heading, title: null, ref: null, playable: false,
         result: 'Not made',
+        // in MOCK the screen's last line says why, once
         ai: mode === 'live' || mode === 'rehearsal'
           ? 'No room was made from a photo of your own this time.'
-          : 'Reading a real photo needs the live AI (Meta’s models); this copy runs without it, so no model was called and nothing was invented.',
+          : 'No room was made from a photo of your own, and nothing was invented.',
       };
     }
     return {
       slot, heading, ref, playable: !!level,
       title: level ? level.title : null,
       result: resultLine(road, slot),
-      ai: level ? aiLine(level, summaries[slot]) : `Its level is not in memory on this visit; pick the same photo again on Step ${OWN_STEP} to see it.`,
+      ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode),
     };
   });
+}
+
+// A room on the road whose level is not in memory: how to see it again, on
+// the step where it was picked, only when this mode can make it again.
+export function missingLine(slot, ref, mode) {
+  const gone = 'Its level is not in memory on this visit';
+  if (ref && ref.kind === 'photo' && (mode === 'live' || (slot === 2 && mode === 'rehearsal'))) {
+    return `${gone}; pick the same photo again on Step ${PICK_STEPS[slot]} to see it.`;
+  }
+  if (ref && ref.kind === 'rehearsal' && mode === 'rehearsal') {
+    return `${gone}; send it through the stand-in again on Step ${PICK_STEPS[slot]} to see it.`;
+  }
+  return `${gone}, and this copy cannot make it again.`;
 }
 
 export function resultLine(road, slot) {
@@ -385,10 +399,12 @@ export function aiLine(level, summary) {
 // actions: { freePlay, playAgain(ref, title), ownRoom, startOver }
 export function closingView({ rooms, mode, primaryLabel, actions }) {
   const sends = mode === 'live' || mode === 'rehearsal';
-  const made = rooms.filter((r) => r.title).length;
+  // the rooms on the road, whether or not their levels are in memory
+  const made = rooms.filter((r) => r.ref).length;
+  const count = ['no rooms', 'one room', 'two rooms', 'three rooms'][made];
   return el('section', { class: 'screen closing' }, [
     el('h1', { text: 'You’ve completed FRAME//PLAY' }),
-    el('p', { class: 'lede', text: `That is the whole road: ${made === 3 ? 'three rooms' : made === 2 ? 'two rooms' : `${made} ${made === 1 ? 'room' : 'rooms'}`}, and what the AI did in each.` }),
+    el('p', { class: 'lede', text: `That is the whole road: ${count}, and ${sends ? 'what the AI did in each' : 'how each was made'}.` }),
     el('ul', { class: 'closing-rooms', 'aria-label': 'The rooms you played' }, rooms.map((r) => el('li', {}, [
       el('div', { class: 'closing-text' }, [
         el('h2', { class: 'small-h', text: r.title ? `${r.heading}: ${r.title}` : r.heading }),

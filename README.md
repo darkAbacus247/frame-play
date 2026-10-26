@@ -44,7 +44,9 @@ on the same step: pick the same photo (its level loads from this device
 when it was kept here, or the photo is read again), or send a stand-in room
 through the stand-in again. Where this copy cannot make it (a LIVE or
 REHEARSAL room reopened in MOCK) the screen says so and the way on is
-forward. No primary button ever moves the step counter back.
+forward. No primary button ever moves the step counter back. On the closing
+screen such a room says on which step it can be made again, or that this
+copy cannot make it again.
 
 Every screen is written to fit without scrolling at 100% zoom: one short
 line up front, short labelled facts, and the longer text (the full consent
