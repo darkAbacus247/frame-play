@@ -5,6 +5,7 @@ import { createRound, stepRound, walkToObject, walkToPoint, nextGoal, routeRatio
 import { Renderer, fitSize } from './render.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
+import { el } from './ui.js';
 
 const KEY_DIRS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -12,16 +13,38 @@ const KEY_DIRS = {
   W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0],
 };
 
-function el(tag, attrs = {}, kids = []) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'text') e.textContent = v;
-    else if (k === 'class') e.className = v;
-    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
-    else if (v !== null && v !== undefined && v !== false) e.setAttribute(k, v === true ? '' : v);
+// The reveal picture: outlines drawing in one by one (all at once with
+// reduced motion), numbered badges clear of every outline, Show walls.
+export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
+  const canvas = el('canvas', { 'aria-hidden': 'true' });
+  root.replaceChildren(canvas);
+  const renderer = new Renderer(canvas, picture, level, rt);
+  const n = level.objects.length;
+  let count = ui().reducedMotion ? n : 0;
+  let walls = false;
+  let timer = 0;
+  const draw = () => renderer.draw(null, { ...ui(), reveal: true, outlineCount: count, walls });
+  const fit = () => {
+    const w = root.clientWidth;
+    const h = maxHeight ? maxHeight() : w;
+    const f = fitSize(Math.max(80, w), Math.max(60, h), level.picture.width, level.picture.height);
+    renderer.resize(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
+    draw();
+  };
+  const ro = new ResizeObserver(fit);
+  ro.observe(root);
+  if (count < n) {
+    timer = setInterval(() => {
+      count++;
+      draw();
+      if (count >= n) clearInterval(timer);
+    }, 170);
   }
-  for (const c of kids) if (c) e.append(c);
-  return e;
+  return {
+    setWalls(v) { walls = !!v; draw(); },
+    redraw: draw,
+    destroy() { clearInterval(timer); ro.disconnect(); },
+  };
 }
 
 // opts: { level, rt, picture, ui: () => ({outlines, reducedMotion, highContrast, walls}),
@@ -45,7 +68,7 @@ export function mountPlay(root, opts) {
   const stage = el('div', { class: 'stage' }, [game]);
   const chips = el('div', { class: 'chips', role: 'group', 'aria-label': 'Walk to' });
   const padBtn = (label, dir, cls) => {
-    const b = el('button', { type: 'button', class: `pad-btn ${cls}`, 'aria-label': `Move ${label}`, 'data-tip': `Hold to move ${label}` }, [el('span', { 'aria-hidden': 'true', text: { up: '▲', down: '▼', left: '◀', right: '▶' }[label] })]);
+    const b = el('button', { type: 'button', class: `pad-btn ${cls}`, 'aria-label': `Move ${label}`, tip: `Hold to move ${label}` }, [el('span', { 'aria-hidden': 'true', text: { up: '▲', down: '▼', left: '◀', right: '▶' }[label] })]);
     const start = (e) => { e.preventDefault(); padDir = dir; b.setPointerCapture && e.pointerId !== undefined && b.setPointerCapture(e.pointerId); };
     const stop = () => { if (padDir === dir) padDir = null; };
     b.addEventListener('pointerdown', start);
@@ -63,7 +86,7 @@ export function mountPlay(root, opts) {
     padBtn('up', [0, -1], 'pad-up'), padBtn('left', [-1, 0], 'pad-left'),
     padBtn('right', [1, 0], 'pad-right'), padBtn('down', [0, 1], 'pad-down'),
   ]);
-  const side = el('div', { class: 'side' }, [chips, pad]);
+  const side = el('div', { class: 'side' }, [chips, pad, ...(opts.sideExtras || [])]);
   const label = el('p', { class: 'level-label', text: level.label });
   const wrap = el('div', { class: 'play' }, [rule, stage, side, label]);
   root.replaceChildren(wrap);
@@ -88,8 +111,8 @@ export function mountPlay(root, opts) {
       const o = level.objects[k];
       const done = o.role === 'collect' && state.collected[k];
       const b = el('button', {
-        type: 'button', class: `chip chip-${o.role}`, 'data-k': String(k),
-        'data-tip': o.role === 'exit' ? 'Walk to the exit (it opens once everything is collected)' : `Walk to the ${objectWords(level, k)} and collect it`,
+        type: 'button', class: `chip chip-${o.role}`, 'data-k': String(k), 'data-tour': 'chip',
+        tip: o.role === 'exit' ? 'Walks to the exit. It opens once everything is collected' : `Walks to the ${objectWords(level, k)} to collect it`,
         disabled: done || state.status !== 'playing',
         onclick: () => walkObject(k),
       }, [el('span', { text: done ? `${objectWords(level, k)}: collected` : walkWords(k) })]);

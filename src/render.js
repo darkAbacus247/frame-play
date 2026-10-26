@@ -3,7 +3,7 @@
 // through each nearer object's outline), the x-ray, the path preview and the
 // walls overlay. The draw order is a pure function (drawPlan) so it can be
 // tested without a browser; nothing at module level touches the page.
-import { boxesOverlap, bounds } from './geom.js';
+import { boxesOverlap, bounds, pointInShape, distToRings } from './geom.js';
 import { stampRect } from './rooms.js';
 
 export const ROLE_STYLE = {
@@ -25,10 +25,18 @@ export function spriteBox(L, feet) {
 // repainted over the explorer, far to near; then the x-ray.
 export function drawPlan(level, feet, opts = {}) {
   const L = Math.max(level.picture.width, level.picture.height);
-  const sb = spriteBox(L, feet);
   const ops = [{ op: 'picture' }];
   if (opts.walls) ops.push({ op: 'walls' });
-  ops.push({ op: 'halos' }, { op: 'path' }, { op: 'shadow' }, { op: 'explorer' });
+  ops.push({ op: 'halos' });
+  if (opts.explorer === false) {
+    // the reveal: outlines and numbered badges, no explorer
+    if (opts.walls) ops.push({ op: 'route' });
+    ops.push({ op: 'outlines' }, { op: 'numbers' });
+    if (level.origin === 'mock') ops.push({ op: 'stamp' });
+    return ops;
+  }
+  const sb = spriteBox(L, feet);
+  ops.push({ op: 'path' }, { op: 'shadow' }, { op: 'explorer' });
   const nearer = [];
   level.objects.forEach((o, k) => {
     if (!o.on_surface || o.role === 'flat') return;
@@ -43,6 +51,33 @@ export function drawPlan(level, feet, opts = {}) {
   ops.push({ op: 'badges' }, { op: 'marker' });
   if (level.origin === 'mock') ops.push({ op: 'stamp' });
   return ops;
+}
+
+// Where each numbered badge goes on the reveal: beside its object, clear of
+// every outline and of the other badges, inside the picture.
+export function badgeSpots(level, r) {
+  const W = level.picture.width, H = level.picture.height;
+  const rings = level.objects.map((o) => o.outline.rings);
+  const placed = [];
+  return level.objects.map((o, k) => {
+    const b = bounds(o.outline.rings);
+    const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, g = r + 4;
+    const cands = [
+      [cx, b.y0 - g], [b.x1 + g, cy], [b.x0 - g, cy], [cx, b.y1 + g],
+      [b.x1 + g, b.y0 - g], [b.x0 - g, b.y0 - g], [b.x1 + g, b.y1 + g], [b.x0 - g, b.y1 + g],
+    ];
+    const inside = ([x, y]) => x >= r && y >= r && x <= W - r && y <= H - r;
+    const clear = ([x, y]) => {
+      for (const rs of rings) {
+        if (pointInShape(x, y, rs) || distToRings(x, y, rs) < r + 2) return false;
+      }
+      return placed.every(([px, py]) => Math.hypot(px - x, py - y) > 2 * r + 2);
+    };
+    let spot = cands.find((c) => inside(c) && clear(c));
+    if (!spot) spot = cands.find(inside) || [Math.min(Math.max(cx, r), W - r), Math.min(Math.max(cy, r), H - r)];
+    placed.push(spot);
+    return { x: spot[0], y: spot[1], n: k + 1 };
+  });
 }
 
 // The largest size with the picture's aspect that fits a box.
@@ -144,11 +179,12 @@ export class Renderer {
     ctx.setTransform(k, 0, 0, k, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
+    if (!state) state = { pos: [-1000, -1000], facing: [0, 1], collected: [], doorOpen: false, auto: null, tick: 0 };
     const feet = state.pos;
     const reduced = !!ui.reducedMotion;
     const bob = state.moving && !reduced ? Math.sin((state.tick || 0) * 0.45) * 0.0035 * L : 0;
     const body = explorerPath(L, feet, bob);
-    const plan = drawPlan(level, feet, { outlines: ui.outlines !== false, walls: !!ui.walls });
+    const plan = drawPlan(level, feet, { outlines: ui.outlines !== false, walls: !!ui.walls, explorer: !ui.reveal });
     for (const step of plan) {
       switch (step.op) {
         case 'picture':
@@ -199,6 +235,8 @@ export class Renderer {
           break;
         case 'outlines': this.drawOutlines(state, ui); break;
         case 'badges': this.drawBadges(state, ui); break;
+        case 'numbers': this.drawNumbers(ui); break;
+        case 'route': this.drawRoute(); break;
         case 'marker': this.drawMarker(ui); break;
         case 'stamp': this.drawStamp(); break;
         default: break;
@@ -273,9 +311,56 @@ export class Renderer {
     });
   }
 
+  drawNumbers(ui) {
+    const { ctx, level } = this;
+    const r = this.px(12);
+    if (!this.spots || this.spotsR !== r) { this.spots = badgeSpots(level, r); this.spotsR = r; }
+    const count = ui.outlineCount ?? level.objects.length;
+    this.spots.forEach((s, k) => {
+      if (k >= count) return;
+      const st = ROLE_STYLE[level.objects[k].role] || ROLE_STYLE.solid;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = ui.highContrast ? '#000000' : 'rgba(14,16,18,0.88)';
+      ctx.fill();
+      ctx.lineWidth = this.px(2);
+      ctx.strokeStyle = level.objects[k].on_surface ? st.color : '#b9b3a8';
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `700 ${this.px(13)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(s.n), s.x, s.y + this.px(0.5));
+      ctx.restore();
+    });
+  }
+
+  drawRoute() {
+    const { ctx, level } = this;
+    const pts = (level.proof && level.proof.route) || [];
+    if (pts.length < 2) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle = 'rgba(10,20,20,0.6)';
+    ctx.lineWidth = this.px(5);
+    ctx.stroke();
+    ctx.strokeStyle = '#7ff3e4';
+    ctx.lineWidth = this.px(2.5);
+    ctx.setLineDash([this.px(7), this.px(5)]);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawOutlines(state, ui) {
     const { ctx, level } = this;
+    const count = ui.outlineCount ?? level.objects.length;
     level.objects.forEach((o, k) => {
+      if (k >= count) return;
       if (!o.on_surface && o.role !== 'flat') {
         // scenery is listed on the reveal, but never a wall: a faint line only
         ctx.save();

@@ -1,0 +1,146 @@
+{
+  "schema": "frameplay.room/1",
+  "id": "living",
+  "title": "The Living Room",
+  "theme_line": "The ball rolled off and the slippers wandered. Round them up, dodge the spiky plant, and head out the door.",
+  "width": 1024,
+  "height": 768,
+  "seed": 2207,
+  "background": [
+    { "shape": { "rect": [0, 0, 1024, 768] }, "paint": { "linear": [0, 0, 0, 330], "stops": ["#cdd6d8", "#aab7bb"] }, "grain": 3 },
+    { "shape": { "rect": [0, 322, 1024, 10] }, "paint": "#e6e1d7", "grain": 2 }
+  ],
+  "surface": {
+    "name": "floor",
+    "shape": { "poly": [[0, 332], [1024, 332], [1024, 768], [0, 768]] },
+    "paint": { "linear": [0, 332, 0, 768], "stops": ["#bb8f60", "#93673e"] },
+    "grain": 5
+  },
+  "foreground": [
+    { "shape": { "poly": [[127, 332], [129, 332], [-98, 768], [-102, 768]] }, "paint": "#8a5f38", "grain": 2 },
+    { "shape": { "poly": [[255, 332], [257, 332], [122, 768], [118, 768]] }, "paint": "#8a5f38", "grain": 2 },
+    { "shape": { "poly": [[383, 332], [385, 332], [342, 768], [338, 768]] }, "paint": "#8a5f38", "grain": 2 },
+    { "shape": { "poly": [[639, 332], [641, 332], [782, 768], [778, 768]] }, "paint": "#8a5f38", "grain": 2 },
+    { "shape": { "poly": [[767, 332], [769, 332], [1002, 768], [998, 768]] }, "paint": "#8a5f38", "grain": 2 },
+    { "shape": { "poly": [[895, 332], [897, 332], [1222, 768], [1218, 768]] }, "paint": "#8a5f38", "grain": 2 },
+    { "shape": { "poly": [[511, 332], [513, 332], [562, 768], [558, 768]] }, "paint": "#8a5f38", "grain": 2 }
+  ],
+  "shades": [
+    { "ellipse": [745, 343, 66, 5], "alpha": 0.25 },
+    { "ellipse": [170, 401, 135, 8], "alpha": 0.35 },
+    { "ellipse": [640, 478, 24, 5], "alpha": 0.35 },
+    { "ellipse": [440, 513, 62, 6], "alpha": 0.3 },
+    { "ellipse": [900, 531, 30, 6], "alpha": 0.35 },
+    { "ellipse": [150, 571, 32, 4], "alpha": 0.3 },
+    { "ellipse": [232, 609, 32, 4], "alpha": 0.3 }
+  ],
+  "objects": [
+    {
+      "id": "window", "name": "window", "role": "solid", "on_surface": false,
+      "reason": "On the wall, out of reach",
+      "shape": { "rect": [400, 60, 170, 170] },
+      "paint": "#efe9dd",
+      "details": [
+        { "shape": { "rect": [412, 72, 146, 146] }, "paint": { "linear": [0, 72, 0, 218], "stops": ["#a9d4f0", "#e4f2fb"] } },
+        { "shape": { "rect": [482, 72, 6, 146] }, "paint": "#efe9dd" },
+        { "shape": { "rect": [412, 142, 146, 6] }, "paint": "#efe9dd" }
+      ]
+    },
+    {
+      "id": "rug", "name": "rug", "role": "flat",
+      "reason": "Flat on the floor: walk right over it",
+      "shape": { "ellipse": [560, 612, 220, 66] },
+      "paint": { "radial": [560, 612, 220], "stops": ["#c96b4b", "#9e4a33"] },
+      "details": [
+        { "shape": { "ellipse": [560, 612, 180, 52] }, "paint": "#e3b36b" },
+        { "shape": { "ellipse": [560, 612, 170, 48] }, "paint": { "radial": [560, 612, 170], "stops": ["#c4644a", "#a5503a"] } }
+      ]
+    },
+    {
+      "id": "door", "name": "door", "role": "exit",
+      "reason": "A real way out: the exit",
+      "shape": { "rect": [680, 120, 130, 222] },
+      "paint": "#e8e2d6",
+      "details": [
+        { "shape": { "rect": [692, 132, 106, 210] }, "paint": { "linear": [692, 0, 798, 0], "stops": ["#93603f", "#7d4f33"] } },
+        { "shape": { "rect": [704, 146, 82, 70] }, "paint": "#764a30" },
+        { "shape": { "rect": [704, 232, 82, 96] }, "paint": "#764a30" },
+        { "shape": { "ellipse": [786, 250, 5, 5] }, "paint": "#e0c070" }
+      ]
+    },
+    {
+      "id": "sofa", "name": "sofa", "role": "solid",
+      "reason": "Big and soft, but you can't walk through it",
+      "shape": { "path": [["M", 62, 240], ["L", 278, 240], ["A", 278, 252, 12, 12, -90, 0], ["L", 290, 290], ["L", 288, 290], ["A", 288, 302, 12, 12, -90, 0], ["L", 300, 400], ["L", 40, 400], ["L", 40, 302], ["A", 52, 302, 12, 12, 180, 270], ["L", 50, 290], ["L", 50, 252], ["A", 62, 252, 12, 12, 180, 270]] },
+      "paint": { "linear": [40, 240, 300, 400], "stops": ["#4a7d8b", "#33606c"] },
+      "details": [
+        { "shape": { "rect": [58, 250, 110, 66], "r": 10 }, "paint": "#5a8c99" },
+        { "shape": { "rect": [172, 250, 110, 66], "r": 10 }, "paint": "#558794" },
+        { "shape": { "rect": [75, 320, 190, 42], "r": 6 }, "paint": "#6699a5" },
+        { "shape": { "rect": [40, 290, 35, 110] }, "paint": "#3b6a77" },
+        { "shape": { "rect": [265, 290, 35, 110] }, "paint": "#36636f" },
+        { "shape": { "rect": [40, 384, 260, 16] }, "paint": "#2a4f59" }
+      ]
+    },
+    {
+      "id": "ball", "name": "ball", "role": "collect",
+      "reason": "Round and bouncy: fun to fetch",
+      "shape": { "ellipse": [640, 455, 22, 22] },
+      "paint": { "radial": [632, 447, 28], "stops": ["#ff8f6e", "#cf3b27"] },
+      "details": [
+        { "shape": { "poly": [[616, 450], [664, 446], [664, 453], [616, 457]] }, "paint": "#fdf6ec" }
+      ]
+    },
+    {
+      "id": "chair", "name": "chair", "role": "solid",
+      "reason": "Four legs: you can walk between them",
+      "shape": { "rings": [
+        { "rect": [384, 330, 112, 100] },
+        { "rect": [380, 430, 120, 18] },
+        { "rect": [384, 448, 8, 64] },
+        { "rect": [488, 448, 8, 64] },
+        { "rect": [400, 448, 6, 44] },
+        { "rect": [474, 448, 6, 44] }
+      ] },
+      "paint": { "linear": [380, 0, 500, 0], "stops": ["#8f5d37", "#6f4528"] },
+      "details": [
+        { "shape": { "rect": [394, 340, 92, 80] }, "paint": "#9b6a43" },
+        { "shape": { "rect": [380, 430, 120, 5] }, "paint": "#b07b50" }
+      ]
+    },
+    {
+      "id": "plant", "name": "spiky plant", "role": "avoid",
+      "reason": "Spiky leaves: keep your distance",
+      "shape": { "path": [["M", 869.5, 452], ["A", 900, 380, 70, 80, 115.84, 424.16], ["L", 922, 530], ["L", 878, 530]] },
+      "paint": { "linear": [830, 300, 970, 460], "stops": ["#4c9a56", "#2e6d38"] },
+      "details": [
+        { "shape": { "ellipse": [872, 360, 30, 22] }, "paint": "#58aa61" },
+        { "shape": { "ellipse": [926, 348, 28, 20] }, "paint": "#2f7a3a" },
+        { "shape": { "ellipse": [900, 402, 34, 24] }, "paint": "#4a9a55" },
+        { "shape": { "ellipse": [866, 424, 22, 16] }, "paint": "#357f40" },
+        { "shape": { "ellipse": [936, 412, 24, 18] }, "paint": "#5bb066" },
+        { "shape": { "ellipse": [900, 318, 22, 16] }, "paint": "#63b86d" },
+        { "shape": { "poly": [[866, 450], [934, 450], [922, 530], [878, 530]] }, "paint": { "linear": [866, 0, 934, 0], "stops": ["#ece7dc", "#bdb6a8"] } },
+        { "shape": { "rect": [866, 450, 68, 6] }, "paint": "#f6f2ea" }
+      ]
+    },
+    {
+      "id": "slipper1", "name": "slipper", "role": "collect",
+      "reason": "Comfy and lost: bring it back",
+      "shape": { "ellipse": [150, 560, 30, 11] },
+      "paint": { "linear": [120, 0, 180, 0], "stops": ["#de8bab", "#c46d90"] },
+      "details": [
+        { "shape": { "ellipse": [141, 558, 16, 6] }, "paint": "#f6cfdc" }
+      ]
+    },
+    {
+      "id": "slipper2", "name": "slipper", "role": "collect",
+      "reason": "Comfy and lost: bring it back",
+      "shape": { "ellipse": [232, 598, 30, 11] },
+      "paint": { "linear": [202, 0, 262, 0], "stops": ["#de8bab", "#c46d90"] },
+      "details": [
+        { "shape": { "ellipse": [223, 596, 16, 6] }, "paint": "#f6cfdc" }
+      ]
+    }
+  ]
+}

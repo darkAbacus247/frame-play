@@ -58,6 +58,33 @@ test('the desk room can be won, untouched by repairs', () => {
   assert.equal(v.proof.route_length, level.proof.route_length);
 });
 
+test('the living room can be won, untouched by repairs; walk between the chair legs', () => {
+  const room = loadRoom(JSON.parse(readFileSync(new URL('../rooms/living.json', import.meta.url), 'utf8')));
+  const built = buildLevel(inputFromRoom(room, CREATED));
+  assert.ok(!built.error, built.error);
+  const { level, rt } = built;
+  assert.deepEqual(level.changes_by_code, []);
+  assert.equal(level.proof.winnable, true);
+  assert.deepEqual([...level.rules.collect].sort(), ['ball', 'slipper1', 'slipper2']);
+  assert.deepEqual(level.rules.avoid, ['plant']);
+  assert.equal(level.rules.exit, 'door');
+  const byId = Object.fromEntries(level.objects.map((o) => [o.id, o]));
+  assert.equal(byId.window.footprint, null, 'the window hangs on the wall');
+  assert.equal(byId.rug.footprint, null, 'the rug is flat');
+  // the chair stands on four leg tips: the floor between them is walkable
+  const at = (x, y) => rt.walk[y * rt.W + x];
+  assert.equal(at(440, 500), 1, 'between the inner legs');
+  assert.equal(at(388, 505), 0, 'a leg tip');
+  assert.equal(at(440, 470), 1, 'under the seat, behind the legs');
+  const c = (x, y) => Math.floor(y / rt.nav.cell) * rt.nav.gw + Math.floor(x / rt.nav.cell);
+  assert.equal(rt.nav.pass[c(440, 500)], 1, 'the explorer fits between the legs');
+  const under = findPath(rt.nav, 440, 640, 440, 470);
+  const end = under && under.points[under.points.length - 1];
+  assert.ok(end && Math.hypot(end[0] - 440, end[1] - 470) < rt.nav.cell, 'a path under the chair');
+  const v = validateLevel(JSON.parse(JSON.stringify(level)));
+  assert.ok(v.ok, v.errors.join('; '));
+});
+
 test('the walk region: below the horizon, behind objects, never on footprints', () => {
   const { built } = deskLevel();
   const { level, rt } = built;
