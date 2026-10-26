@@ -55,7 +55,7 @@ test('Motion and High contrast follow the system until the switch is flipped', (
   assert.equal(highContrast(false), true);
 });
 
-test('Show outlines while playing is on by default and remembered', () => {
+test('Show outlines while playing is on by default and kept', () => {
   fresh();
   assert.equal(outlinesWhilePlaying(), true);
   setOutlinesWhilePlaying(false);

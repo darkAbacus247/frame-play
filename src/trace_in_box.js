@@ -315,11 +315,11 @@ function majority(mask, w, h, keepOff) {
 
 // Keep the regions that hold a seed (or the centre); with none of those
 // set, the largest region.
-function keepSeeded(mask, w, h, anchors) {
+function keepSeeded(mask, w, h, seedCells) {
   const { labels, count, sizes } = components(mask, w, h, 4);
   if (!count) return mask;
   const keep = new Uint8Array(count + 1);
-  for (const i of anchors) if (labels[i]) keep[labels[i]] = 1;
+  for (const i of seedCells) if (labels[i]) keep[labels[i]] = 1;
   if (!keep.some((v) => v)) {
     let best = 1;
     for (let l = 2; l <= count; l++) if (sizes[l] > sizes[best]) best = l;
@@ -392,7 +392,7 @@ export function traceInBox(pixels, box, seeds = [], opts = {}) {
       if ((mx * mx) / (erx * erx) + (my * my) / (ery * ery) <= 1) probable[c] = 1;
     }
   }
-  const anchors = [];
+  const seedCells = [];
   const usable = seeds.filter(([x, y]) => x >= bx0 && x < bx1 && y >= by0 && y < by1);
   for (const [x, y] of usable) {
     const ci = Math.min(cw - 1, Math.floor((x - ax0) / sx)), cj = Math.min(ch - 1, Math.floor((y - ay0) / sy));
@@ -401,12 +401,12 @@ export function traceInBox(pixels, box, seeds = [], opts = {}) {
         const i = ci + di, j = cj + dj;
         if (i < 0 || j < 0 || i >= cw || j >= ch) continue;
         const c = j * cw + i;
-        if (inBoxCell[c]) { state[c] = 1; anchors.push(c); }
+        if (inBoxCell[c]) { state[c] = 1; seedCells.push(c); }
       }
     }
   }
   const centreCell = Math.min(ch - 1, Math.floor((ecy - ay0) / sy)) * cw + Math.min(cw - 1, Math.floor((ecx - ax0) / sx));
-  if (!anchors.length) anchors.push(centreCell);
+  if (!seedCells.length) seedCells.push(centreCell);
 
   const idx = (pred) => { const out = []; for (let c = 0; c < cw * ch; c++) if (pred(c)) out.push(c); return out; };
   // the first foreground model learns from everything inside the box, as
@@ -425,7 +425,7 @@ export function traceInBox(pixels, box, seeds = [], opts = {}) {
     bg = fitGmm(clab, bgIdx.length ? bgIdx : idx((c) => state[c] === 2));
   }
   const boxCells = Math.max(1, idx((c) => inBoxCell[c]).length);
-  mask = keepSeeded(mask, cw, ch, anchors);
+  mask = keepSeeded(mask, cw, ch, seedCells);
   mask = fillHoles(mask, cw, ch, 0.02 * boxCells);
   // one majority pass on cells bigger than a pixel (the band cut below then
   // redraws the edge); on single pixels it would only eat curved edges
@@ -466,11 +466,11 @@ export function traceInBox(pixels, box, seeds = [], opts = {}) {
     for (let i = 0; i < aw * ah; i++) pstate[i] = outside[i] ? 2 : near[i] ? 0 : (pmask[i] ? 1 : 2);
     const pbeta = contrastBeta(plab, aw, ah);
     pmask = gridCut(plab, aw, ah, pstate, fg, bg, pbeta, opts.gamma ?? GAMMA);
-    const panchors = anchors.map((c) => {
+    const seedPixels = seedCells.map((c) => {
       const j = Math.floor(c / cw), i = c - j * cw;
       return Math.min(ah - 1, Math.floor((j + 0.5) * sy)) * aw + Math.min(aw - 1, Math.floor((i + 0.5) * sx));
     });
-    pmask = keepSeeded(pmask, aw, ah, panchors);
+    pmask = keepSeeded(pmask, aw, ah, seedPixels);
     pmask = fillHoles(pmask, aw, ah, 0.02 * bw * bh);
   }
 
