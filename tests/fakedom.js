@@ -1,5 +1,7 @@
-// A tiny stand-in for the page, enough for ui.js: elements, attributes,
-// events, focus and a modal dialog. Not a browser; only what the tests use.
+// A tiny stand-in for the page, enough for ui.js and for booting app.js
+// (tests/apphost.js): elements, attributes, simple selectors, events, focus,
+// a modal dialog and canvases that draw nothing. Not a browser; only what
+// the tests use.
 // Escape on a modal dialog follows Chrome: keydown runs first (capture, then
 // bubble) and, unless its default is prevented, the dialog gets 'cancel'.
 // Refusing 'cancel' works only once until the next click (user activation);
@@ -37,6 +39,13 @@ class FakeElement {
     return e === this.ownerDocument.body;
   }
   get disabled() { return this.attrs.has('disabled'); }
+  set disabled(v) { if (v) this.attrs.set('disabled', ''); else this.attrs.delete('disabled'); }
+  // a canvas: drawing does nothing; there are no pixels to read
+  getContext() {
+    return new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => undefined), set: (t, k, v) => { t[k] = v; return true; } });
+  }
+  toBlob(cb) { cb(null); }
+  matches(sel) { return selectorList(sel).some((s) => matchesSelector(this, s)); }
   setAttribute(k, v) { this.attrs.set(k, String(v)); if (k === 'id') this.id = String(v); }
   getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null; }
   hasAttribute(k) { return this.attrs.has(k); }
@@ -64,7 +73,10 @@ class FakeElement {
     for (let e = o; e; e = e.parentNode) if (e === this) return true;
     return false;
   }
-  closest() { return null; }
+  closest(sel) {
+    for (let e = this; e && e.tagName; e = e.parentNode) if (e.matches && e.matches(sel)) return e;
+    return null;
+  }
   addEventListener(type, fn, opts) {
     addListener(this.listeners, type, fn, opts);
   }
@@ -87,10 +99,8 @@ class FakeElement {
   }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   querySelectorAll(sel) {
-    if (sel === 'button') return this.all().filter((e) => e.tagName === 'BUTTON');
-    if (sel === 'dialog[open]') return this.all().filter((e) => e.tagName === 'DIALOG' && e.open);
-    if (sel === '[data-primary]') return this.all().filter((e) => e.attrs.has('data-primary'));
-    return [];
+    const list = selectorList(sel);
+    return this.all().filter((e) => e.tagName !== '#TEXT' && list.some((s) => matchesSelector(e, s)));
   }
   getBoundingClientRect() { return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }; }
   // dialog
@@ -116,6 +126,57 @@ class FakeElement {
     if (cancelable && e.defaultPrevented) { this.refusedOnce = true; return; }
     this.close();
   }
+}
+
+// Selectors, as far as the page uses them: tags, #id, .class, [attr],
+// [attr="value"] and :not(...), joined by descendant spaces and commas. A
+// dialog's [open] is its open state.
+function selectorList(sel) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (const c of sel) {
+    if (c === '(' || c === '[') depth++;
+    if (c === ')' || c === ']') depth--;
+    if (c === ',' && !depth) { out.push(cur.trim()); cur = ''; } else cur += c;
+  }
+  out.push(cur.trim());
+  return out.map((s) => {
+    const parts = [];
+    let d = 0, p = '';
+    for (const c of s) {
+      if (c === '(' || c === '[') d++;
+      if (c === ')' || c === ']') d--;
+      if (/\s/.test(c) && !d) { if (p) parts.push(p); p = ''; } else p += c;
+    }
+    if (p) parts.push(p);
+    return parts;
+  });
+}
+
+function matchesCompound(e, c) {
+  if (!e || !e.attrs) return false;
+  const re = /^([a-zA-Z*][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]|:not\((.+?)\)(?=$|[#.[:])/g;
+  let m, used = 0;
+  while ((m = re.exec(c))) {
+    if (m.index !== used) return false;
+    used = re.lastIndex;
+    if (m[1] && m[1] !== '*' && e.tagName !== m[1].toUpperCase()) return false;
+    if (m[2] && e.id !== m[2]) return false;
+    if (m[3] && !e.classList.contains(m[3])) return false;
+    if (m[4]) {
+      const has = m[4] === 'open' && e.tagName === 'DIALOG' ? e.open : e.attrs.has(m[4]);
+      if (!has || (m[5] !== undefined && e.attrs.get(m[4]) !== m[5])) return false;
+    }
+    if (m[6] && matchesCompound(e, m[6])) return false;
+  }
+  return used === c.length;
+}
+
+function matchesSelector(e, parts) {
+  if (!matchesCompound(e, parts[parts.length - 1])) return false;
+  let k = parts.length - 2;
+  for (let a = e.parentNode; a && k >= 0; a = a.parentNode) if (matchesCompound(a, parts[k])) k--;
+  return k < 0;
 }
 
 function addListener(map, type, fn, opts) {
@@ -162,6 +223,8 @@ export function fakeDocument() {
       return e;
     },
   };
+  // the root element only carries classes here; the body is the tree's root
+  doc.documentElement = new FakeElement(doc, 'html');
   doc.body = new FakeElement(doc, 'body');
   return doc;
 }

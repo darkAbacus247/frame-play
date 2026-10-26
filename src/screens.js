@@ -292,8 +292,8 @@ export const OWN_NOTICE = {
 const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo is refused in words, nothing is sent, and no level is made from it.';
 
 // actions: { file(f), skip }; camera: offer the camera; sampleLink: the
-// REHEARSAL picture to save, or null
-export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, actions }) {
+// REHEARSAL picture to save, or null; made: a room is already made here
+export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, actions }) {
   const m = OWN_NOTICE[mode] ? mode : 'mock';
   const sends = m !== 'mock';
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
@@ -311,7 +311,7 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
   }) : null;
   const onward = el('button', {
     type: 'button', class: sends ? 'btn' : 'btn primary', 'data-primary': sends ? null : 'true', 'data-tour': sends ? null : 'primary',
-    text: primaryLabel, tip: 'Go on without your own room', onclick: actions.skip,
+    text: primaryLabel, tip: made ? 'Your own room stays as it is' : 'Go on without your own room', onclick: actions.skip,
   });
   const section = el('section', { class: 'screen own' }, [
     el('h1', { text: 'Your own room' }),
@@ -347,7 +347,8 @@ export function closingRooms({ road, levels, summaries = [], mode }) {
     const level = levels[slot] || null;
     const ref = road.rooms[slot] || null;
     const heading = ['First room', 'Second room', 'Your own room'][slot];
-    if (slot === 2 && (!ref || road.own === 'skipped')) {
+    // made means its slot holds a room; passing it by never unmakes it
+    if (slot === 2 && !ref) {
       return {
         slot, heading, title: null, ref: null, playable: false,
         result: 'Not made',

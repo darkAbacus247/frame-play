@@ -4,6 +4,7 @@ import { installFakeDocument } from './fakedom.js';
 import { el } from '../src/ui.js';
 import { closingRooms, closingView, resultLine } from '../src/screens.js';
 import { newRoad, LAST_STEP, counterText, lapText, primaryLabel, canForward, stepKind } from '../src/road.js';
+import * as R from '../src/road.js';
 import { header, mainSpace, screenHeight } from './layoutmodel.js';
 
 const doc = installFakeDocument();
@@ -71,6 +72,60 @@ test('LIVE: your own room says what the models did, in one sentence', () => {
   const gone = closingRooms({ road: endRoad(true), mode: 'live', levels: [MOCK_DESK, MOCK_LIVING, null] });
   assert.match(gone[2].ai, /not in memory on this visit; pick the same photo again on Step 9/);
   assert.equal(gone[2].playable, false);
+});
+
+test('your own room passed by after it was made stays made, played and playable', () => {
+  const made = { ...endRoad(true), own: 'skipped' };
+  const rooms = closingRooms({ road: made, mode: 'rehearsal', levels: [MOCK_DESK, MOCK_LIVING, level('rehearsal', 'The Desk Top', 9)] });
+  assert.equal(rooms[2].result, 'Won · by the shortest route');
+  assert.equal(rooms[2].playable, true);
+  assert.match(texts(closingView({ rooms, mode: 'rehearsal', primaryLabel: 'Free play', actions: {} })), /three rooms/);
+  const none = closingRooms({ road: endRoad(false), mode: 'rehearsal', levels: [MOCK_DESK, MOCK_LIVING, null] });
+  assert.equal(none[2].result, 'Not made', 'nothing in the slot: not made');
+});
+
+// Every action the page wires to the road, in random order: a room in the
+// own slot is never reported "Not made", and a round played in it is
+// reported won or lost.
+test('no sequence of road actions turns a made own room into "Not made"', () => {
+  let seed = 7;
+  const rand = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >> 8) % n; };
+  const photos = [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }];
+  const L = level('rehearsal', 'A room', 5);
+  const actions = {
+    primary: (r) => {
+      switch (r.step) {
+        case 1: return R.giveConsent(r);
+        case 2: return R.chooseRoom(r, 0, [desk, living][rand(2)]);
+        case 5: return R.chooseRoom(r, 1, [desk, living][rand(2)]);
+        case 9: return rand(2) ? R.chooseRoom(r, 2, photos[rand(2)]) : R.passOwnRoom(r);
+        case 3: case 6: case 10: return R.startPlay(r);
+        case 4: case 7: case 11: return R.continueAfterRound(R.finishRound(r, R.slotOf(r.step), rand(2) ? { status: 'won', ratio: 1 + rand(3) } : { status: 'lost' }));
+        case 8: return R.toOwnRoom(r);
+        case 12: return R.startFreePlay(r);
+        default: return r;
+      }
+    },
+    forward: (r) => R.forward(r),
+    back: (r) => R.back(r),
+    round: (r) => (R.stepKind(r.step) === 'play' ? R.finishRound(r, R.slotOf(r.step), { status: rand(2) ? 'won' : 'lost', ratio: 1.5 }) : r),
+    newPhoto: (r) => (R.stepKind(r.step) === 'play' && r.finished[R.slotOf(r.step)] ? { ...r, step: R.PICK_STEPS[R.slotOf(r.step)] } : r),
+    tryOwn: (r) => (r.step === LAST_STEP ? { ...r, step: R.OWN_STEP } : r),
+    continueToEnd: (r) => R.passOwnRoom(r),
+    reload: (r) => R.sanitizeRoad(JSON.parse(JSON.stringify(r))),
+  };
+  const names = Object.keys(actions);
+  let hits = 0;
+  for (let run = 0; run < 400; run++) {
+    let r = newRoad();
+    for (let k = 0; k < 80; k++) {
+      r = actions[names[rand(names.length)]](r);
+      const rooms = closingRooms({ road: r, mode: 'rehearsal', levels: [L, L, r.rooms[2] ? L : null] });
+      if (r.rooms[2]) { hits++; assert.notEqual(rooms[2].result, 'Not made', JSON.stringify(r)); }
+      if (r.finished[2]) assert.match(rooms[2].result, /^(Won|Lost)/, JSON.stringify(r));
+    }
+  }
+  assert.ok(hits > 1000, `the own room was made often enough to tell (${hits})`);
 });
 
 function view(mode, own) {

@@ -4,9 +4,10 @@
 // step left; Forward one step right, only when allowed, and it says why when
 // it waits. Primary buttons only ever move forward. Pure logic.
 //
-// Your own room may be skipped (in MOCK it cannot be made at all): Forward
-// from its step then goes straight past its reveal and play steps, and Back
-// from there comes straight home to it.
+// Your own room may be passed by (in MOCK it cannot be made at all):
+// Forward from its step then goes straight past its reveal and play steps,
+// and Back from there comes straight home to it. A room made and played is
+// never passed by: Continue to the end keeps it on the road.
 
 export const STEP_NAMES = [
   null,
@@ -113,12 +114,23 @@ export function chooseRoom(road, slot, ref) {
   return go({ ...road, own, rooms, finished, best }, step + 1);
 }
 
-// Your own room, not made (MOCK cannot make it; anyone may pass it by):
-// straight on past its reveal and play steps.
-export function skipOwnRoom(road) {
-  if (road.step !== OWN_STEP) return road;
+// Your own room counts as made whenever its slot holds a room. 'skipped'
+// is only a routing flag (Forward and Back pass its reveal and play steps);
+// it never means "not made".
+export function ownMade(road) {
+  return !!road.rooms[2];
+}
+
+// Continue to the end, from your own room's steps (9, 10 or 11). A room
+// made and played stays on the road, and Back walks home through it; a
+// room not made (MOCK cannot make one; anyone may pass it by) or not played
+// yet is passed by, straight on past its reveal and play steps.
+export function passOwnRoom(road) {
+  if (road.step < OWN_STEP || road.step > OWN_STEP + 2) return road;
+  if (road.rooms[2] && road.finished[2]) return go(road, AFTER_OWN);
   return go({ ...road, own: 'skipped' }, AFTER_OWN);
 }
+export const skipOwnRoom = passOwnRoom;
 
 export function startPlay(road) {
   if (stepKind(road.step) !== 'found') return road;
@@ -213,14 +225,18 @@ export function sanitizeRoad(o) {
   };
   const at = (list, k, f) => f(Array.isArray(list) ? list[k] : undefined);
   const slots = [0, 1, 2];
+  const rooms = slots.map((k) => (o.v === 2 && k === 2 ? null : at(o.rooms, k, ref)));
+  const finished = slots.map((k) => (o.v === 2 && k === 2 ? false : at(o.finished, k, (v) => !!v)));
   const road = {
     v: 3,
     step,
     reached: Number.isInteger(o.reached) ? Math.min(Math.max(o.reached, step), FREE_PLAY) : step,
     consent: o.consent === true,
-    own: o.v === 3 && o.own === 'skipped' ? 'skipped' : null,
-    rooms: slots.map((k) => (o.v === 2 && k === 2 ? null : at(o.rooms, k, ref))),
-    finished: slots.map((k) => (o.v === 2 && k === 2 ? false : at(o.finished, k, (v) => !!v))),
+    // a room made and played is never passed by (roads saved before this
+    // rule heal here)
+    own: o.v === 3 && o.own === 'skipped' && !(rooms[2] && finished[2]) ? 'skipped' : null,
+    rooms,
+    finished,
     best: slots.map((k) => (o.v === 2 && k === 2 ? null : at(o.best, k, num))),
   };
   // a step is only valid if the road leading to it holds

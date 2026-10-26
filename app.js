@@ -17,7 +17,7 @@ import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsO
 import { levelFromReply, makeOwnRoom, signature } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, more,
+  freeView, ownView, ownResult, closingRooms, closingView, more, photoInput,
 } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
@@ -46,6 +46,7 @@ const A = {
   firstVisit: false,
   pulsed: false,
   headerStep: 0, // the step the header was last drawn for
+  missingWhy: null, // the header's reason while a room's level is missing
   tour: { on: false, offered: false, lastProgress: Date.now() },
 };
 
@@ -150,7 +151,11 @@ function progressPanel(panel, lines, current, error) {
 
 const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
 
-async function runLivePath(slot, panel, make) {
+const NOT_SAME = 'That is not the photo this room was made from.';
+
+// inPlace: the room is already on the road (its level was not in memory):
+// it is made again on the same step, never by moving the counter back.
+async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
   if (A.busy) return;
   setBusy(true);
   let step = 0;
@@ -161,12 +166,14 @@ async function runLivePath(slot, panel, make) {
       if (i >= 0) { step = i; progressPanel(panel, LIVE_LINES, step); say(words); }
     });
     if (entry.built.error) throw new Error(entry.built.error);
+    if (inPlace && !R.sameRef(ref, A.road.rooms[slot])) throw new Error(`${NOT_SAME} Pick the same photo, or use ← to go back to Step ${R.PICK_STEPS[slot]} for another room.`);
     A.live.set(refKey(ref), entry);
     setBusy(false);
-    setRoad(R.chooseRoom(A.road, slot, ref));
+    if (inPlace) render();
+    else setRoad(R.chooseRoom(A.road, slot, ref));
   } catch (e) {
     setBusy(false);
-    progressPanel(panel, LIVE_LINES, step, `${e.message} You can try another photo, or play a sample room below.`);
+    progressPanel(panel, LIVE_LINES, step, inPlace ? e.message : `${e.message} You can try another photo, or play a sample room below.`);
     say(e.message);
   }
 }
@@ -180,7 +187,7 @@ async function readThroughServer(blob, copy, picture, pictureRef, onWords) {
   return levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
 }
 
-function choosePhoto(slot, file, panel) {
+function choosePhoto(slot, file, panel, opts) {
   return runLivePath(slot, panel, async (onWords) => {
     const photo = await readPhoto(file);
     const ref = { kind: 'photo', sha256: photo.sha256 };
@@ -192,19 +199,19 @@ function choosePhoto(slot, file, panel) {
     const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords);
     if (!entry.built.error) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
     return { ref, entry };
-  });
+  }, opts);
 }
 
 // Rehearsal: the stand-in's own sample picture goes through the live path,
 // so a stand-in level is never drawn over a photo.
-function rehearseRoom(slot, id, panel) {
+function rehearseRoom(slot, id, panel, opts) {
   return runLivePath(slot, panel, async (onWords) => {
     const s = await sample(id);
     const blob = await canvasJpeg(s.picture);
     const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
     const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords);
     return { ref: { kind: 'rehearsal', id }, entry };
-  });
+  }, opts);
 }
 
 // ---- the road ----
@@ -252,7 +259,8 @@ function renderHeader() {
     type: 'button', class: 'btn icon-btn', 'aria-label': 'Forward one step', tip: 'Forward one step on the road',
     disabled: !fw.ok, onclick: () => setRoad(R.forward(A.road)),
   }, [el('span', { 'aria-hidden': 'true', text: '→' })]);
-  const why = el('span', { class: 'why', text: fw.ok || r.step >= R.FREE_PLAY ? '' : fw.why });
+  // a room whose level is missing names the way on that this screen offers
+  const why = el('span', { class: 'why', text: fw.ok || r.step >= R.FREE_PLAY ? '' : A.missingWhy || fw.why });
   const pulse = !A.pulsed && shouldPulse({ firstVisit: A.firstVisit, reducedMotion: reducedMotion() });
   A.pulsed = true;
   const tourBtn = el('button', {
@@ -333,6 +341,7 @@ function startOver() {
 async function render() {
   stopViews();
   hideTip();
+  A.missingWhy = null;
   renderHeader();
   renderDock();
   renderDrawer();
@@ -409,48 +418,62 @@ async function screenRoom(main, slot, token) {
   if (A.busy) setBusy(true);
 }
 
-// A room on the road whose level is not in memory: a photo's level needs
-// the same photo picked again (the photo is never stored); a rehearsal
-// room is sent through the stand-in again.
+// A room on the road whose level is not in memory. It is made again here,
+// on this same step, in the way this mode allows: a photo picked again (the
+// photo itself is never stored), a rehearsal room sent through the stand-in
+// again. Nothing here moves the counter back; where this mode cannot make
+// the room, the way on is forward.
 function missingRoom(main, slot) {
   const ref = A.road.rooms[slot];
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
-  const back = () => { A.road = { ...A.road, step: R.PICK_STEPS[slot] }; };
+  const shown = el('div', { class: 'own-result', hidden: true });
+  const sends = A.mode === 'live' || A.mode === 'rehearsal';
   const kids = [];
-  if (ref && ref.kind === 'photo' && slot === 2) {
-    // your own room is made again on its own step, with its mode's checks
+  const chooseAgain = (onFile, tip) => {
+    const input = photoInput(onFile);
+    return el('div', { class: 'actions' }, [
+      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Choose the same photo', tip, onclick: () => input.click() }),
+      input,
+    ]);
+  };
+  let why = null;
+  if (ref && ref.kind === 'photo' && slot === 2 && sends) {
+    // your own room, with every check its mode makes (src/own.js)
     kids.push(el('h1', { text: 'Pick your photo again' }),
-      el('p', { text: 'The photo itself is never stored. Go back to Your own room and pick the same photo; its level loads from this device when it can.' }),
+      el('p', { text: A.mode === 'live'
+        ? 'The photo itself is never stored. Choose the same photo: if its level was kept on this device it loads with no model call; if not, the photo is read again.'
+        : 'The photo itself is never stored. Choose the same picture: if its level was kept on this device it loads from here; if not, the local stand-in reads it again.' }),
+      chooseAgain((f) => ownPhoto(f, panel, shown, { inPlace: true }), 'Pick the same photo you made this room from'),
+      panel, shown);
+    why = 'Pick the same photo to play this room';
+  } else if (ref && ref.kind === 'photo' && slot === 2) {
+    kids.push(el('h1', { text: 'This room cannot load here' }),
+      el('p', { text: 'This room was made with the live AI or the local stand-in. This copy runs in MOCK, so its level cannot load here.' }),
       el('div', { class: 'actions' }, [
-        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Back to Your own room', tip: 'Goes back to the step where you pick your photo', onclick: () => setRoad({ ...A.road, step: R.OWN_STEP }) }),
+        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Continue to the end', tip: 'On to the closing screen; your own room stays on the road', onclick: () => setRoad(R.passOwnRoom(A.road)) }),
       ]));
-  } else if (ref && ref.kind === 'photo') {
+    why = 'Continue to the end to go on';
+  } else if (ref && ref.kind === 'photo' && A.mode === 'live') {
     kids.push(el('h1', { text: 'Pick the same photo again' }),
-      el('p', { text: 'The photo itself is never stored. Pick the same photo again and its level loads from this device, with no model call.' }));
-    if (A.mode === 'live') {
-      const input = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true' });
-      input.addEventListener('change', () => {
-        const f = input.files && input.files[0];
-        input.value = '';
-        if (f) { back(); choosePhoto(slot, f, panel); }
-      });
-      kids.push(el('div', { class: 'actions' }, [
-        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Choose the photo again', tip: 'Pick the same photo; nothing is sent if its level is on this device', onclick: () => input.click() }),
-        input,
-      ]), panel);
-    } else {
-      kids.push(el('p', { class: 'why', text: 'This server is not live now. Go back one step and pick a sample room.' }));
-    }
+      el('p', { text: 'The photo itself is never stored. Choose the same photo: if its level was kept on this device it loads with no model call; if not, the photo is read again.' }),
+      chooseAgain((f) => choosePhoto(slot, f, panel, { inPlace: true }), 'Pick the same photo; nothing is sent if its level is on this device'),
+      panel);
+    why = 'Pick the same photo to play this room';
   } else if (ref && ref.kind === 'rehearsal' && A.mode === 'rehearsal') {
     kids.push(el('h1', { text: 'Rehearse this room again' }),
       el('p', { text: 'The stand-in’s level is made again on each visit.' }),
       el('div', { class: 'actions' }, [
-        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Send it through the stand-in', tip: 'The local stand-in, not Meta', onclick: () => { back(); rehearseRoom(slot, ref.id, panel); } }),
+        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Send it through the stand-in', tip: 'The local stand-in, not Meta', onclick: () => rehearseRoom(slot, ref.id, panel, { inPlace: true }) }),
       ]), panel);
+    why = 'Send it through the stand-in to play this room';
   } else {
-    kids.push(el('h1', { text: 'This room is not here any more' }), el('p', { text: 'Go back one step and pick a room.' }));
+    kids.push(el('h1', { text: 'This room cannot load here' }),
+      el('p', { text: `This copy cannot make this room again. Use ← to go back to Step ${R.PICK_STEPS[slot]} and pick a sample room.` }));
+    why = `Go back to Step ${R.PICK_STEPS[slot]} to pick a room`;
   }
   main.replaceChildren(el('section', { class: 'screen sparse' }, kids));
+  A.missingWhy = why;
+  renderHeader();
 }
 
 function describeSection(section, level, rt, state) {
@@ -579,7 +602,7 @@ async function screenFree(main, token) {
     cards.append(roomCard(entry, { onPick: () => { A.free = { kind: 'sample', id: s.id }; render(); } }));
   }
   const own = A.road.rooms[2];
-  const ownEntry = own && !A.road.own ? await levelFor(own) : null;
+  const ownEntry = R.ownMade(A.road) ? await levelFor(own) : null;
   if (token !== A.renderToken) return;
   if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { onPick: () => { A.free = own; render(); } }));
 }
@@ -589,9 +612,8 @@ async function screenFree(main, token) {
 // happened and what the AI did, then the ways on.
 async function screenEnd(main, token) {
   const entries = [];
-  for (const [slot, ref] of A.road.rooms.entries()) {
-    const skipped = slot === 2 && A.road.own === 'skipped';
-    const entry = ref && !skipped ? await levelFor(ref) : null;
+  for (const ref of A.road.rooms) {
+    const entry = ref ? await levelFor(ref) : null;
     if (token !== A.renderToken) return;
     entries.push(entry && !entry.built.error ? entry : null);
   }
@@ -655,14 +677,17 @@ async function screenOwn(main, token) {
   const room = rehearsalRoom();
   const view = ownView({
     mode: A.mode, primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
-    sampleLink: room ? samplePictureLink(room) : null,
-    actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.skipOwnRoom(A.road)) },
+    sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road),
+    actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.passOwnRoom(A.road)) },
   });
   main.replaceChildren(view.section);
   if (A.busy) setBusy(true);
 }
 
-async function ownPhoto(file, panel, shown) {
+// inPlace: your own room is already on the road and only its level is
+// missing (missingRoom): made again on this same step, and
+// only from the same photo.
+async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   if (A.busy) return;
   setBusy(true);
   const sends = A.mode === 'live' || A.mode === 'rehearsal';
@@ -678,11 +703,19 @@ async function ownPhoto(file, panel, shown) {
       },
     });
     setBusy(false);
+    if (r.kind === 'built' && inPlace && !R.sameRef(r.ref, A.road.rooms[2])) {
+      panel.hidden = true;
+      const words = `${NOT_SAME} Pick the same photo, or use ← to go back to Your own room for a new one.`;
+      showOwnResult(shown, { kind: 'refused', words });
+      say(words);
+      return;
+    }
     if (r.kind === 'built') {
       if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
       else S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
       A.live.set(refKey(r.ref), r.entry);
-      setRoad(R.chooseRoom(A.road, 2, r.ref));
+      if (inPlace) render();
+      else setRoad(R.chooseRoom(A.road, 2, r.ref));
       return;
     }
     panel.hidden = true;

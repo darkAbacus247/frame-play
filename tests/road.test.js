@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   newRoad, forward, back, canForward, giveConsent, chooseRoom, startPlay, finishRound, continueAfterRound,
   startFreePlay, towardStep, counterText, lapText, sanitizeRoad, primaryLabel, LAST_STEP, FREE_PLAY,
-  toOwnRoom, skipOwnRoom, stepKind, slotOf, OWN_STEP, AFTER_OWN,
+  toOwnRoom, skipOwnRoom, passOwnRoom, ownMade, stepKind, slotOf, OWN_STEP, AFTER_OWN,
 } from '../src/road.js';
 
 const desk = { kind: 'sample', id: 'desk' };
@@ -69,6 +69,41 @@ test('your own room: the third room, or passed by straight to what follows it', 
   assert.equal(made.own, null);
   assert.equal(canForward({ ...made, step: OWN_STEP + 2 }).why, 'Finish a round, win or lose, to continue');
   assert.equal(skipOwnRoom(newRoad()).step, 1, 'only from its own step');
+});
+
+test('Continue to the end never unmakes your own room', () => {
+  const { r } = walkThePrimaries();
+  // made and won, then back to its step: passing on keeps it on the road
+  const at9 = { ...r, step: OWN_STEP };
+  const passed = passOwnRoom(at9);
+  assert.equal(passed.step, LAST_STEP);
+  assert.equal(passed.own, null, 'not marked as passed by');
+  assert.deepEqual(passed.rooms[2], mine);
+  assert.equal(passed.finished[2], true);
+  assert.equal(passed.best[2], 1.0);
+  assert.equal(back(passed).step, OWN_STEP + 2, 'Back walks home through the room');
+  assert.equal(sanitizeRoad(JSON.parse(JSON.stringify(passed))).step, LAST_STEP);
+  // from its reveal and play steps too
+  for (const s of [OWN_STEP + 1, OWN_STEP + 2]) {
+    const p = passOwnRoom({ ...r, step: s });
+    assert.equal(p.step, LAST_STEP, `from ${s}`);
+    assert.deepEqual([p.rooms[2], p.finished[2], p.best[2]], [mine, true, 1.0]);
+  }
+  // made but not played: passed by, and still made
+  const unplayed = { ...r, step: OWN_STEP + 1, finished: [true, true, false], best: [1.2, null, null] };
+  const q = passOwnRoom(unplayed);
+  assert.equal(q.step, LAST_STEP);
+  assert.equal(q.own, 'skipped');
+  assert.ok(ownMade(q), 'a room passed by is still made');
+  // nowhere else
+  for (const s of [1, 2, 8, LAST_STEP, FREE_PLAY]) {
+    const at = { ...r, step: s };
+    assert.equal(passOwnRoom(at), at, `nothing from ${s}`);
+  }
+  // a road saved before this rule heals: skipped, yet made and played
+  const old = sanitizeRoad({ ...r, step: LAST_STEP, own: 'skipped' });
+  assert.equal(old.own, null);
+  assert.equal(back(old).step, OWN_STEP + 2);
 });
 
 test('Back goes one left, Forward one right, and Forward waits with a reason', () => {

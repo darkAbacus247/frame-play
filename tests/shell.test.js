@@ -118,6 +118,37 @@ test('Describe this room and every announcement are in words', () => {
   assert.equal(endCardWords(level, { status: 'lost', lostTo: k('cactus') }, null).title, 'The cactus got you.');
 });
 
+// Every el('button', {...}) in a file, as the text of its attributes.
+function buttonAttrs(src) {
+  const out = [];
+  for (let i = src.indexOf("el('button', {"); i >= 0; i = src.indexOf("el('button', {", i + 1)) {
+    let depth = 0, j = src.indexOf('{', i);
+    const start = j;
+    for (; j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      if (src[j] === '}' && --depth === 0) break;
+    }
+    out.push(src.slice(start, j + 1));
+  }
+  return out;
+}
+
+test('no primary button moves the counter back: none sets the step or calls back()', () => {
+  let primaries = 0;
+  for (const f of ['../app.js', '../src/screens.js']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    for (const attrs of buttonAttrs(src)) {
+      if (!/'data-primary':[^,]*'true'/.test(attrs)) continue;
+      primaries++;
+      const onclick = attrs.slice(attrs.indexOf('onclick:'));
+      assert.ok(attrs.includes('onclick:'), `${f}: a primary with no action: ${attrs}`);
+      assert.doesNotMatch(onclick, /\bstep\s*:/, `${f}: a primary sets the step: ${onclick}`);
+      assert.doesNotMatch(onclick, /\bback\(\)/, `${f}: a primary goes back: ${onclick}`);
+    }
+  }
+  assert.ok(primaries >= 8, `the primaries were found (${primaries})`);
+});
+
 test('the page shell: in-flow grid, no inline styles or scripts, labels in place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));

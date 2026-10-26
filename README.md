@@ -34,7 +34,17 @@ The road ends on a closing screen (the counter's last step) that says the
 circuit is complete: each room with whether you won and your best route,
 one sentence on what the AI did in it, and the ways on: Free play, Play
 again for any room, Try your own room (or, in MOCK, why it needs the live
-AI), and Start over.
+AI), and Start over. Your own room, once made, stays on the road: going
+back to its step and choosing Continue to the end keeps it, its result and
+its place in Free play.
+
+The photo itself is never stored, so on a return visit a photo room's level
+may not be in memory. That room's screen then makes it again right there,
+on the same step: pick the same photo (its level loads from this device
+when it was kept here, or the photo is read again), or send a stand-in room
+through the stand-in again. Where this copy cannot make it (a LIVE or
+REHEARSAL room reopened in MOCK) the screen says so and the way on is
+forward. No primary button ever moves the step counter back.
 
 Every screen is written to fit without scrolling at 100% zoom: one short
 line up front, short labelled facts, and the longer text (the full consent
