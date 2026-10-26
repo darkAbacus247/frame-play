@@ -13,7 +13,10 @@ const LINES = {
   5: { target: 'room-card', line: 'Pick a second room, different from the first.' },
   6: { target: 'primary', line: 'A new room makes new walls. Press Play this room.' },
   7: { target: 'chip', line: 'Same rules, new shapes: collect every star, then reach the exit.' },
-  8: { target: 'primary', line: 'Your two rooms, side by side. Press Free play to keep playing.' },
+  8: { target: 'primary', line: 'Your two rooms, side by side. Press Continue: your own room.' },
+  9: { target: 'primary', line: 'Try a photo of your own room, or press Continue to the end.' },
+  10: { target: 'primary', line: 'These outlines come from your own photo. Press Play this room.' },
+  11: { target: 'chip', line: 'Your own room: collect every star, then reach the exit.' },
   [FREE_PLAY]: { target: 'room-card', line: 'Free play: pick any room to play it again.' },
 };
 

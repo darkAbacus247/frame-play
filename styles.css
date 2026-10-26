@@ -313,6 +313,19 @@ dialog.card .label { color: var(--muted); }
 .room-title { font-weight: 700; }
 .tag { justify-self: start; padding: 0 var(--s2); border-radius: 999px; border: 1px solid var(--line); font-size: 1rem; }
 .tag.mock { color: var(--mock); border-color: var(--mock); }
+.tag.live { color: var(--accent); border-color: var(--accent); }
+.tag.rehearsal { color: var(--mock); border-color: var(--mock); }
+
+/* ---- your own room ----
+   What this mode does with a photo, in a quiet panel; the chosen photo is
+   shown at a modest height, keeping its shape. */
+.notice { padding: var(--s3) var(--s4); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.notice.mock, .notice.rehearsal { border-left-color: var(--mock); }
+.notice.live { border-left-color: var(--accent); }
+.own-result { display: grid; gap: var(--s3); }
+.own-pic { margin: 0; display: grid; gap: var(--s2); justify-items: start; }
+.own-pic canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 18rem; border-radius: var(--s1); }
+.own-pic figcaption { color: var(--muted); }
 
 /* ---- what the AI found ---- */
 .found-grid {

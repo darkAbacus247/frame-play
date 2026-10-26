@@ -10,6 +10,24 @@ exit you reach.
 Status: work in progress. This repository was created on 2026-10-26 after
 16:00 UTC, during the event. The full README is written as the build lands.
 
+## The road
+
+One road with one step counter: Welcome, then two sample rooms (pick, see
+what the AI found, play), the two side by side, then **your own room**: a
+photo from your device, or from the camera where the browser offers one.
+What happens to that photo depends on the server's mode, and the page says
+so plainly:
+
+- **LIVE** (a key and the live switch on the server): the photo is shrunk
+  and stripped of its camera data on the device, sent once through the
+  server to Meta's models, and the room is built from what they found in
+  it.
+- **MOCK** (no key): nothing reads the photo, so nothing is invented. It is
+  shown on your device only, and the road goes on to its end.
+- **REHEARSAL** (the local stand-in): the stand-in only knows its sample
+  room's own picture, which the page offers to save. Any other photo is
+  refused in words, and no level is made from it.
+
 ## Running it
 
 Python 3.10 or newer, standard library only; no packages to install.
@@ -34,8 +52,12 @@ python server/server.py --rehearse http://127.0.0.1:8192/v1 --rehearsal-room des
 
 ```
 node --test
-python -m unittest discover
+python -B -m unittest discover
 ```
+
+`tests/own_e2e.test.js` starts the stand-in and the server in rehearsal on
+this machine's loopback (it runs `python`, or `$PYTHON`) and uploads the
+desk's own picture through them.
 
 ## Known limits (so far)
 

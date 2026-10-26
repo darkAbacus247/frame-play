@@ -1,0 +1,129 @@
+// Your own room: the third room on the road, made from a photo of the
+// player's own. What happens depends on the server's mode, and each mode
+// says plainly what it does:
+// - LIVE: the photo goes through the real pipeline (Muse Spark, then SAM
+//   3.1), and the room is built from what the models found in it.
+// - MOCK: no model can read it, so nothing is sent and no level is made.
+//   The photo is shown on this device only.
+// - REHEARSAL: the local stand-in only knows the sample rooms' own
+//   pictures, so only the picture of the room it was started for is sent.
+//   Any other photo is refused in words, and no level is made from it.
+// No page here: the page hands in its photo, send and save helpers, so the
+// gating is tested in Node.
+import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from './reply.js';
+import { buildLevel } from './level.js';
+import { traceInBox } from './trace_in_box.js';
+
+export const MOCK_WORDS = 'Reading a real photo needs the live AI (Meta’s models). This copy is running without it, so your photo stays on your device and nothing is invented.';
+
+// A small fingerprint of how a picture looks: its shape, and the mean
+// colour of each cell of a 16 by 12 grid. JPEG and shrinking barely move
+// it; a different picture moves it a lot.
+const GW = 16, GH = 12;
+export function signature({ width, height, data }) {
+  const sums = new Float64Array(GW * GH * 3);
+  const counts = new Float64Array(GW * GH);
+  for (let y = 0; y < height; y++) {
+    const row = Math.min(GH - 1, Math.floor((y * GH) / height)) * GW;
+    for (let x = 0; x < width; x++) {
+      const c = row + Math.min(GW - 1, Math.floor((x * GW) / width));
+      const i = 4 * (y * width + x);
+      sums[3 * c] += data[i];
+      sums[3 * c + 1] += data[i + 1];
+      sums[3 * c + 2] += data[i + 2];
+      counts[c]++;
+    }
+  }
+  const cells = new Float32Array(GW * GH * 3);
+  for (let c = 0; c < GW * GH; c++) for (let k = 0; k < 3; k++) cells[3 * c + k] = counts[c] ? sums[3 * c + k] / counts[c] : 0;
+  return { aspect: width / height, cells };
+}
+
+// Which sample room's own picture this is, or null: the same shape, and the
+// cells within a few levels of the sample's on average.
+export function matchSample(sig, samples, tolerance = 6) {
+  let best = null, bestD = Infinity;
+  for (const s of samples) {
+    if (Math.abs(sig.aspect - s.sig.aspect) > 0.01 * s.sig.aspect) continue;
+    let d = 0;
+    for (let i = 0; i < sig.cells.length; i++) d += Math.abs(sig.cells[i] - s.sig.cells[i]);
+    d /= sig.cells.length;
+    if (d < bestD) { bestD = d; best = s.id; }
+  }
+  return bestD <= tolerance ? best : null;
+}
+
+// In REHEARSAL: may this picture go to the stand-in? Only the picture of
+// the very room the stand-in was started for.
+export function rehearsalVerdict(id, room, titleOf = (x) => x) {
+  if (id && id === room) return { ok: true, why: '' };
+  if (id) {
+    return { ok: false, why: `This is the sample picture of ${titleOf(id)}, but the local stand-in was started for ${titleOf(room)}, so it would answer for the wrong room. Nothing was sent, and no level is made from it.` };
+  }
+  return { ok: false, why: 'In REHEARSAL the local stand-in (not Meta) only knows the sample rooms’ own pictures, and this photo is not one of them. Nothing was sent, and no level is made from it.' };
+}
+
+// Each object's outline: traced inside SAM's exact box, or the box itself
+// when the trace is not tight enough. Yields between objects, so the page's
+// progress words stay live.
+export async function outlinesFor(reply, pixels, yieldNow = () => new Promise((r) => setTimeout(r, 0))) {
+  const out = [];
+  for (const o of reply.objects) {
+    try {
+      const t = traceInBox(pixels, o.box, o.seeds || []);
+      out.push({ source: t.source, rings: t.rings });
+    } catch {
+      out.push({ source: 'box', rings: boxRings(o.box) });
+    }
+    await yieldNow();
+  }
+  return out;
+}
+
+// A level from an accepted reply, traced on the very pixels that were sent.
+export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNow) {
+  const outlines = await outlinesFor(reply, pixels, yieldNow);
+  const built = buildLevel(inputFromReply(reply, pictureRef, (o, k) => outlines[k]));
+  return { picture, built, summary: readSummary(reply) };
+}
+
+// Make your own room from a picked file. deps:
+//   preview(file) -> { picture }: decoded and shrunk on the device, never sent
+//   readPhoto(file) -> { sha256, blob, picture, pixels, width, height }
+//   send(blob, onWords) -> the server's reply
+//   samples: [{ id, title, sig }], the sample pictures' fingerprints
+//   stored(photo) -> a level kept on this device for this photo, or null
+// Returns one of:
+//   { kind: 'kept', picture, words }     MOCK: shown here, nothing sent
+//   { kind: 'refused', picture, words }  not made, and why
+//   { kind: 'built', ref, entry }        a playable room
+export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, onWords = () => {}, yieldNow }) {
+  const why = photoRefusal(file);
+  if (why) return { kind: 'refused', picture: null, words: why };
+  if (mode !== 'live' && mode !== 'rehearsal') {
+    const p = await deps.preview(file);
+    return { kind: 'kept', picture: p.picture, words: MOCK_WORDS };
+  }
+  const photo = await deps.readPhoto(file);
+  let matched = null;
+  if (mode === 'rehearsal') {
+    matched = matchSample(signature(photo.pixels), deps.samples || []);
+    const titleOf = (id) => ((deps.samples || []).find((s) => s.id === id) || { title: id }).title;
+    const v = rehearsalVerdict(matched, rehearsalRoom, titleOf);
+    if (!v.ok) return { kind: 'refused', picture: photo.picture, words: v.why };
+  }
+  const ref = { kind: 'photo', sha256: photo.sha256 };
+  const kept = deps.stored ? deps.stored(photo) : null;
+  if (kept && kept.built.level.origin === mode) return { kind: 'built', ref, entry: kept };
+  const reply = await deps.send(photo.blob, onWords);
+  const ok = acceptReply(mode, reply, photo);
+  if (!ok.ok) return { kind: 'refused', picture: photo.picture, words: ok.why };
+  const answered = reply.provenance.rehearsal && reply.provenance.rehearsal.room;
+  if (mode === 'rehearsal' && answered && answered !== matched) {
+    return { kind: 'refused', picture: photo.picture, words: 'The stand-in answered for a different room than this picture shows, so its answer is not used.' };
+  }
+  onWords('Tracing the outlines');
+  const entry = await levelFromReply(reply, photo.picture, photo.pixels, ref, yieldNow);
+  if (entry.built.error) return { kind: 'refused', picture: photo.picture, words: entry.built.error };
+  return { kind: 'built', ref, entry };
+}

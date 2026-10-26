@@ -65,14 +65,30 @@ export async function readPhoto(file) {
   return { sha256, blob, picture, width: copy.width, height: copy.height };
 }
 
+// A picked photo to show on this device only (MOCK): decoded and shrunk
+// here, never fingerprinted, encoded or sent.
+export async function previewPhoto(file) {
+  const why = photoRefusal(file);
+  if (why) throw new Error(why);
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    throw new Error('This photo could not be opened. Please try a JPEG, PNG or WEBP photo.');
+  }
+  const picture = copyCanvas(bmp, bmp.width, bmp.height);
+  if (bmp.close) bmp.close();
+  return { picture, width: picture.width, height: picture.height };
+}
+
 // Send the copy. Progress lines arrive first, then the reply. Throws an
 // Error in words for a refusal the server sends as its own status.
-export async function sendPhoto(blob, onProgress) {
+export async function sendPhoto(blob, onProgress, url = 'api/room') {
   let res;
   try {
-    res = await fetch('api/room', {
+    res = await fetch(url, {
       method: 'POST',
-      headers: { 'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg', Accept: 'application/x-ndjson' },
+      headers: { 'X-FramePlay-Request': '1', 'Content-Type': blob.type || 'image/jpeg', Accept: 'application/x-ndjson' },
       body: blob,
       credentials: 'same-origin',
       cache: 'no-store',

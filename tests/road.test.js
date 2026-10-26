@@ -4,12 +4,14 @@ import { readFileSync } from 'node:fs';
 import {
   newRoad, forward, back, canForward, giveConsent, chooseRoom, startPlay, finishRound, continueAfterRound,
   startFreePlay, towardStep, counterText, lapText, sanitizeRoad, primaryLabel, LAST_STEP, FREE_PLAY,
+  toOwnRoom, skipOwnRoom, stepKind, slotOf, OWN_STEP, AFTER_OWN,
 } from '../src/road.js';
 
 const desk = { kind: 'sample', id: 'desk' };
 const living = { kind: 'sample', id: 'living' };
+const mine = { kind: 'photo', sha256: 'ab'.repeat(32) };
 
-function walkThePrimaries() {
+function walkThePrimaries({ skip = false } = {}) {
   const seen = [];
   let r = newRoad();
   const push = () => seen.push(r.step);
@@ -23,16 +25,48 @@ function walkThePrimaries() {
   r = startPlay(r); push();
   r = finishRound(r, 1, { status: 'lost', ratio: null });
   r = continueAfterRound(r); push();
-  r = startFreePlay(r); push();
+  r = toOwnRoom(r); push();
+  if (skip) {
+    r = skipOwnRoom(r); push();
+  } else {
+    r = chooseRoom(r, 2, mine); push();
+    r = startPlay(r); push();
+    r = finishRound(r, 2, { status: 'won', ratio: 1.0 });
+    r = continueAfterRound(r); push();
+  }
+  if (r.step === LAST_STEP) { r = startFreePlay(r); push(); }
   return { r, seen };
 }
 
 test('primaries only move forward, one step at a time, never to a step already left', () => {
   const { r, seen } = walkThePrimaries();
-  assert.deepEqual(seen, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(seen, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   assert.equal(r.step, FREE_PLAY);
-  assert.equal(r.best[0], 1.2);
-  assert.equal(r.best[1], null);
+  assert.deepEqual(r.best, [1.2, null, 1.0]);
+  assert.deepEqual(r.rooms, [desk, living, mine]);
+});
+
+test('your own room: the third room, or passed by straight to what follows it', () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(stepKind),
+    ['welcome', 'pick', 'found', 'play', 'pick', 'found', 'play', 'two', 'own', 'found', 'play', 'free']);
+  assert.deepEqual([2, 4, 5, 7, 8, 9, 11, 12].map(slotOf), [0, 0, 1, 1, -1, 2, 2, -1]);
+  const { r, seen } = walkThePrimaries({ skip: true });
+  assert.deepEqual(seen.slice(-2), [OWN_STEP, AFTER_OWN], 'skipping goes straight past its reveal and play');
+  assert.equal(r.own, 'skipped');
+  assert.equal(r.rooms[2], null);
+  // the arrows agree with the skip, both ways
+  const at = { ...r, step: OWN_STEP };
+  assert.equal(forward(at).step, AFTER_OWN);
+  assert.equal(back({ ...r, step: AFTER_OWN }).step, OWN_STEP);
+  assert.equal(towardStep({ ...r, step: AFTER_OWN }, 10).step, OWN_STEP, 'Back never lands on a reveal that was never made');
+  // the own room's step waits with a reason, and choosing a photo later undoes the skip
+  const fresh = { ...walkThePrimaries({ skip: true }).r, step: OWN_STEP, own: null };
+  assert.equal(canForward(fresh).why, 'Choose a photo, or continue to the end');
+  const made = chooseRoom({ ...r, step: OWN_STEP }, 2, mine);
+  assert.equal(made.step, OWN_STEP + 1);
+  assert.equal(made.own, null);
+  assert.equal(canForward({ ...made, step: OWN_STEP + 2 }).why, 'Finish a round, win or lose, to continue');
+  assert.equal(skipOwnRoom(newRoad()).step, 1, 'only from its own step');
 });
 
 test('Back goes one left, Forward one right, and Forward waits with a reason', () => {
@@ -94,14 +128,19 @@ test('choosing a different room clears that room’s finished round', () => {
 
 test('counter, lap line and primary labels', () => {
   let r = newRoad();
-  assert.equal(counterText(r), 'Step 1 of 8: Welcome');
+  assert.equal(counterText(r), 'Step 1 of 11: Welcome');
   assert.equal(lapText(r), 'One photo, one room');
   assert.equal(primaryLabel(r), 'I am 18 or over and I understand. Continue');
   r = { ...r, step: 5 };
-  assert.equal(counterText(r), 'Step 5 of 8: Another room');
+  assert.equal(counterText(r), 'Step 5 of 11: Another room');
   assert.equal(lapText(r), 'A second room');
-  r = { ...r, step: LAST_STEP };
+  r = { ...r, step: 8 };
   assert.equal(lapText(r), 'Two rooms');
+  assert.equal(primaryLabel(r), 'Continue: your own room');
+  r = { ...r, step: OWN_STEP };
+  assert.equal(counterText(r), 'Step 9 of 11: Your own room');
+  assert.equal(lapText(r), 'Your own room');
+  assert.equal(primaryLabel(r), 'Continue to the end');
   assert.equal(counterText({ ...r, step: FREE_PLAY }), 'Free play');
 });
 
@@ -114,6 +153,15 @@ test('a road from the device: damaged or foreign is dropped; steps must be earne
   const odd = sanitizeRoad({ v: 2, step: 3, consent: true, rooms: [{ kind: 'sample', id: '../../x' }, null] });
   assert.equal(odd.rooms[0], null);
   assert.equal(odd.step, 2);
+  // a road from before your own room reads with that room not yet made
+  const old = sanitizeRoad({ v: 2, step: 8, consent: true, rooms: [desk, living], finished: [true, true], best: [1.1, null] });
+  assert.equal(old.step, 8);
+  assert.deepEqual(old.rooms, [desk, living, null]);
+  assert.deepEqual(old.best, [1.1, null, null]);
+  const skipped = { ...walkThePrimaries({ skip: true }).r, step: AFTER_OWN };
+  assert.equal(sanitizeRoad(JSON.parse(JSON.stringify(skipped))).step, AFTER_OWN, 'a skip is kept');
+  const noRoom = sanitizeRoad({ ...skipped, own: null, step: OWN_STEP + 2 });
+  assert.equal(noRoom.step, OWN_STEP, 'no reveal or play without a room');
 });
 
 test('layout statics: nothing fixed over content; only the spacing scale', () => {
