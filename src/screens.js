@@ -38,14 +38,20 @@ export function photoInput(onFile, camera = false) {
 // button in its bar, in view without scrolling.
 export const WHERE = {
   mock: 'This page is in MOCK mode: no photo is sent anywhere, and you play sample rooms drawn by code.',
-  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It is then sent once, through this app’s server, to Meta’s Model API to read the room. It is not stored.',
+  // what server/pipeline.py does: one Muse Spark call, then one SAM call
+  // for the surface and one per kind of object (server/config.py caps them)
+  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it, at most 10 calls in all, each carrying the photo (a failed call may be sent one more time). This app does not store it.',
   rehearsal: 'This page is in REHEARSAL mode: a local stand-in answers, not Meta, and no photo leaves this machine.',
 };
+// The key points: each one short line, none weaker than the full notice.
 const WHERE_SHORT = {
-  mock: 'MOCK mode: no photo is sent anywhere.',
-  live: 'LIVE mode: your photo is sent once to Meta’s Model API. Not stored.',
+  mock: 'MOCK mode: no photo is sent anywhere; sample rooms are drawn by code.',
+  live: 'LIVE mode: your photo goes to Meta’s Model API for this read only. Not stored.',
   rehearsal: 'REHEARSAL mode: a local stand-in answers; no photo leaves this machine.',
 };
+export const PEOPLE = 'Keep people and anything private out of the photo.';
+export const AGE = 'You must be 18 or over to send a photo (Meta’s terms).';
+export const KEPT_SHORT = 'Kept: no photo, anywhere. Levels and choices stay on this device.';
 export const KEPT = 'Kept: no photo, anywhere. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.';
 
 export function welcomeView({ mode, primaryLabel, onConsent }) {
@@ -61,16 +67,16 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
       el('h1', { text: 'Photograph your room. Play it.' }),
       el('p', { class: 'lede', text: 'One photo of a room or a desk top becomes a small game: its objects become walls, things to collect, a hazard and the exit.' }),
       el('ul', { class: 'consent', 'aria-label': 'Before you start' }, [
-        el('li', { text: 'No people and nothing private in the photo.' }),
-        el('li', { text: '18 or over to send a photo (Meta’s terms).' }),
+        el('li', { text: PEOPLE }),
+        el('li', { text: AGE }),
         el('li', { text: WHERE_SHORT[m] }),
-        el('li', { text: 'Kept on this device only: levels (never the photo) and your choices.' }),
+        el('li', { text: KEPT_SHORT }),
       ]),
       more('Read the full notice', [
         el('p', { text: 'FRAME//PLAY turns one photo of a room or a desk top into a small game. The outlines of the real objects become the walls you walk around, the things you collect, the hazard you avoid and the exit.' }),
         el('ul', { class: 'consent' }, [
-          el('li', { text: 'Keep people and anything private out of the photo.' }),
-          el('li', { text: 'You must be 18 or over to send a photo (Meta’s terms).' }),
+          el('li', { text: PEOPLE }),
+          el('li', { text: AGE }),
           el('li', { text: WHERE[m] }),
           el('li', { text: KEPT }),
         ]),
@@ -285,7 +291,7 @@ export function freeView() {
 // What each mode does with a photo: the plain line in view; in REHEARSAL
 // the details one press away.
 export const OWN_NOTICE = {
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then sent once to Meta’s Model API (Muse Spark, then SAM 3.1). It is not stored.',
+  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark, then SAM 3.1). Not stored.',
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };
@@ -352,7 +358,7 @@ export function closingRooms({ road, levels, summaries = [], mode }) {
       return {
         slot, heading, title: null, ref: null, playable: false,
         result: 'Not made',
-        // in MOCK the screen's last line says why, once
+        // in MOCK the screen's last line says why, a single time
         ai: mode === 'live' || mode === 'rehearsal'
           ? 'No room was made from a photo of your own this time.'
           : 'No room was made from a photo of your own, and nothing was invented.',

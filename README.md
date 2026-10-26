@@ -19,9 +19,12 @@ What happens to that photo depends on the server's mode, and the page says
 so plainly:
 
 - **LIVE** (a key and the live switch on the server): the photo is shrunk
-  and stripped of its camera data on the device, sent once through the
-  server to Meta's models, and the room is built from what they found in
-  it.
+  and stripped of its camera data on the device, then goes through this
+  app's server to Meta's Model API for one read: one Muse Spark call, then
+  one SAM 3.1 call for the surface and one for each kind of object on it,
+  at most 10 calls in all, each carrying the photo (a failed call may be
+  sent one more time). This app does not store the photo. The room is built from
+  what the models found in it.
 - **MOCK** (no key): nothing reads the photo, so nothing is invented. It is
   shown on your device only, and the road goes on to its end.
 - **REHEARSAL** (the local stand-in): the stand-in only knows its sample
@@ -35,7 +38,7 @@ circuit is complete: each room with whether you won and your best route,
 one sentence on what the AI did in it, and the ways on: Free play, Play
 again for any room, Try your own room (or, in MOCK, why it needs the live
 AI), and Start over. Free play always opens on the list of rooms; a replay
-lasts only while you stay on it. Your own room, once made, stays on the road: going
+lasts only while you stay on it. Your own room, when made, stays on the road: going
 back to its step and choosing Continue to the end keeps it, its result and
 its place in Free play.
 
