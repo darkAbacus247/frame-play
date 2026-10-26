@@ -339,6 +339,9 @@ function startOver() {
 
 // ---- screens ----
 async function render() {
+  // a free-play replay lasts only while Free play is on screen: every way
+  // off it (←, the browser's Back and Forward, the welcome-back card) ends it
+  if (A.road.step !== R.FREE_PLAY) A.free = null;
   stopViews();
   hideTip();
   A.missingWhy = null;
