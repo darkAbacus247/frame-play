@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node (tests only; no packages are installed)
+node_modules/
+
+# Local secrets and environment files never belong here
+.env
+.env.*
+*.key
+
+# Local run output
+*.log
+tmp/
+out/
+
+# Editors and systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
