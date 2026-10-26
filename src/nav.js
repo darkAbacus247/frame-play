@@ -14,7 +14,9 @@ export function navParams(width, height) {
     radius,
     planExtra: 0.75 * cell,
     hazardMargin: 0.008 * L,
-    touch: radius + 0.01 * L,
+    // touch reach: radius + 0.01 L, but never so short that no free cell can
+    // touch (small pictures have coarse cells relative to L)
+    touch: Math.max(radius + 0.01 * L, radius + 2.25 * cell),
     speed: 0.22 * L,
   };
 }
@@ -183,14 +185,20 @@ function neighbours(nav, c, out) {
 }
 
 // Grid distances (8 neighbours, no corner cutting) from one or more sources.
-// sources: array of [cell, startCost].
-export function gridDistances(nav, sources) {
+// sources: array of [cell, startCost]. If src is given (Int32Array), it is
+// filled with the source cell each distance came from.
+export function gridDistances(nav, sources, src) {
   const N = nav.gw * nav.gh;
   const dist = new Float64Array(N).fill(Infinity);
+  if (src) src.fill(-1);
   const heap = new Heap();
   for (const [c, d0] of sources) {
-    if (!nav.pass[c]) continue;
-    if (d0 < dist[c]) { dist[c] = d0; heap.push(d0, c); }
+    if (!nav.pass[c] || !(d0 < Infinity)) continue;
+    if (d0 < dist[c]) {
+      dist[c] = d0;
+      if (src) src[c] = c;
+      heap.push(d0, c);
+    }
   }
   const nb = [];
   const gw = nav.gw, cs = nav.cell, diag = Math.SQRT2 * cs;
@@ -201,7 +209,11 @@ export function gridDistances(nav, sources) {
     for (const n of neighbours(nav, c, nb)) {
       const step = (n - c === 1 || c - n === 1 || n - c === gw || c - n === gw) ? cs : diag;
       const nd = dist[c] + step;
-      if (nd < dist[n]) { dist[n] = nd; heap.push(nd, n); }
+      if (nd < dist[n]) {
+        dist[n] = nd;
+        if (src) src[n] = src[c];
+        heap.push(nd, n);
+      }
     }
   }
   return dist;
