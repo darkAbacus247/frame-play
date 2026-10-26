@@ -34,6 +34,18 @@ test('focus rings are for keyboard focus only; script-focused headings show none
   }
 });
 
+test('the consent text lines up with its bullets: left-aligned, and nothing later centres it', () => {
+  assert.match(rule('.consent'), /text-align:\s*left/);
+  assert.match(rule('.welcome > .bar-body'), /text-align:\s*left/);
+  const at = css.indexOf('\n.welcome > .bar-body');
+  assert.ok(at > css.indexOf('\n.with-bar > .bar-body'), 'the welcome rule comes after the centred default it overrides');
+  for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+    if (/\.welcome|\.consent/.test(m[1])) assert.doesNotMatch(m[2], /text-align:\s*center/, m[1].trim());
+  }
+  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /screen sparse welcome/, 'the welcome screen does not take the centred sparse layout');
+});
+
 test('pinned, the body scrolls in its own box and the bar takes its own height in flow', () => {
   const screen = rule('.with-bar');
   assert.match(screen, /display:\s*flex/);

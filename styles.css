@@ -257,8 +257,11 @@ dialog.card .label { color: var(--muted); }
 
 /* ---- welcome ---- */
 .app { position: relative; }
+/* read from the left edge: the consent text lines up with its bullets */
+.welcome > .bar-body { align-items: flex-start; text-align: left; }
+.welcome > .bar-end { justify-content: flex-start; }
 .welcome h1, .welcome p, .welcome ul { max-width: 70ch; }
-.consent { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s2); }
+.consent { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s2); text-align: left; }
 
 /* ---- the rehearsal band, the live progress ---- */
 .band {
