@@ -1,0 +1,162 @@
+{
+  "schema": "frameplay.room/1",
+  "id": "desk",
+  "title": "The Desk Top",
+  "theme_line": "Three coins rolled loose across the desk. Gather them, mind the cactus, and hop in the box.",
+  "width": 1024,
+  "height": 768,
+  "seed": 1201,
+  "background": [
+    { "shape": { "rect": [0, 0, 1024, 768] }, "paint": { "linear": [0, 0, 0, 330], "stops": ["#e6dac4", "#cbbb9d"] }, "grain": 3 },
+    { "shape": { "rect": [0, 296, 1024, 22] }, "paint": { "linear": [0, 296, 0, 318], "stops": ["#cbbb9d", "#b5a385"] }, "grain": 3 }
+  ],
+  "surface": {
+    "name": "desk",
+    "shape": { "poly": [[60, 318], [964, 318], [1024, 560], [1024, 690], [0, 690], [0, 560]] },
+    "paint": { "linear": [0, 318, 0, 690], "stops": ["#c4935f", "#a8754a"] },
+    "grain": 5
+  },
+  "foreground": [
+    { "shape": { "poly": [[150, 402], [690, 396], [690, 399], [150, 405]] }, "paint": "#b98a5b", "grain": 3 },
+    { "shape": { "poly": [[330, 560], [930, 552], [930, 556], [330, 564]] }, "paint": "#b07f50", "grain": 3 },
+    { "shape": { "poly": [[90, 610], [540, 604], [540, 607], [90, 613]] }, "paint": "#b88858", "grain": 3 },
+    { "shape": { "rect": [0, 690, 1024, 78] }, "paint": { "linear": [0, 690, 0, 768], "stops": ["#7d5535", "#5a3a21"] }, "grain": 4 },
+    { "shape": { "rect": [0, 686, 1024, 5] }, "paint": "#d9ab78", "grain": 2 }
+  ],
+  "shades": [
+    { "ellipse": [230, 387, 70, 9], "alpha": 0.35 },
+    { "ellipse": [724, 347, 98, 9], "alpha": 0.35 },
+    { "ellipse": [470, 353, 20, 4], "alpha": 0.3 },
+    { "ellipse": [605, 483, 52, 8], "alpha": 0.35 },
+    { "ellipse": [852, 509, 42, 7], "alpha": 0.35 },
+    { "ellipse": [742, 573, 20, 4], "alpha": 0.3 },
+    { "ellipse": [155, 641, 95, 9], "alpha": 0.35 },
+    { "ellipse": [300, 465, 20, 4], "alpha": 0.3 }
+  ],
+  "objects": [
+    {
+      "id": "frame", "name": "picture frame", "role": "solid", "on_surface": false,
+      "reason": "Hangs on the wall, out of reach",
+      "shape": { "rect": [744, 58, 160, 120] },
+      "paint": { "linear": [744, 58, 904, 178], "stops": ["#6b4a2e", "#4a311c"] },
+      "details": [
+        { "shape": { "rect": [756, 70, 136, 96] }, "paint": "#efe8da" },
+        { "shape": { "rect": [768, 82, 112, 72] }, "paint": { "linear": [0, 82, 0, 154], "stops": ["#9fc6dc", "#e3ecd0"] } },
+        { "shape": { "poly": [[768, 154], [768, 132], [792, 120], [814, 130], [842, 114], [866, 126], [880, 122], [880, 154]] }, "paint": "#6e9a5a" }
+      ]
+    },
+    {
+      "id": "books", "name": "stack of books", "role": "solid",
+      "reason": "A heavy stack of books: a solid wall",
+      "shape": { "poly": [[660, 262], [786, 262], [786, 284], [800, 284], [800, 312], [812, 312], [812, 346], [636, 346], [636, 312], [648, 312], [648, 284], [660, 284]] },
+      "paint": "#7a3434",
+      "details": [
+        { "shape": { "rect": [636, 312, 176, 34] }, "paint": { "linear": [636, 0, 812, 0], "stops": ["#943f3f", "#6e2c2c"] } },
+        { "shape": { "rect": [796, 316, 14, 26] }, "paint": "#efe6d0" },
+        { "shape": { "rect": [648, 284, 152, 28] }, "paint": { "linear": [648, 0, 800, 0], "stops": ["#33666c", "#244b50"] } },
+        { "shape": { "rect": [786, 288, 12, 20] }, "paint": "#f1e9d6" },
+        { "shape": { "rect": [660, 262, 126, 22] }, "paint": { "linear": [660, 0, 786, 0], "stops": ["#d1aa2e", "#a8861d"] } },
+        { "shape": { "rect": [690, 262, 10, 22] }, "paint": "#5b4a1a" }
+      ]
+    },
+    {
+      "id": "coin1", "name": "coin", "role": "collect",
+      "reason": "Small and shiny: a classic thing to collect",
+      "shape": { "path": [["M", 453, 340], ["A", 470, 340, 17, 8, 180, 360], ["L", 487, 345], ["A", 470, 345, 17, 8, 0, 180]] },
+      "paint": { "linear": [453, 0, 487, 0], "stops": ["#c9961f", "#9c7012"] },
+      "details": [
+        { "shape": { "ellipse": [470, 340, 17, 8] }, "paint": { "linear": [453, 332, 487, 348], "stops": ["#f6d35c", "#d9a92a"] } },
+        { "shape": { "ellipse": [470, 340, 10, 4.5] }, "paint": "#e8bd3e" }
+      ]
+    },
+    {
+      "id": "lamp", "name": "desk lamp", "role": "solid",
+      "reason": "Tall and sturdy: walk around its base",
+      "shape": { "path": [["M", 200, 170], ["L", 260, 170], ["L", 300, 250], ["L", 236, 250], ["L", 236, 362], ["L", 276, 362], ["A", 276, 374, 12, 12, -90, 90], ["L", 184, 386], ["A", 184, 374, 12, 12, 90, 270], ["L", 224, 362], ["L", 224, 250], ["L", 160, 250]] },
+      "paint": { "linear": [160, 0, 300, 0], "stops": ["#4a4a4a", "#2b2b2b"] },
+      "details": [
+        { "shape": { "poly": [[200, 170], [260, 170], [300, 250], [160, 250]] }, "paint": { "linear": [160, 170, 300, 250], "stops": ["#4c7f69", "#22433a"] } },
+        { "shape": { "rect": [160, 244, 140, 6] }, "paint": "#6d9c86" },
+        { "shape": { "rect": [184, 362, 92, 4] }, "paint": "#777777" },
+        { "shape": { "rect": [227, 250, 3, 112] }, "paint": "#666666" }
+      ]
+    },
+    {
+      "id": "notebook", "name": "notebook", "role": "flat",
+      "reason": "Lies flat on the desk: walk right across it",
+      "shape": { "poly": [[292, 436], [452, 428], [478, 512], [300, 522]] },
+      "paint": { "linear": [292, 436, 478, 512], "stops": ["#3f74a8", "#2c5785"] },
+      "details": [
+        { "shape": { "poly": [[446, 429], [452, 428], [478, 512], [472, 512]] }, "paint": "#f3efe4" },
+        { "shape": { "poly": [[420, 431], [427, 431], [452, 515], [445, 516]] }, "paint": "#1b2f45" }
+      ]
+    },
+    {
+      "id": "mug", "name": "mug", "role": "solid",
+      "reason": "Solid ceramic; its handle leaves a gap",
+      "shape": { "rings": [
+        { "path": [["M", 560, 392], ["A", 600, 392, 40, 9, 180, 360], ["L", 640, 404], ["A", 640, 436, 30, 32, -90, 90], ["L", 640, 472], ["A", 630, 472, 10, 10, 0, 90], ["L", 570, 482], ["A", 570, 472, 10, 10, 90, 180]] },
+        { "path": [["M", 640, 416], ["A", 640, 436, 16, 20, -90, 90]] }
+      ] },
+      "paint": { "linear": [560, 0, 640, 0], "stops": ["#f1ece2", "#bfb7a8"] },
+      "grain": 2,
+      "details": [
+        { "shape": { "ellipse": [600, 392, 34, 6] }, "paint": "#4b2f1d" },
+        { "shape": { "rect": [560, 430, 80, 10] }, "paint": "#c4553f" }
+      ]
+    },
+    {
+      "id": "cactus", "name": "cactus", "role": "avoid",
+      "reason": "Spiny: brushing past it should hurt",
+      "shape": { "path": [["M", 834, 350], ["A", 852, 350, 18, 20, 180, 360], ["L", 870, 372], ["L", 882, 372], ["L", 882, 345], ["A", 889, 345, 7, 8, 180, 360], ["L", 896, 386], ["L", 870, 386], ["L", 870, 440], ["L", 898, 440], ["L", 898, 452], ["L", 892, 452], ["L", 882, 508], ["L", 822, 508], ["L", 812, 452], ["L", 806, 452], ["L", 806, 440], ["L", 834, 440], ["L", 834, 404], ["L", 810, 404], ["L", 810, 362], ["A", 817, 362, 7, 8, 180, 360], ["L", 824, 390], ["L", 834, 390]] },
+      "paint": { "linear": [806, 0, 898, 0], "stops": ["#5a9a55", "#3a713a"] },
+      "details": [
+        { "shape": { "poly": [[806, 440], [898, 440], [898, 452], [892, 452], [882, 508], [822, 508], [812, 452], [806, 452]] }, "paint": { "linear": [806, 440, 898, 508], "stops": ["#c46e43", "#8d4627"] } },
+        { "shape": { "rect": [806, 440, 92, 3] }, "paint": "#d98a5f" },
+        { "shape": { "rect": [845, 340, 2, 98] }, "paint": "#2f5f30" },
+        { "shape": { "rect": [858, 336, 2, 102] }, "paint": "#2f5f30" },
+        { "shape": { "rect": [888, 342, 1.5, 42] }, "paint": "#2f5f30" },
+        { "shape": { "rect": [816, 358, 1.5, 44] }, "paint": "#2f5f30" },
+        { "shape": { "ellipse": [841, 362, 1.5, 1.5] }, "paint": "#eef3cf" },
+        { "shape": { "ellipse": [864, 384, 1.5, 1.5] }, "paint": "#eef3cf" },
+        { "shape": { "ellipse": [851, 410, 1.5, 1.5] }, "paint": "#eef3cf" },
+        { "shape": { "ellipse": [864, 428, 1.5, 1.5] }, "paint": "#eef3cf" },
+        { "shape": { "ellipse": [892, 362, 1.5, 1.5] }, "paint": "#eef3cf" },
+        { "shape": { "ellipse": [814, 381, 1.5, 1.5] }, "paint": "#eef3cf" }
+      ]
+    },
+    {
+      "id": "coin2", "name": "coin", "role": "collect",
+      "reason": "Small and shiny: a classic thing to collect",
+      "shape": { "path": [["M", 725, 560], ["A", 742, 560, 17, 8, 180, 360], ["L", 759, 565], ["A", 742, 565, 17, 8, 0, 180]] },
+      "paint": { "linear": [725, 0, 759, 0], "stops": ["#c9961f", "#9c7012"] },
+      "details": [
+        { "shape": { "ellipse": [742, 560, 17, 8] }, "paint": { "linear": [725, 552, 759, 568], "stops": ["#f6d35c", "#d9a92a"] } },
+        { "shape": { "ellipse": [742, 560, 10, 4.5] }, "paint": "#e8bd3e" }
+      ]
+    },
+    {
+      "id": "box", "name": "cardboard box", "role": "exit",
+      "reason": "Open and roomy: hop in to leave",
+      "shape": { "poly": [[90, 505], [102, 472], [228, 472], [240, 505], [240, 605], [220, 640], [70, 640], [70, 540]] },
+      "paint": "#c99d62",
+      "details": [
+        { "shape": { "poly": [[90, 505], [102, 472], [228, 472], [240, 505]] }, "paint": { "linear": [0, 472, 0, 505], "stops": ["#d8b07a", "#b7894f"] } },
+        { "shape": { "poly": [[90, 505], [240, 505], [220, 540], [70, 540]] }, "paint": { "linear": [0, 505, 0, 540], "stops": ["#3a2816", "#5e4428"] } },
+        { "shape": { "poly": [[70, 540], [220, 540], [220, 640], [70, 640]] }, "paint": { "linear": [70, 540, 220, 640], "stops": ["#d6aa6c", "#b98b50"] } },
+        { "shape": { "poly": [[220, 540], [240, 505], [240, 605], [220, 640]] }, "paint": { "linear": [220, 0, 240, 0], "stops": ["#a77c45", "#8a6336"] } },
+        { "shape": { "rect": [136, 540, 18, 100] }, "paint": "#e2c491" }
+      ]
+    },
+    {
+      "id": "coin3", "name": "coin", "role": "collect",
+      "reason": "Small and shiny: a classic thing to collect",
+      "shape": { "path": [["M", 283, 452], ["A", 300, 452, 17, 8, 180, 360], ["L", 317, 457], ["A", 300, 457, 17, 8, 0, 180]] },
+      "paint": { "linear": [283, 0, 317, 0], "stops": ["#c9961f", "#9c7012"] },
+      "details": [
+        { "shape": { "ellipse": [300, 452, 17, 8] }, "paint": { "linear": [283, 444, 317, 460], "stops": ["#f6d35c", "#d9a92a"] } },
+        { "shape": { "ellipse": [300, 452, 10, 4.5] }, "paint": "#e8bd3e" }
+      ]
+    }
+  ]
+}

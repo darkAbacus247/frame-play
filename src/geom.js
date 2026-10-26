@@ -192,6 +192,31 @@ export function ellipseRing(cx, cy, rx, ry, perQuadrant) {
   return ring;
 }
 
+// Sine and cosine of an angle in degrees, using only + - * / after an exact
+// range reduction, so every engine returns the very same numbers.
+const RAD = Math.PI / 180;
+function polySin(x) {
+  const x2 = x * x;
+  return x * (1 + x2 * (-1 / 6 + x2 * (1 / 120 + x2 * (-1 / 5040 + x2 * (1 / 362880 + x2 * (-1 / 39916800 + x2 * (1 / 6227020800 + x2 * (-1 / 1307674368000 + x2 * (1 / 355687428096000)))))))));
+}
+function polyCos(x) {
+  const x2 = x * x;
+  return 1 + x2 * (-1 / 2 + x2 * (1 / 24 + x2 * (-1 / 720 + x2 * (1 / 40320 + x2 * (-1 / 3628800 + x2 * (1 / 479001600 + x2 * (-1 / 87178291200 + x2 * (1 / 20922789888000))))))));
+}
+export function sinCosDeg(deg) {
+  let d = deg % 360;
+  if (d < 0) d += 360;
+  const k = Math.round(d / 90);
+  const r = (d - 90 * k) * RAD;
+  const s = polySin(r), c = polyCos(r);
+  switch (k & 3) {
+    case 0: return [s, c];
+    case 1: return [c, -s];
+    case 2: return [-s, -c];
+    default: return [-c, s];
+  }
+}
+
 export function ringsInside(rings, w, h) {
   for (const r of rings) {
     for (const [x, y] of r) {
