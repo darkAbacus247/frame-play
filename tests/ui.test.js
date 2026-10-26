@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { installFakeDocument } from './fakedom.js';
-import { el, showCard, cardOpen } from '../src/ui.js';
+import { el, showCard, cardOpen, reserveHeight } from '../src/ui.js';
 
 test('an end card is modal: one primary, focus on it, Escape cannot close it', () => {
   const doc = installFakeDocument();
@@ -112,6 +113,25 @@ test('a card that is closed by anything but its buttons comes straight back, foc
   assert.equal(doc.activeElement, dialog.querySelector('[data-primary]'));
   dialog.querySelector('[data-primary]').click();
   assert.equal(dialog.open, false, 'its own button does close it');
+});
+
+test('the header keeps its height when a round ends on the same step, and resizes freely on a new one', () => {
+  const box = { offsetHeight: 104, style: {} };
+  reserveHeight(box, true);
+  assert.equal(box.style.minHeight, '104px', 'the height is held before the contents change');
+  box.offsetHeight = 104; // the why line went away, but min-height holds the box
+  reserveHeight(box, true);
+  assert.equal(box.style.minHeight, '104px');
+  reserveHeight(box, false);
+  assert.equal(box.style.minHeight, '', 'a new step lets it size itself');
+  const hidden = { offsetHeight: 0, style: {} };
+  reserveHeight(hidden, true);
+  assert.equal(hidden.style.minHeight, undefined, 'nothing is held for a box that is not laid out');
+  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const fn = app.slice(app.indexOf('function renderHeader()'), app.indexOf('function renderDock()'));
+  assert.ok(fn.indexOf("reserveHeight($('top'), A.headerStep === r.step)") >= 0, 'renderHeader holds the height on the same step');
+  assert.ok(fn.indexOf('reserveHeight') < fn.indexOf('replaceChildren'), 'and does so before it changes anything');
+  assert.ok(fn.indexOf('reserveHeight') < fn.indexOf("$('lap').textContent"));
 });
 
 test('el skips empty attributes and gives every tooltip to screen readers', () => {

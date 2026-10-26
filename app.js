@@ -8,7 +8,7 @@ import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
 import { readPref, writePref, soundOn, setSound } from './src/store.js';
 import * as S from './src/store.js';
-import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar } from './src/ui.js';
+import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight } from './src/ui.js';
 import * as R from './src/road.js';
 import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
@@ -41,6 +41,7 @@ const A = {
   drawerOpen: false,
   firstVisit: false,
   pulsed: false,
+  headerStep: 0, // the step the header was last drawn for
   tour: { on: false, offered: false, lastProgress: Date.now() },
 };
 
@@ -253,6 +254,10 @@ function stopViews() {
 
 function renderHeader() {
   const r = A.road;
+  // on the same step (a round ending, the tour switched) the header keeps
+  // its height, so the board and the end card over it do not move
+  reserveHeight($('top'), A.headerStep === r.step);
+  A.headerStep = r.step;
   $('lap').textContent = R.lapText(r);
   const fw = R.canForward(r);
   const back = el('button', {
@@ -791,6 +796,11 @@ setInterval(() => {
   if (A.tour.on) lightControl();
 }, 1000);
 addEventListener('resize', () => { if (A.tour.on) lightControl(); });
+// a new width wraps the header differently: let it find its own height again
+let headerWidth = innerWidth;
+addEventListener('resize', () => {
+  if (innerWidth !== headerWidth) { headerWidth = innerWidth; reserveHeight($('top'), false); }
+});
 $('main').addEventListener('scroll', () => { if (A.tour.on) lightControl(); }, { passive: true });
 
 // ---- history: Back and Forward follow the road ----

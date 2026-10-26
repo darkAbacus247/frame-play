@@ -92,6 +92,13 @@ export function holdBar(section, bar, minBodyRem = 10) {
   return ro;
 }
 
+// Keep a box at least as tall as it is now, so new contents cannot shrink it
+// and shift what sits below (keep), or let it size itself again (!keep).
+export function reserveHeight(box, keep) {
+  if (!keep) { box.style.minHeight = ''; return; }
+  if (box.offsetHeight) box.style.minHeight = `${box.offsetHeight}px`;
+}
+
 // ---- tooltips ----
 // Every control has plain words: shown on hover, focus and long press, and
 // given to screen readers through aria-describedby. A tooltip is placed by
