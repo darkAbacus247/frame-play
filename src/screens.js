@@ -104,14 +104,22 @@ export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, 
   ]);
 }
 
+// Why the photo picker on Steps 2 and 5 is off, by mode.
+export const OFF_WORDS = {
+  rehearsal: 'Off here in REHEARSAL: the stand-in knows only its own sample room. On Step 9 you can send its saved picture.',
+  mock: 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.',
+};
+
 // off: why the photo picker is off, or null; rehearse: { label, tip, onClick } or null
+// The file input exists only while the picker is on: an off picker has
+// nothing a photo could reach.
 export function pickView({ slot, off, onFile, rehearse = null }) {
   const cards = el('div', { class: 'room-cards' });
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
-  const input = photoInput(onFile);
+  const input = off ? null : photoInput(onFile);
   const choose = el('button', {
     type: 'button', class: 'btn', disabled: !!off, text: 'Choose a photo', 'data-tour': off ? null : 'room-card',
-    tip: 'Pick a photo of a room or a desk top. It is shrunk on this device first', onclick: () => input.click(),
+    tip: 'Pick a photo of a room or a desk top. It is shrunk on this device first', onclick: () => input && input.click(),
   });
   const actions = el('div', { class: 'actions' }, [
     choose, input, off ? el('span', { class: 'why', text: off }) : null,

@@ -11,6 +11,7 @@ Live mode needs MODEL_API_KEY and FRAMEPLAY_LIVE=yes in the operator's own
 environment; without both the server runs in mock mode and calls no model.
 """
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -266,6 +267,16 @@ def build_server(settings, host='127.0.0.1', port=8191, log=None):
     return srv
 
 
+def is_loopback(host):
+    """True only for a loopback address (127.0.0.0/8, ::1) or localhost."""
+    if host == 'localhost':
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description='FRAME//PLAY server (standard library only)')
     ap.add_argument('--host', default='127.0.0.1')
@@ -277,6 +288,8 @@ def main(argv=None):
     try:
         if args.public and args.rehearse:
             raise config.ConfigError('Rehearsal is for this machine only; it cannot run with --public')
+        if args.rehearse and not is_loopback(args.host):
+            raise config.ConfigError('Rehearsal is for this machine only; it listens on a loopback address such as 127.0.0.1')
         settings = config.settings_from(os.environ, args.rehearse, args.rehearsal_room)
     except config.ConfigError as e:
         print(f'FRAME//PLAY: {e}', file=sys.stderr)

@@ -84,6 +84,10 @@ python server/standin.py --room desk --port 8192
 python server/server.py --rehearse http://127.0.0.1:8192/v1 --rehearsal-room desk
 ```
 
+A rehearsal listens on this machine only: the server refuses `--rehearse`
+with `--public` or with a `--host` that is not a loopback address. A level
+kept on the device is reused only in the mode that made it.
+
 ## Tests
 
 ```

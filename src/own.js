@@ -85,6 +85,15 @@ export function rehearsalVerdict(id, room, titleOf = (x) => x) {
   return { ok: false, why: 'In REHEARSAL the local stand-in (not Meta) only knows the sample rooms’ own pictures, and this photo is not one of them. Nothing was sent, and no level is made from it.' };
 }
 
+// A level kept on this device for a photo, if it may be used here: made in
+// this very mode, for a copy of the same size. Otherwise null.
+export function keptLevel(kept, photo, mode) {
+  if (!kept || !kept.level || kept.level.origin !== mode) return null;
+  const p = kept.level.picture;
+  if (!p || p.width !== photo.width || p.height !== photo.height) return null;
+  return kept.level;
+}
+
 // Each object's outline: traced inside SAM's exact box, or the box itself
 // when the trace is not tight enough. Yields between objects, so the page's
 // progress words stay live.

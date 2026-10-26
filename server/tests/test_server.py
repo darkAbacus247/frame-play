@@ -1,11 +1,13 @@
+import contextlib
 import http.client
+import io
 import json
 import threading
 import unittest
 
 from server import config
 from server.config import settings_from
-from server.server import CSP, FramePlayServer, Log, build_server, static_file
+from server.server import CSP, FramePlayServer, Log, build_server, is_loopback, main, static_file
 from server.tests import images
 
 
@@ -147,6 +149,18 @@ class PhotoChecks(unittest.TestCase):
         self.assertEqual(j['label'], 'REHEARSAL · local stand-in, not Meta')
         self.assertEqual(j['rehearsal']['stand_in_base'], 'http://127.0.0.1:9/v1')
         self.assertEqual(j['key'], 'absent')
+
+
+class RehearsalStaysHome(unittest.TestCase):
+    def test_rehearsal_refuses_any_host_but_loopback(self):
+        for host in ('0.0.0.0', '::', '192.168.1.20', 'example'):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = main(['--rehearse', 'http://127.0.0.1:8192/v1', '--host', host])
+            self.assertEqual(code, 2, host)
+            self.assertIn('this machine only', err.getvalue())
+        for host in ('127.0.0.1', '127.0.0.2', '::1', 'localhost'):
+            self.assertTrue(is_loopback(host), host)
 
 
 class Statics(unittest.TestCase):

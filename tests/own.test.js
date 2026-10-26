@@ -6,7 +6,7 @@ import { paintRoom } from '../src/painter.js';
 import { fillRings, maskBounds } from '../src/raster.js';
 import { REPLY_SCHEMA } from '../src/reply.js';
 import { LABELS } from '../src/level.js';
-import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, MOCK_WORDS } from '../src/own.js';
+import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, keptLevel, MOCK_WORDS } from '../src/own.js';
 import { jpegLike } from './jpegsim.js';
 
 const rooms = {};
@@ -279,6 +279,16 @@ test('LIVE: the people refusal and a reply from the wrong mode make no level', a
   const r2 = await makeOwnRoom({ mode: 'live', file: file(sent('desk')), deps: m.deps });
   assert.equal(r2.kind, 'refused');
   assert.match(r2.words, /LIVE but answered as REHEARSAL/);
+});
+
+test('a kept level is only for the mode that made it, and the same size', () => {
+  const kept = (origin) => ({ level: { origin, picture: { width: 1024, height: 768 } } });
+  const photo = { width: 1024, height: 768 };
+  assert.ok(keptLevel(kept('live'), photo, 'live'));
+  assert.equal(keptLevel(kept('rehearsal'), photo, 'live'), null, 'a REHEARSAL level is never used in LIVE');
+  assert.equal(keptLevel(kept('live'), photo, 'rehearsal'), null);
+  assert.equal(keptLevel(kept('live'), { width: 512, height: 384 }, 'live'), null);
+  assert.equal(keptLevel(null, photo, 'live'), null);
 });
 
 test('a level kept on this device is used only when it was made in this mode', async () => {

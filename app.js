@@ -14,10 +14,10 @@ import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tou
 import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
-import { levelFromReply, makeOwnRoom, signature } from './src/own.js';
+import { levelFromReply, makeOwnRoom, signature, keptLevel } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, more, photoInput,
+  freeView, ownView, ownResult, closingRooms, closingView, more, photoInput, OFF_WORDS,
 } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
@@ -120,11 +120,12 @@ async function levelFor(ref) {
 // ---- the live path (and its rehearsal) ----
 // A level kept on this device for this photo: validated again (a stored
 // proof is never trusted) against the very copy just made.
+// Only a level made in this mode (a REHEARSAL level is never passed off as
+// LIVE; both modes may share this page's address).
 function storedEntry(photo) {
   const kept = S.loadLevel(photo.sha256);
-  if (!kept) return null;
-  const level = kept.level;
-  if (level.picture.width !== photo.width || level.picture.height !== photo.height) return null;
+  const level = keptLevel(kept, photo, A.mode);
+  if (!level) return null;
   const v = validateLevel(level);
   if (!v.ok) return null;
   level.proof = v.proof;
@@ -187,7 +188,10 @@ async function readThroughServer(blob, copy, picture, pictureRef, onWords) {
   return levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
 }
 
+// Steps 2 and 5: only LIVE reads a photo here (MOCK and REHEARSAL have no
+// picker on these steps, and this says so again).
 function choosePhoto(slot, file, panel, opts) {
+  if (A.mode !== 'live') return null;
   return runLivePath(slot, panel, async (onWords) => {
     const photo = await readPhoto(file);
     const ref = { kind: 'photo', sha256: photo.sha256 };
@@ -259,8 +263,10 @@ function renderHeader() {
     type: 'button', class: 'btn icon-btn', 'aria-label': 'Forward one step', tip: 'Forward one step on the road',
     disabled: !fw.ok, onclick: () => setRoad(R.forward(A.road)),
   }, [el('span', { 'aria-hidden': 'true', text: '→' })]);
-  // a room whose level is missing names the way on that this screen offers
-  const why = el('span', { class: 'why', text: fw.ok || r.step >= R.FREE_PLAY ? '' : A.missingWhy || fw.why });
+  // a room whose level is missing names the way on that this screen offers;
+  // in MOCK no photo can make your own room, so its step names the one way on
+  const mockOwn = r.step === R.OWN_STEP && A.mode !== 'live' && A.mode !== 'rehearsal';
+  const why = el('span', { class: 'why', text: fw.ok || r.step >= R.FREE_PLAY ? '' : A.missingWhy || (mockOwn ? 'Continue to the end to go on' : fw.why) });
   const pulse = !A.pulsed && shouldPulse({ firstVisit: A.firstVisit, reducedMotion: reducedMotion() });
   A.pulsed = true;
   const tourBtn = el('button', {
@@ -380,9 +386,9 @@ function screenWelcome(main) {
 
 function photoOffWords() {
   if (A.mode === 'live') return null;
-  if (A.mode === 'rehearsal') return 'Off in REHEARSAL: the stand-in reads only its own sample room, so no photo is ever sent.';
+  if (A.mode === 'rehearsal') return OFF_WORDS.rehearsal;
   if (!A.health) return `Off: ${A.modeWhy}`;
-  return 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.';
+  return OFF_WORDS.mock;
 }
 
 function roomCard(entry, { disabledWhy, onPick, tour = true }) {
@@ -698,6 +704,9 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   shown.hidden = true;
   if (sends) progressPanel(panel, LIVE_LINES, step);
   try {
+    // the samples' fingerprints, for a rehearsal's check (a return visit
+    // may reach this without any sample room drawn yet)
+    for (const s of SAMPLES) await sample(s.id);
     const r = await makeOwnRoom({
       mode: A.mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(),
       onWords: (words) => {
@@ -726,7 +735,10 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     say(r.kind === 'kept' ? 'Your photo is shown here and stays on this device. Nothing was sent.' : r.words);
   } catch (e) {
     setBusy(false);
-    progressPanel(panel, LIVE_LINES, step, `${e.message} You can try another photo, or continue to the end.`);
+    const words = `${e.message} You can try another photo, or continue to the end.`;
+    // MOCK sends nothing, so it shows no progress lines: only the words
+    if (sends) progressPanel(panel, LIVE_LINES, step, words);
+    else showOwnResult(shown, { kind: 'refused', words });
     say(e.message);
   }
 }

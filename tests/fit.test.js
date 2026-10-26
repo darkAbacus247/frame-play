@@ -72,7 +72,7 @@ function screens(mode) {
   const welcome = V.welcomeView({ mode, primaryLabel: R.primaryLabel(R.newRoad()), onConsent: noop });
   out.push({ name: 'Welcome', step: 1, section: welcome.section });
   for (const slot of [0, 1]) {
-    const off = mode === 'live' ? null : mode === 'rehearsal' ? 'Off in REHEARSAL: the stand-in reads only its own sample room, so no photo is ever sent.' : 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.';
+    const off = mode === 'live' ? null : V.OFF_WORDS[mode];
     const v = V.pickView({ slot, off, onFile: noop, rehearse: mode === 'rehearsal' ? { label: 'Rehearse the live path', tip: 't', onClick: noop } : null });
     v.cards.append(card('desk'), slot === 1 ? V.roomCardView({ title: rooms.living.title, origin: 'mock', disabledWhy: 'Already your first room', onPick: noop }) : card('living'));
     out.push({ name: `Pick room ${slot + 1}`, step: R.PICK_STEPS[slot], section: v.section, road: { rooms: slot ? [{ kind: 'sample', id: 'desk' }, null, null] : [null, null, null] } });
