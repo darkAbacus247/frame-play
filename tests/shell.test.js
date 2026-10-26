@@ -159,6 +159,16 @@ test('Escape and modifier keys never create the sound context; disclosure marker
   for (const m of css.matchAll(/summary::before \{ content: ([^;]+);/g)) assert.match(m[1], /^"[▸▾]" \/ ""$/, m[0]);
 });
 
+test('the tests’ own PNG CRC-32 matches the standard one, on any Node', async () => {
+  const { crc32, encodePNG, decodePNG } = await import('./png.js');
+  assert.equal(crc32(Buffer.from('IEND', 'latin1')), 0xae426082);
+  assert.equal(crc32(Buffer.from('123456789', 'latin1')), 0xcbf43926);
+  const px = new Uint8ClampedArray([1, 2, 3, 255, 4, 5, 6, 255]);
+  assert.deepEqual(decodePNG(encodePNG(px, 2, 1)).data, px);
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.engines.node, '>=20.6', 'the Node floor is stated');
+});
+
 test('the page shell: in-flow grid, no inline styles or scripts, labels in place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));

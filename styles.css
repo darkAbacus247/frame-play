@@ -320,7 +320,8 @@ dialog.card .label { color: var(--muted); }
 
 /* ---- rooms ---- */
 .advice { color: var(--muted); }
-.why { color: var(--muted); }
+/* a reason in words, inline: held to the reading width too */
+.why { color: var(--muted); max-width: 65ch; }
 /* at most 15.5rem a card, so three share one row in an 839 px window */
 .room-cards { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fill, minmax(14rem, 15.5rem)); }
 .room-card {
@@ -374,7 +375,7 @@ dialog.card .label { color: var(--muted); }
 
 /* ---- your two rooms ----
    Each card is one column: its picture across the card's whole width, then
-   the title, the facts one per line, the sample line and Play again. The
+   the title, the facts one per line and the sample line. The
    cards stand side by side sharing a top, or stack on narrow windows.
    The pictures sit close under the heading: 16 + 1 + 12 px, under 2rem. */
 .compare { row-gap: var(--s4); }

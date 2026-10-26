@@ -414,7 +414,7 @@ test('the matcher: a play-screen rule never reaches a compare card', () => {
 const NARROW = [...VIEWS, { name: '839x900 (the reported window)', vw: 839, vh: 900 }, { name: '839x560', vw: 839, vh: 560 }];
 const COMPARE = [node('section', 'screen compare'), node('div', 'two-rooms')];
 const CARD = [...COMPARE, node('article', 'room-sum')];
-const CARD_KIDS = [node('div', 'two-pic'), node('h2'), node('ul', 'facts'), node('p', 'level-label'), node('div', 'actions')];
+const CARD_KIDS = [node('div', 'two-pic'), node('h2'), node('ul', 'facts'), node('p', 'level-label')];
 
 test('compare: each card is one column, its picture across the card, its facts one per line', () => {
   assert.match(SCREENS, /'room-sum' \}, \[\s*pic,\s*el\('h2'[^\n]*\n\s*el\('ul', \{ class: 'facts' \}, \[\s*el\('li'[^\n]*\n\s*el\('li'[^\n]*\n\s*el\('li'/,

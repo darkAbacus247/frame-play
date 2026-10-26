@@ -92,7 +92,8 @@ function screens(mode) {
     ownStates.push(['with a landscape photo kept here', { kind: 'kept', picture: canvas(1024, 768), words: MOCK_WORDS }]);
     ownStates.push(['with a portrait photo kept here', { kind: 'kept', picture: canvas(768, 1024), words: MOCK_WORDS }]);
   } else {
-    ownStates.push(['with a photo refused', { kind: 'refused', picture: canvas(1024, 768), words: 'In REHEARSAL the local stand-in (not Meta) only knows the sample rooms’ own pictures, and this photo is not one of them. Nothing was sent, and no level is made from it.' }]);
+    // a refused photo is not shown: only the words (src/screens.js ownResult)
+    ownStates.push(['with a photo refused', { kind: 'refused', picture: null, words: 'In REHEARSAL the local stand-in (not Meta) only knows the sample rooms’ own pictures, and this photo is not one of them. Nothing was sent, and no level is made from it.' }]);
   }
   for (const [what, result] of ownStates) {
     const v = V.ownView({

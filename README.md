@@ -23,8 +23,8 @@ so plainly:
   app's server to Meta's Model API for one read: one Muse Spark call, then
   one SAM 3.1 call for the surface and one for each kind of object on it,
   at most 10 calls in all, each carrying the photo (a failed call may be
-  sent one more time). This app does not store the photo. The room is built from
-  what the models found in it.
+  sent one more time). This app does not store the photo. The room is
+  built from what the models found in it.
 - **MOCK** (no key): nothing reads the photo, so nothing is invented. It is
   shown on your device only, and the road goes on to its end.
 - **REHEARSAL** (the local stand-in): the stand-in only knows its sample
@@ -32,6 +32,9 @@ so plainly:
   edited copy of that picture (an object erased, moved or pasted, a crop),
   is refused in words before anything is sent, and no level is made from
   it.
+
+A photo that is refused (in any mode) is not shown; the screen says in
+words why no room was made from it.
 
 The road ends on a closing screen (the counter's last step) that says the
 circuit is complete: each room with whether you won and your best route,
@@ -57,9 +60,11 @@ copy cannot make it again.
 Every screen is written to fit without scrolling at 100% zoom: one short
 line up front, short labelled facts, and the longer text (the full consent
 notice, the list of what the AI found, the proof) in a disclosure that
-starts closed. Text runs in one column of at most about 65 characters.
-`tests/fit.test.js` checks this for every road screen at 839x945 and
-1259x1418 with a layout model built on the stylesheet's own rules, with no
+starts closed. Text runs in one column held to 65ch (65 widths of the
+digit zero), so a line of ordinary words runs to about 75 letters.
+`tests/fit.test.js` checks every road screen and the closing screen at
+839x945 and 1259x1418, and `tests/layout.test.js` checks the play screen,
+both with a layout model built on the stylesheet's own rules and no
 tolerance; it is a model, not a browser. A picture sized to fill the space
 left (the reveal, the play board) rounds what it subtracts up and the space
 down, so it never overshoots by a fraction of a pixel. The small tour offer
@@ -97,9 +102,12 @@ node --test
 python -B -m unittest discover
 ```
 
-`tests/own_e2e.test.js` starts the stand-in and the server in rehearsal on
-this machine's loopback (it runs `python`, or `$PYTHON`) and uploads the
-desk's own picture through them.
+The Node tests need Node 20.6 or newer and no packages. Some boot the real
+`app.js` on a small fake page (`tests/apphost.js`) with the play board
+stood in for. `tests/own_e2e.test.js` starts the stand-in and the server in
+rehearsal on this machine's loopback (it runs `python` on Windows,
+`python3` elsewhere, or `$PYTHON` when set) and uploads the desk's own
+picture through them.
 
 ## Known limits (so far)
 

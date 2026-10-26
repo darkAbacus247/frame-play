@@ -5,6 +5,9 @@
   "description": "Photograph your room. Play it.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
   "scripts": {
     "test": "node --test"
   }
