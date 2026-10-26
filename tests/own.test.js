@@ -6,7 +6,7 @@ import { paintRoom } from '../src/painter.js';
 import { fillRings, maskBounds } from '../src/raster.js';
 import { REPLY_SCHEMA } from '../src/reply.js';
 import { LABELS } from '../src/level.js';
-import { makeOwnRoom, signature, matchSample, rehearsalVerdict, MOCK_WORDS } from '../src/own.js';
+import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, MOCK_WORDS } from '../src/own.js';
 import { jpegLike } from './jpegsim.js';
 
 const rooms = {};
@@ -136,6 +136,98 @@ test('REHEARSAL refuses any photo the stand-in does not know, and sends nothing'
     assert.match(r.words, /Nothing was sent, and no level is made from it\./);
     assert.equal(calls.send, 0, `${c.name}: never sent`);
     assert.ok(!r.entry);
+  }
+});
+
+// Edited copies of the desk's own picture, painted by the page's own
+// painter: the stand-in would answer each with its desk, so a level would
+// sit on a picture that no longer shows it.
+function deskWith(edit) {
+  const room = structuredClone(rooms.desk.room);
+  edit(room);
+  return { width: room.width, height: room.height, data: paintRoom(room).rgba };
+}
+const shadeOf = (o) => (s) => s.ellipse[0] >= o.bounds.x0 && s.ellipse[0] <= o.bounds.x1 && Math.abs(s.ellipse[1] - o.bounds.y1) < 20;
+function erase(...ids) {
+  return (room) => {
+    const gone = room.objects.filter((o) => ids.includes(o.id));
+    room.objects = room.objects.filter((o) => !ids.includes(o.id));
+    room.shades = room.shades.filter((s) => !gone.some((o) => shadeOf(o)(s)));
+  };
+}
+function moveAll(dx) {
+  const shift = (rings) => rings.map((r) => r.map(([x, y]) => [x + dx, y]));
+  return (room) => {
+    for (const o of room.objects) {
+      o.rings = shift(o.rings);
+      for (const d of o.details) d.rings = shift(d.rings);
+      o.bounds = { ...o.bounds, x0: o.bounds.x0 + dx, x1: o.bounds.x1 + dx };
+    }
+    for (const s of room.shades) s.ellipse = [s.ellipse[0] + dx, ...s.ellipse.slice(1)];
+  };
+}
+function pixelEdit(f) {
+  const { width, height, data } = rooms.desk.pixels;
+  return f({ width, height, data: data.slice() });
+}
+function paste(share) {
+  return pixelEdit((p) => {
+    const w = Math.round(Math.sqrt(share * p.width * p.height * (4 / 3))), h = Math.round((w * 3) / 4);
+    const x0 = (p.width - w) >> 1, y0 = (p.height - h) >> 1;
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) p.data.set([128, 128, 128, 255], 4 * (y * p.width + x));
+    return p;
+  });
+}
+function crop(share) {
+  const { width, height, data } = rooms.desk.pixels;
+  const dx = Math.round((width * share) / 2), dy = Math.round((height * share) / 2);
+  const w = width - 2 * dx, h = height - 2 * dy;
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) out.set(data.subarray(4 * ((y + dy) * width + dx), 4 * ((y + dy) * width + dx + w)), 4 * y * w);
+  return { width: w, height: h, data: out };
+}
+const shifted = (n) => pixelEdit((p) => {
+  const src = rooms.desk.pixels.data;
+  for (let y = 0; y < p.height; y++) for (let x = 0; x < p.width; x++) {
+    const from = 4 * (y * p.width + Math.max(0, x - n));
+    p.data.set(src.subarray(from, from + 4), 4 * (y * p.width + x));
+  }
+  return p;
+});
+const brighter = (k) => pixelEdit((p) => { for (let i = 0; i < p.data.length; i++) if (i % 4 !== 3) p.data[i] += k; return p; });
+const jpeg = (p, q = 90) => ({ ...p, data: jpegLike(p.data, p.width, p.height, q) });
+
+test('REHEARSAL refuses edited copies of its sample picture, and sends nothing', async () => {
+  const edited = {
+    'one coin erased (with its shade)': deskWith(erase('coin1')),
+    'the other coin erased': deskWith(erase('coin2')),
+    'the mug erased': deskWith(erase('mug')),
+    'every on-surface object removed': deskWith((room) => { room.objects = room.objects.filter((o) => !o.on_surface); room.shades = []; }),
+    'every object moved 8 px': deskWith(moveAll(8)),
+    'every object moved 40 px': deskWith(moveAll(40)),
+    'a 1% block pasted': paste(0.01),
+    'an 8% block pasted': paste(0.08),
+    'a 1% centre crop': crop(0.01),
+    'a 3% centre crop': crop(0.03),
+    'the whole picture shifted 8 px': shifted(8),
+    'every channel +6': brighter(6),
+  };
+  for (const [name, pixels] of Object.entries(edited)) {
+    const { calls, deps: d } = deps(replyFor('desk', 'rehearsal'));
+    const r = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(jpeg(pixels)), deps: d, yieldNow: quick });
+    assert.equal(r.kind, 'refused', `${name}: ${JSON.stringify(sigDistance(signature(jpeg(pixels)), SAMPLES[0].sig))}`);
+    assert.match(r.words, /Nothing was sent, and no level is made from it\./);
+    assert.equal(calls.send, 0, `${name}: never sent`);
+    assert.ok(!r.entry && !r.ref, `${name}: no level, no room`);
+  }
+  // faithful copies still go through: re-encoded, shrunk (the stand-in's
+  // reply here is for 1024x768, so only the full-size copies build)
+  for (const [name, pixels] of [['the true sample at quality 90', jpeg(rooms.desk.pixels)], ['a quality 40 copy', jpeg(rooms.desk.pixels, 40)], ['a half-size copy', half(rooms.desk.pixels)]]) {
+    assert.equal(matchSample(signature(pixels), SAMPLES), 'desk', name);
+    const { calls, deps: d } = deps(replyFor('desk', 'rehearsal'));
+    const r = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(pixels), deps: d, yieldNow: quick });
+    assert.equal(calls.send, 1, `${name}: sent`);
+    if (pixels.width === 1024) assert.equal(r.kind, 'built', `${name}: ${r.words}`);
   }
 });
 

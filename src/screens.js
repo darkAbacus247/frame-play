@@ -130,16 +130,24 @@ export const SOURCE_WORDS = {
   box: 'SAM’s box (the trace was not tight enough)',
 };
 
+const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+
+// How the outlines of a read were made, from the level's own counts (never
+// the number of objects): "traced 8 outlines inside SAM’s boxes and kept 1
+// as a box".
+export function tracedWords(level) {
+  const c = level.provenance.outline_sources || {};
+  return `traced ${plural(c.traced_in_box || 0, 'outline', 'outlines')} inside SAM’s boxes and kept ${plural(c.box || 0, 'as a box', 'as boxes')}`;
+}
+
 export function summaryLine(level, summary) {
   if (level.origin === 'mock') {
     return 'This sample room was drawn by code: no model was called, and its outlines are the exact shapes code painted. Code proved the room can be won.';
   }
-  const c = level.provenance.outline_sources || {};
   const n = level.objects.length;
   const named = summary ? summary.named : n;
   const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
-  const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
-  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code traced ${plural(c.traced_in_box || 0, 'outline', 'outlines')} inside SAM’s boxes and kept ${plural(c.box || 0, 'as a box', 'as boxes')}, then proved the room can be won.`;
+  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
 export function proofLine(level) {
@@ -368,9 +376,9 @@ export function aiLine(level, summary) {
   const n = level.objects.length;
   const things = (k) => `${k} ${k === 1 ? 'thing' : 'things'}`;
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
-  if (level.origin === 'rehearsal') return `The local stand-in (not Meta) answered for its sample picture; code traced ${n} outlines and proved the room can be won.`;
+  if (level.origin === 'rehearsal') return `The local stand-in (not Meta) answered for its sample picture; code ${tracedWords(level)}, and proved the room can be won.`;
   const named = summary ? summary.named : n;
-  return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code traced the outlines and proved the room can be won.`;
+  return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
 // actions: { freePlay, playAgain(ref, title), ownRoom, startOver }

@@ -6,8 +6,9 @@
 // - MOCK: no model can read it, so nothing is sent and no level is made.
 //   The photo is shown on this device only.
 // - REHEARSAL: the local stand-in only knows the sample rooms' own
-//   pictures, so only the picture of the room it was started for is sent.
-//   Any other photo is refused in words, and no level is made from it.
+//   pictures, so only the picture of the room it was started for is sent,
+//   or a faithful copy of it (re-encoded, resized). Any other photo, or an
+//   edited copy, is refused in words, and no level is made from it.
 // No page here: the page hands in its photo, send and save helpers, so the
 // gating is tested in Node.
 import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from './reply.js';
@@ -17,9 +18,10 @@ import { traceInBox } from './trace_in_box.js';
 export const MOCK_WORDS = 'Reading a real photo needs the live AI (Meta’s models). This copy is running without it, so your photo stays on your device and nothing is invented.';
 
 // A small fingerprint of how a picture looks: its shape, and the mean
-// colour of each cell of a 16 by 12 grid. JPEG and shrinking barely move
-// it; a different picture moves it a lot.
-const GW = 16, GH = 12;
+// colour of each cell of a 32 by 24 grid (32 px cells at 1024x768). JPEG
+// and shrinking barely move it; a different or edited picture moves it a
+// lot, at least in the cells it touches.
+const GW = 32, GH = 24;
 export function signature({ width, height, data }) {
   const sums = new Float64Array(GW * GH * 3);
   const counts = new Float64Array(GW * GH);
@@ -39,18 +41,38 @@ export function signature({ width, height, data }) {
   return { aspect: width / height, cells };
 }
 
-// Which sample room's own picture this is, or null: the same shape, and the
-// cells within a few levels of the sample's on average.
-export function matchSample(sig, samples, tolerance = 6) {
+// How far a picture's fingerprint is from a sample's: the mean and the
+// largest difference of any one cell's colour value, or null for another
+// shape (more than 1% apart).
+export function sigDistance(sig, ref) {
+  if (Math.abs(sig.aspect - ref.aspect) > 0.01 * ref.aspect) return null;
+  if (sig.cells.length !== ref.cells.length) return null;
+  let sum = 0, max = 0;
+  for (let i = 0; i < sig.cells.length; i++) {
+    const d = Math.abs(sig.cells[i] - ref.cells[i]);
+    sum += d;
+    if (d > max) max = d;
+  }
+  return { mean: sum / sig.cells.length, max };
+}
+
+// A faithful copy (re-encoded, resized) stays within these; an edited copy
+// (an object erased, moved or pasted, a crop, a shift, a colour change)
+// does not: a faithful JPEG at quality 40 reaches 0.6 and 2.5, one coin
+// erased reaches 15.9 in its cell.
+export const MATCH_MEAN = 1.5;
+export const MATCH_CELL = 8;
+
+// Which sample room's own picture this is, or null: the same shape, and
+// every cell close to the sample's, not only the average.
+export function matchSample(sig, samples) {
   let best = null, bestD = Infinity;
   for (const s of samples) {
-    if (Math.abs(sig.aspect - s.sig.aspect) > 0.01 * s.sig.aspect) continue;
-    let d = 0;
-    for (let i = 0; i < sig.cells.length; i++) d += Math.abs(sig.cells[i] - s.sig.cells[i]);
-    d /= sig.cells.length;
-    if (d < bestD) { bestD = d; best = s.id; }
+    const d = sigDistance(sig, s.sig);
+    if (!d || d.mean > MATCH_MEAN || d.max > MATCH_CELL) continue;
+    if (d.mean < bestD) { bestD = d.mean; best = s.id; }
   }
-  return bestD <= tolerance ? best : null;
+  return best;
 }
 
 // In REHEARSAL: may this picture go to the stand-in? Only the picture of

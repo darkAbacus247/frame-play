@@ -12,7 +12,11 @@ doc.body.append(el('div', { id: 'tips' }));
 const desk = { kind: 'sample', id: 'desk' };
 const living = { kind: 'sample', id: 'living' };
 const mine = { kind: 'photo', sha256: 'ab'.repeat(32) };
-const level = (origin, title, n) => ({ origin, title, objects: Array.from({ length: n }, (_, k) => ({ id: `o${k}` })) });
+// n objects; for a read, all traced but `boxes` kept as SAM's box
+const level = (origin, title, n, boxes = 0) => ({
+  origin, title, objects: Array.from({ length: n }, (_, k) => ({ id: `o${k}` })),
+  provenance: { outline_sources: origin === 'mock' ? { exact: n } : { traced_in_box: n - boxes, box: boxes } },
+});
 const MOCK_DESK = level('mock', 'The Desk Top', 10);
 const MOCK_LIVING = level('mock', 'The Living Room', 8);
 
@@ -57,10 +61,13 @@ test('LIVE: your own room says what the models did, in one sentence', () => {
   });
   assert.equal(rooms[2].title, 'Morning desk');
   assert.equal(rooms[2].result, 'Won · by the shortest route');
-  assert.equal(rooms[2].ai, 'Muse Spark named 6 things in your photo and gave each a role, SAM 3.1 found 7 of them, and code traced the outlines and proved the room can be won.');
+  assert.equal(rooms[2].ai, 'Muse Spark named 6 things in your photo and gave each a role, SAM 3.1 found 7 of them, and code traced 7 outlines inside SAM’s boxes and kept 0 as boxes, then proved the room can be won.');
   assert.equal((rooms[2].ai.match(/\.\s/g) || []).length, 0, 'one sentence');
-  const reh = closingRooms({ road: endRoad(true), mode: 'rehearsal', levels: [MOCK_DESK, MOCK_LIVING, level('rehearsal', 'The Desk Top', 9)] });
-  assert.match(reh[2].ai, /^The local stand-in \(not Meta\) answered/);
+  const reh = closingRooms({ road: endRoad(true), mode: 'rehearsal', levels: [MOCK_DESK, MOCK_LIVING, level('rehearsal', 'The Desk Top', 9, 1)] });
+  assert.equal(reh[2].ai, 'The local stand-in (not Meta) answered for its sample picture; code traced 8 outlines inside SAM’s boxes and kept 1 as a box, and proved the room can be won.');
+  // the counts are the level's own, never the number of objects
+  const boxed = closingRooms({ road: endRoad(true), mode: 'live', levels: [MOCK_DESK, MOCK_LIVING, level('live', 'Boxes', 4, 4)], summaries: [null, null, { named: 4 }] });
+  assert.match(boxed[2].ai, /code traced 0 outlines inside SAM’s boxes and kept 4 as boxes/);
   const gone = closingRooms({ road: endRoad(true), mode: 'live', levels: [MOCK_DESK, MOCK_LIVING, null] });
   assert.match(gone[2].ai, /not in memory on this visit; pick the same photo again on Step 9/);
   assert.equal(gone[2].playable, false);
