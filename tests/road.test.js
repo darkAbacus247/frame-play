@@ -119,7 +119,7 @@ test('a road from the device: damaged or foreign is dropped; steps must be earne
 test('layout statics: nothing fixed over content; only the spacing scale', () => {
   const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
   assert.ok(!/position\s*:\s*fixed/.test(css), 'position: fixed is not allowed');
-  assert.ok(!/position\s*:\s*sticky/.test(css.replace(/\.welcome-bar[^}]*\}/g, '')), 'sticky only for the welcome button bar');
+  assert.ok(!/position\s*:\s*sticky/.test(css), 'position: sticky is not allowed (bars sit in flow; see tests/layout.test.js)');
   const allowed = new Set(['0', '1px', '2px', '3px', 'var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)', 'var(--s7)', 'var(--gap)', 'var(--pad)', 'auto', '-1px']);
   const re = /(?:^|[;{\s])(gap|row-gap|column-gap|padding|padding-[a-z-]+|margin|margin-[a-z-]+)\s*:\s*([^;}]+)/g;
   let m;

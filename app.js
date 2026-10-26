@@ -8,7 +8,7 @@ import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
 import { readPref, writePref, soundOn, setSound } from './src/store.js';
 import * as S from './src/store.js';
-import { el, showCard, cardOpen, initTooltips, speak, hideTip } from './src/ui.js';
+import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar } from './src/ui.js';
 import * as R from './src/road.js';
 import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
@@ -373,22 +373,27 @@ function screenWelcome(main) {
     live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It is then sent once, through this app’s server, to Meta’s Model API to read the room. It is not stored.',
     rehearsal: 'This page is in REHEARSAL mode: a local stand-in answers, not Meta, and no photo leaves this machine.',
   }[A.mode];
-  main.replaceChildren(el('section', { class: 'screen sparse welcome' }, [
-    el('h1', { text: 'Photograph your room. Play it.' }),
-    el('p', { text: 'FRAME//PLAY turns one photo of a room or a desk top into a small game. The outlines of the real objects become the walls you walk around, the things you collect, the hazard you avoid and the exit.' }),
-    el('ul', { class: 'consent' }, [
-      el('li', { text: 'Keep people and anything private out of the photo.' }),
-      el('li', { text: 'You must be 18 or over to send a photo (Meta’s terms).' }),
-      el('li', { text: where }),
-      el('li', { text: 'Kept: no photo, anywhere. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.' }),
+  const bar = el('div', { class: 'bar-end welcome-bar' }, [
+    el('button', {
+      type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary',
+      tip: 'Agree and go to Step 2', text: R.primaryLabel(A.road), onclick: () => setRoad(R.giveConsent(A.road)),
+    }),
+  ]);
+  const section = el('section', { class: 'screen welcome with-bar' }, [
+    el('div', { class: 'bar-body' }, [
+      el('h1', { text: 'Photograph your room. Play it.' }),
+      el('p', { text: 'FRAME//PLAY turns one photo of a room or a desk top into a small game. The outlines of the real objects become the walls you walk around, the things you collect, the hazard you avoid and the exit.' }),
+      el('ul', { class: 'consent' }, [
+        el('li', { text: 'Keep people and anything private out of the photo.' }),
+        el('li', { text: 'You must be 18 or over to send a photo (Meta’s terms).' }),
+        el('li', { text: where }),
+        el('li', { text: 'Kept: no photo, anywhere. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.' }),
+      ]),
     ]),
-    el('div', { class: 'welcome-bar' }, [
-      el('button', {
-        type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary',
-        tip: 'Agree and go to Step 2', text: R.primaryLabel(A.road), onclick: () => setRoad(R.giveConsent(A.road)),
-      }),
-    ]),
-  ]));
+    bar,
+  ]);
+  main.replaceChildren(section);
+  holdBar(section, bar);
 }
 
 function photoOffWords() {

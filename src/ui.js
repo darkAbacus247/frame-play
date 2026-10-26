@@ -64,6 +64,34 @@ export function cardOpen() {
   return !!document.querySelector('dialog[open]');
 }
 
+// ---- a button bar at the end of a screen ----
+// Nothing may ever sit under the bar, so it is never an overlay. Pinned, the
+// screen is a column: the body scrolls in its own box and the bar sits below
+// it, taking its own measured height out of the space (the layout reserves
+// it, not a guess). When the space left for the body would be too small to
+// read in, the bar flows at the end of the content and the whole page scrolls.
+export function barMode(spaceH, barH, minBodyH) {
+  return spaceH - barH >= minBodyH ? 'pinned' : 'flow';
+}
+
+export function holdBar(section, bar, minBodyRem = 10) {
+  const host = section.parentElement;
+  if (!host || typeof ResizeObserver === 'undefined') return null;
+  const decide = () => {
+    if (!section.isConnected) { ro.disconnect(); return; }
+    const cs = getComputedStyle(host);
+    const space = host.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const mode = barMode(space, bar.offsetHeight, minBodyRem * rem);
+    if (section.dataset.bar !== mode) section.dataset.bar = mode;
+  };
+  const ro = new ResizeObserver(decide);
+  ro.observe(host);
+  ro.observe(bar);
+  decide();
+  return ro;
+}
+
 // ---- tooltips ----
 // Every control has plain words: shown on hover, focus and long press, and
 // given to screen readers through aria-describedby. A tooltip is placed by

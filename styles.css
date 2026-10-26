@@ -226,18 +226,36 @@ dialog.card::backdrop { background: rgba(0, 0, 0, 0.6); }
 dialog.card .card-body { display: grid; gap: var(--s4); }
 dialog.card .label { color: var(--muted); }
 
+/* ---- a screen with a bar at its end (ui.js holdBar) ----
+   Never an overlay. Pinned (the default): the screen fills main exactly,
+   the body scrolls in its own box and the bar sits below it in flow, so
+   its height is taken out of the space and nothing can pass under it.
+   data-bar="flow" (short spaces): the bar follows the content and main
+   scrolls the lot. The bar is styled the same in both, so measuring it
+   cannot flip the mode back and forth. */
+.with-bar { display: flex; flex-direction: column; gap: 0; height: 100%; min-height: 0; }
+.with-bar > .bar-body {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; align-items: center; gap: var(--gap);
+  text-align: center;
+}
+/* centred when there is room; auto margins never push content out of reach */
+.with-bar > .bar-body > :first-child { margin-top: auto; }
+.with-bar > .bar-body > :last-child { margin-bottom: auto; }
+.with-bar > .bar-end {
+  flex: none;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+.with-bar[data-bar="flow"] { height: auto; }
+.with-bar[data-bar="flow"] > .bar-body { flex: none; overflow: visible; }
+.with-bar[data-bar="flow"] > .bar-end { margin-top: var(--gap); }
+
 /* ---- welcome ---- */
 .app { position: relative; }
-.welcome { text-align: left; justify-items: start; }
 .welcome h1, .welcome p, .welcome ul { max-width: 70ch; }
 .consent { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s2); }
-.welcome-bar {
-  position: sticky;
-  bottom: 0;
-  width: 100%;
-  padding: var(--s3) 0;
-  background: var(--bg);
-}
 
 /* ---- the rehearsal band, the live progress ---- */
 .band {
