@@ -88,7 +88,7 @@ PROGRESS = (('read', 'Reading your room'), ('find', 'Finding every object'))
 PEOPLE_WORDS = 'This photo seems to show a person. Please use one with no people.'
 
 SPATIAL = {'left', 'right', 'top', 'bottom', 'behind', 'front', 'near', 'far', 'under', 'above', 'below', 'beside',
-           'next', 'middle', 'center', 'centre', 'corner', 'on', 'in', 'at', 'of', 'back', 'side', 'upper', 'lower'}
+           'next', 'middle', 'center', 'centre', 'corner', 'on', 'in', 'at', 'back', 'side', 'upper', 'lower'}
 PEOPLE = {'person', 'people', 'man', 'men', 'woman', 'women', 'child', 'children', 'kid', 'kids', 'boy', 'girl', 'baby',
           'human', 'face', 'head', 'hand', 'hands', 'arm', 'arms', 'leg', 'legs', 'foot', 'feet', 'finger', 'fingers',
           'body', 'hair', 'eye', 'eyes', 'mouth', 'selfie', 'someone', 'me', 'you', 'him', 'her', 'them'}
