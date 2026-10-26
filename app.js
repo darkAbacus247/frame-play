@@ -14,6 +14,7 @@ import { tourStep, offerDue, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, ROLE_WORDS } from './src/words.js';
 import { acceptReply, inputFromReply, readSummary, boxRings } from './src/reply.js';
 import { readPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
+import { traceInBox } from './src/trace_in_box.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -109,9 +110,21 @@ async function levelFor(ref) {
 }
 
 // ---- the live path (and its rehearsal) ----
-// Each object's outline. The seam S14 fills with the tracer; here the box.
-async function outlinesFor(reply) {
-  return reply.objects.map((o) => ({ source: 'box', rings: boxRings(o.box) }));
+// Each object's outline: traced inside SAM's exact box, or the box itself
+// when the trace is not tight enough. The page yields between objects so
+// the progress words stay live.
+async function outlinesFor(reply, pixels) {
+  const out = [];
+  for (const o of reply.objects) {
+    try {
+      const t = traceInBox(pixels, o.box, o.seeds || []);
+      out.push({ source: t.source, rings: t.rings });
+    } catch {
+      out.push({ source: 'box', rings: boxRings(o.box) });
+    }
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  return out;
 }
 
 async function levelFromReply(reply, picture, pictureRef) {
