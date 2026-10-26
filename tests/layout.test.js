@@ -46,6 +46,20 @@ test('the consent text lines up with its bullets: left-aligned, and nothing late
   assert.doesNotMatch(app, /screen sparse welcome/, 'the welcome screen does not take the centred sparse layout');
 });
 
+test('short windows: the board may shrink, the pad keeps full-size targets, all in flow', () => {
+  const at = css.indexOf('@media (max-height: 40rem) {');
+  assert.ok(at > 0, 'a rule set for short windows');
+  const block = css.slice(at, css.indexOf('\n}', at));
+  assert.match(block, /\.play \{[^}]*minmax\(8rem, 1fr\)/, 'the stage row may shrink to 8rem; the board scales to it');
+  assert.match(block, /\.pad-btn \{[^}]*height: var\(--target\)/, 'pad buttons keep the 2.75rem target');
+  assert.match(block, /\.pad \{[^}]*repeat\(3, var\(--target\)\)/);
+  assert.doesNotMatch(block, /position|overflow:\s*hidden/, 'nothing taken out of flow or clipped');
+  const narrow = css.indexOf('@media (max-height: 40rem) and (max-width: 719px)');
+  assert.ok(narrow > at, 'the one-column layout gets the same shrinkable stage, after the general rule');
+  assert.match(css.slice(narrow, css.indexOf('\n}', narrow)), /minmax\(8rem, 1fr\) auto auto/);
+  assert.match(rule('.play'), /min-height:\s*fit-content/, 'the play grid never squeezes its rows over each other');
+});
+
 test('pinned, the body scrolls in its own box and the bar takes its own height in flow', () => {
   const screen = rule('.with-bar');
   assert.match(screen, /display:\s*flex/);

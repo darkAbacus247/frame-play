@@ -215,6 +215,18 @@ button { font: inherit; color: inherit; }
   .side { width: auto; flex-direction: row; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
   .side .chips { flex: 1 1 12rem; }
 }
+/* short windows (zoomed to 150% or 200%, phones on their side): the board
+   may shrink further, since it scales to whatever the stage gives it, and
+   the pad gets shorter but keeps full-size touch targets. Everything stays
+   in flow, so nothing can overlap; the page scrolls only if it must. */
+@media (max-height: 40rem) {
+  .play { row-gap: var(--s3); grid-template-rows: auto minmax(8rem, 1fr) auto; }
+  .pad { grid-template-columns: repeat(3, 3.5rem); grid-template-rows: repeat(3, var(--target)); }
+  .pad-btn { width: 3.5rem; height: var(--target); }
+}
+@media (max-height: 40rem) and (max-width: 719px) {
+  .play { grid-template-rows: auto minmax(8rem, 1fr) auto auto; }
+}
 
 /* ---- cards (modal) ---- */
 dialog.card {
