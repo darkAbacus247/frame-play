@@ -97,5 +97,5 @@ export function endCardWords(level, state, ratio) {
     return { title: 'Room cleared!', body: route };
   }
   const k = state.lostTo;
-  return { title: k >= 0 ? `The ${objectWords(level, k)} got you.` : 'The round is over.', body: 'Finish a round, win or lose, to continue.' };
+  return { title: k >= 0 ? `The ${objectWords(level, k)} got you.` : 'The round is over.', body: 'That round counts: win or lose, you can go on.' };
 }

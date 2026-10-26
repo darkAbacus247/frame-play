@@ -38,7 +38,8 @@ function page(doc) {
   );
 }
 
-export const textOf = (e) => (e.children.length ? e.children.map(textOf).join(' ') : e.textContent || '').replace(/\s+/g, ' ').trim();
+export const nameOf = (e) => (e.children.length ? e.children.map(nameOf).join('') : e.textContent || '').trim();
+export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' ') : e.textContent || '').replace(/\s+/g, ' ').trim();
 
 // mode: 'mock' | 'rehearsal' | 'live'; road: saved before the boot, or null
 export async function bootApp({ mode = 'mock', road = null } = {}) {
@@ -96,7 +97,8 @@ export async function bootApp({ mode = 'mock', road = null } = {}) {
     cardOpen: () => $('card').open,
     back: () => $('road').querySelectorAll('button')[0].click(),
     forward: () => $('road').querySelectorAll('button')[1].click(),
-    button: (text) => $('main').querySelectorAll('button').find((b) => textOf(b) === text || b.getAttribute('aria-label') === text) || null,
+    // by its accessible name: aria-label, or its text as one run
+    button: (name) => $('main').querySelectorAll('button').find((b) => (b.getAttribute('aria-label') || nameOf(b)) === name) || null,
     popstate: (state) => { for (const f of listeners.get('popstate') || []) f({ state }); },
     savedRoad: () => JSON.parse(storage.getItem('frameplay.road')),
   };

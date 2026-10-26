@@ -167,8 +167,10 @@ export class Layout {
     return k;
   }
 
+  // the text that takes room: words for screen readers only (.sr-only, out
+  // of flow) take none
   text(e) {
-    return e.children.length ? e.children.map((c) => this.text(c)).join('') : e.textContent || '';
+    return e.children.length ? e.children.filter((c) => !(c.className || '').split(/\s+/).includes('sr-only')).map((c) => this.text(c)).join('') : e.textContent || '';
   }
 
   isBox(e, st) {

@@ -32,6 +32,7 @@ function endRoad(own) {
 }
 
 const all = (root) => [root, ...root.all()];
+const nameOf = (e) => (e.children.length ? e.children.map(nameOf).join('') : e.textContent || '');
 const texts = (root) => all(root).filter((e) => !e.children.length).map((e) => e.textContent).join(' | ');
 
 test('the closing screen is the last step of the road, and the counter says so', () => {
@@ -45,7 +46,7 @@ test('the closing screen is the last step of the road, and the counter says so',
 
 test('MOCK: each room, what happened, and that no model was called', () => {
   const rooms = closingRooms({ road: endRoad(false), mode: 'mock', levels: [MOCK_DESK, MOCK_LIVING, null] });
-  assert.deepEqual(rooms.map((r) => r.result), ['Won · best route 1.2 times the shortest', 'Lost · not won yet', 'Not made']);
+  assert.deepEqual(rooms.map((r) => r.result), ['Won · best route 1.2 times the shortest', 'Lost on the road', 'Not made']);
   assert.equal(rooms[0].ai, 'Sample room drawn by code; no model was called.');
   assert.equal(rooms[1].ai, 'Sample room drawn by code; no model was called.');
   assert.equal(rooms[2].ai, 'No room was made from a photo of your own, and nothing was invented.');
@@ -191,8 +192,9 @@ test('one heading, one primary, real buttons for every way on; MOCK says why the
   const buttons = all(section).filter((e) => e.tagName === 'BUTTON');
   const primary = buttons.filter((b) => b.hasAttribute('data-primary'));
   assert.deepEqual(primary.map((b) => b.textContent), ['Free play']);
-  assert.deepEqual(buttons.map((b) => b.getAttribute('aria-label') || b.textContent),
-    ['Play The Desk Top again', 'Play The Living Room again', 'Free play', 'Start over']);
+  // the accessible name starts with the visible words (label in name)
+  assert.deepEqual(buttons.map(nameOf), ['Play again: The Desk Top', 'Play again: The Living Room', 'Free play', 'Start over']);
+  assert.ok(buttons.every((b) => !b.hasAttribute('aria-label')), 'no label that hides the visible words');
   assert.ok(buttons.every((b) => b.getAttribute('type') === 'button' && b.dataset.tip && b.getAttribute('aria-describedby')), 'keyboard buttons with words for screen readers');
   assert.match(texts(section), /Your own room needs the live AI \(Meta’s models\)\. This copy runs without it\./);
   assert.doesNotMatch(texts(section), /Try your own room/);
@@ -210,7 +212,8 @@ test('LIVE and REHEARSAL offer Try your own room', () => {
     assert.ok(b, mode);
     b.click();
     assert.deepEqual(calls, ['own']);
-    assert.equal(all(section).filter((e) => e.tagName === 'BUTTON' && /again$/.test(e.getAttribute('aria-label') || '')).length, 3);
+    const again = all(section).filter((e) => e.tagName === 'BUTTON' && nameOf(e).startsWith('Play again: ')).map(nameOf);
+    assert.deepEqual(again, ['Play again: The Desk Top', 'Play again: The Living Room', 'Play again: your own room'], 'your own room by its row');
   }
 });
 

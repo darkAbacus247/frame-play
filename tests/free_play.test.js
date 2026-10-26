@@ -28,7 +28,7 @@ function isTheList(app) {
 
 test('A: Play again, ←, then Free play shows the room list', async () => {
   const app = await atTheEnd();
-  app.button('Play The Desk Top again').click();
+  app.button('Play again: The Desk Top').click();
   await app.settle();
   assert.ok(app.$('main').querySelector('.game'), 'the replay is on');
   app.back();
@@ -56,7 +56,7 @@ test('B: a room picked in Free play, ←, then Free play shows the room list', a
 
 test('C: Play again, the browser’s Back, then Free play shows the room list', async () => {
   const app = await atTheEnd();
-  app.button('Play The Desk Top again').click();
+  app.button('Play again: The Desk Top').click();
   await app.settle();
   app.popstate({ step: 12 });
   await app.settle();

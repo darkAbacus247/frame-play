@@ -151,6 +151,14 @@ test('no primary button moves the counter back: none sets the step or calls back
   assert.ok(primaries >= 8, `the primaries were found (${primaries})`);
 });
 
+test('Escape and modifier keys never create the sound context; disclosure markers stay out of names', () => {
+  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  assert.match(app, /NOT_ACTIVATION = new Set\(\['Escape', 'Esc', 'Shift', 'Control', 'Alt', 'Meta'/);
+  assert.match(app, /addEventListener\('keydown', \(e\) => \{ if \(!NOT_ACTIVATION\.has\(e\.key\)\) unlock\(\); \}/);
+  const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+  for (const m of css.matchAll(/summary::before \{ content: ([^;]+);/g)) assert.match(m[1], /^"[▸▾]" \/ ""$/, m[0]);
+});
+
 test('the page shell: in-flow grid, no inline styles or scripts, labels in place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));

@@ -17,7 +17,7 @@ import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsO
 import { levelFromReply, makeOwnRoom, signature, keptLevel } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, more, photoInput, OFF_WORDS,
+  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS,
 } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
@@ -54,7 +54,10 @@ const audio = new Synth();
 audio.setOn(soundOn());
 const unlock = () => audio.unlock();
 document.addEventListener('pointerdown', unlock, { capture: true });
-document.addEventListener('keydown', unlock, { capture: true });
+// Escape and the modifier keys do not count as a press that may start
+// sound, so they never create the sound context (it would stay suspended)
+const NOT_ACTIVATION = new Set(['Escape', 'Esc', 'Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock']);
+document.addEventListener('keydown', (e) => { if (!NOT_ACTIVATION.has(e.key)) unlock(); }, { capture: true });
 
 // ---- settings ----
 const reducedMotion = () => S.reducedMotion(sysReduced.matches);
@@ -132,11 +135,17 @@ function storedEntry(photo) {
   return { picture: photo.picture, built: { level, rt: v.rt }, summary: kept.summary || null, fromDevice: true };
 }
 
+// While busy every button waits; the one that had the focus gets it back
+// after (disabling it dropped the focus to the page).
 function setBusy(on) {
   A.busy = on;
+  if (on) A.busyFocus = document.activeElement;
   for (const b of document.querySelectorAll('#main button, #road button')) {
     if (on) { b.dataset.wasDisabled = b.disabled ? '1' : ''; b.disabled = true; } else if (b.dataset.wasDisabled === '') b.disabled = false;
   }
+  const f = A.busyFocus;
+  if (!on && f && f.isConnected && !f.disabled && f.focus) f.focus({ preventScroll: true });
+  if (!on) A.busyFocus = null;
 }
 
 function progressPanel(panel, lines, current, error) {
@@ -150,6 +159,7 @@ function progressPanel(panel, lines, current, error) {
   );
 }
 
+const FREE_WORDS = 'Rounds in Free play do not change your road.';
 const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
 
 const NOT_SAME = 'That is not the photo this room was made from.';
@@ -318,12 +328,12 @@ function renderDrawer() {
       sw('High contrast', highContrast(), () => { S.setContrast(!highContrast()); applySettings(); }, 'Thicker lines, opaque badges and a dimmed picture'),
       sw('Show outlines while playing', outlinesOn(), () => { S.setOutlinesWhilePlaying(!outlinesOn()); applySettings(); }, 'Draws the outlines the AI found while you play'),
       el('button', { type: 'button', class: 'btn', text: 'Read this screen aloud', tip: 'Reads the main words on this screen', onclick: readScreen }),
-      el('button', { type: 'button', class: 'btn', text: 'Start over from Step 1', tip: 'Starts the road again. Saved levels stay', onclick: startOver }),
+      el('button', { type: 'button', class: 'btn', text: 'Start over from Step 1', tip: 'Starts the road again, after you confirm. Saved levels stay', onclick: confirmStartOver }),
     ]),
-    more('About FRAME//PLAY', [
-      el('p', { class: 'about', text: DISCLOSURE }),
-      el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
-    ], 'about-more'),
+    // shown, never folded: the disclosure is always in view in Settings
+    el('h3', { text: 'About FRAME//PLAY' }),
+    el('p', { class: 'about', text: DISCLOSURE }),
+    el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
     el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', text: 'Close settings', tip: 'Closes this drawer', onclick: toggleDrawer })]),
   );
 }
@@ -331,6 +341,17 @@ function renderDrawer() {
 function readScreen() {
   const text = $('main').innerText.replace(/\s+/g, ' ').trim().slice(0, 2400);
   if (!speak(text)) say('Reading aloud is not available in this browser.');
+}
+
+// A true modal card: nothing is cleared until the player says so; Keep my
+// road has the focus, and Escape never closes it (src/ui.js showCard).
+function confirmStartOver() {
+  showCard($('card'), {
+    title: 'Start over?',
+    lines: ['This clears your road on this device.'],
+    primary: { label: 'Keep my road', onClick: () => {} },
+    secondary: [{ label: 'Start over', onClick: startOver }],
+  });
 }
 
 function startOver() {
@@ -391,10 +412,10 @@ function photoOffWords() {
   return OFF_WORDS.mock;
 }
 
-function roomCard(entry, { disabledWhy, onPick, tour = true }) {
+function roomCard(entry, { disabledWhy, onPick, tour = true, title = null }) {
   const level = entry.built.level;
   return roomCardView({
-    title: entry.room ? entry.room.title : level.title, origin: level.origin, disabledWhy, onPick, tour,
+    title: title || (entry.room ? entry.room.title : level.title), origin: level.origin, disabledWhy, onPick, tour,
     draw: (thumb) => {
       // a photo of another shape keeps its shape, centred
       const f = fitSize(320, 240, entry.picture.width, entry.picture.height);
@@ -485,8 +506,9 @@ function missingRoom(main, slot) {
   renderHeader();
 }
 
-function describeSection(section, level, rt, state) {
-  if (!section.hidden) { section.hidden = true; return; }
+function describeSection(section, level, rt, state, button) {
+  const shown = (on) => { section.hidden = !on; if (button) button.setAttribute('aria-expanded', String(on)); };
+  if (!section.hidden) { shown(false); return; }
   const pos = state ? state.pos : level.start;
   const lines = describeRoom(level, rt, state, stepsAway(level, rt, pos[0], pos[1]));
   section.replaceChildren(
@@ -494,7 +516,7 @@ function describeSection(section, level, rt, state) {
     el('ul', {}, lines.map((t) => el('li', { text: t }))),
     el('button', { type: 'button', class: 'btn', text: 'Read aloud', tip: 'Reads the description aloud', onclick: () => { if (!speak(lines.join(' '))) say('Reading aloud is not available in this browser.'); } }),
   );
-  section.hidden = false;
+  shown(true);
 }
 
 async function screenFound(main, slot, token) {
@@ -510,7 +532,7 @@ async function screenFound(main, slot, token) {
     level, summary: entry.summary, fromDevice: entry.fromDevice,
     actions: {
       play: () => setRoad(R.startPlay(A.road)),
-      describe: (desc) => describeSection(desc, level, rt, null),
+      describe: (desc, button) => describeSection(desc, level, rt, null, button),
       walls: (on) => { for (const r of A.reveals) r.setWalls(on); },
     },
   });
@@ -539,10 +561,11 @@ async function screenPlay(main, slot, ref, token) {
     return;
   }
   const { level, rt } = entry.built;
-  const desc = el('section', { class: 'describe', hidden: true, 'aria-live': 'polite' });
+  const desc = el('section', { class: 'describe', id: 'describe-room', hidden: true, 'aria-live': 'polite' });
   const describeBtn = el('button', {
-    type: 'button', class: 'btn', text: 'Describe this room', tip: 'Every object, its role, where it is and how far, in words',
-    onclick: () => describeSection(desc, level, rt, A.view && A.view.state),
+    type: 'button', class: 'btn', text: 'Describe this room', 'aria-expanded': 'false', 'aria-controls': 'describe-room',
+    tip: 'Every object, its role, where it is and how far, in words',
+    onclick: () => describeSection(desc, level, rt, A.view && A.view.state, describeBtn),
   });
   A.view = mountPlay(main, {
     level, rt, picture: entry.picture, audio,
@@ -578,7 +601,9 @@ function endOfRound(slot, r, level) {
   const primary = free
     ? { label: 'Back to free play', onClick: () => { A.free = null; render(); } }
     : { label: R.primaryLabel(A.road), onClick: () => setRoad(R.continueAfterRound(A.road)) };
-  showCard($('card'), { title: r.words.title, lines: [r.words.body], label: level.label, primary, secondary: [again, pickOther] });
+  // a replay's card says plainly that it leaves the road as it was
+  const lines = free ? [r.status === 'won' ? r.words.body : null, FREE_WORDS] : [r.words.body];
+  showCard($('card'), { title: r.words.title, lines, label: level.label, primary, secondary: [again, pickOther] });
   clearVeil();
 }
 
@@ -613,7 +638,8 @@ async function screenFree(main, token) {
   const own = A.road.rooms[2];
   const ownEntry = R.ownMade(A.road) ? await levelFor(own) : null;
   if (token !== A.renderToken) return;
-  if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { onPick: () => { A.free = own; render(); } }));
+  // titled by its row: in REHEARSAL it carries the sample's own title
+  if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { title: `Your own room: ${ownEntry.built.level.title}`, onPick: () => { A.free = own; render(); } }));
 }
 
 // ---- the closing screen ----
@@ -637,7 +663,7 @@ async function screenEnd(main, token) {
       freePlay: () => setRoad(R.startFreePlay(A.road)),
       playAgain: (ref) => { A.free = ref; setRoad(R.startFreePlay(A.road)); },
       ownRoom: () => setRoad({ ...A.road, step: R.OWN_STEP }),
-      startOver,
+      startOver: confirmStartOver,
     },
   }));
 }

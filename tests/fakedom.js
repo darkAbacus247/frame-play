@@ -27,7 +27,6 @@ class FakeElement {
     this.textContent = '';
     this.dataset = {};
     this.style = {};
-    this.hidden = false;
     this.open = false;
     this.classList = new FakeClassList(this);
   }
@@ -39,6 +38,9 @@ class FakeElement {
     return e === this.ownerDocument.body;
   }
   get disabled() { return this.attrs.has('disabled'); }
+  // reflected, as in a browser: the hidden attribute is the hidden property
+  get hidden() { return this.attrs.has('hidden'); }
+  set hidden(v) { if (v) this.attrs.set('hidden', ''); else this.attrs.delete('hidden'); }
   set disabled(v) { if (v) this.attrs.set('disabled', ''); else this.attrs.delete('disabled'); }
   // a canvas: drawing does nothing; there are no pixels to read
   getContext() {

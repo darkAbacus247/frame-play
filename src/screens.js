@@ -180,7 +180,9 @@ export function revealHeight({ width, aspect, spaceH, headH, gap, infoH, beside,
   return Math.min(natural, Math.max(min, room));
 }
 
-// actions: { play, describe(desc), walls(on) }
+const changeCount = (n) => (n === 0 ? 'none' : n === 1 ? '1 change' : `${n} changes`);
+
+// actions: { play, describe(desc, button), walls(on) }
 export function foundView({ level, summary, fromDevice, actions }) {
   const pic = el('div', { class: 'found-pic' });
   const list = el('ol', { class: 'obj-list' });
@@ -196,7 +198,11 @@ export function foundView({ level, summary, fromDevice, actions }) {
       ]),
     ]));
   });
-  const desc = el('section', { class: 'describe', hidden: true, 'aria-live': 'polite' });
+  const desc = el('section', { class: 'describe', id: 'describe-room', hidden: true, 'aria-live': 'polite' });
+  const describeBtn = el('button', {
+    type: 'button', class: 'btn', text: 'Describe this room', 'aria-expanded': 'false', 'aria-controls': 'describe-room',
+    tip: 'Every object, its role and where it is, in words', onclick: () => actions.describe(desc, describeBtn),
+  });
   let walls = false;
   const wallsBtn = el('button', {
     type: 'button', class: 'btn', 'aria-pressed': 'false', text: 'Show walls',
@@ -218,7 +224,7 @@ export function foundView({ level, summary, fromDevice, actions }) {
     fromDevice ? el('p', { class: 'why', text: 'Loaded from this device: no model was called this time.' }) : null,
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Start playing this room', text: 'Play this room', onclick: actions.play }),
-      el('button', { type: 'button', class: 'btn', text: 'Describe this room', tip: 'Every object, its role and where it is, in words', onclick: () => actions.describe(desc) }),
+      describeBtn,
       wallsBtn,
     ]),
     desc,
@@ -227,7 +233,7 @@ export function foundView({ level, summary, fromDevice, actions }) {
       scenery.length ? el('p', { text: `Also seen, as scenery (never a wall, never sent to SAM): ${scenery.join(', ')}.` }) : null,
       warnings.length ? el('ul', { class: 'changes' }, warnings.map((w) => el('li', { text: w }))) : null,
     ], 'objects'),
-    more('Proof and changes by code', [
+    more(`Proof and changes by code (${changeCount(level.changes_by_code.length)})`, [
       el('p', { class: 'proof', text: proofLine(level) }),
       el('h2', { class: 'small-h', text: 'Changes by code' }),
       changes,
@@ -397,7 +403,8 @@ export function missingLine(slot, ref, mode) {
 export function resultLine(road, slot) {
   const best = road.best[slot];
   if (best != null) return best <= 1.05 ? 'Won · by the shortest route' : `Won · best route ${best.toFixed(1)} times the shortest`;
-  if (road.finished[slot]) return 'Lost · not won yet';
+  // the road's own round; a replay in Free play never changes it
+  if (road.finished[slot]) return 'Lost on the road';
   return 'Not played yet';
 }
 
@@ -425,10 +432,13 @@ export function closingView({ rooms, mode, primaryLabel, actions }) {
         el('p', { class: 'result', text: r.result }),
         el('p', { class: 'ai', text: r.ai }),
       ]),
+      // the visible words begin the accessible name: "Play again: The Desk
+      // Top" (your own room by its row, as in REHEARSAL it carries a
+      // sample's title)
       r.playable ? el('button', {
-        type: 'button', class: 'btn', text: 'Play again', 'aria-label': `Play ${r.title} again`,
-        tip: `Play ${r.title} again in free play`, onclick: () => actions.playAgain(r.ref, r.title),
-      }) : null,
+        type: 'button', class: 'btn', tip: `Play ${r.slot === 2 ? 'your own room' : r.title} again in free play`,
+        onclick: () => actions.playAgain(r.ref, r.title),
+      }, ['Play again', el('span', { class: 'sr-only', text: `: ${r.slot === 2 ? 'your own room' : r.title}` })]) : null,
     ]))),
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),

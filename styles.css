@@ -172,8 +172,10 @@ button { font: inherit; color: inherit; }
   padding: 0 var(--s4); cursor: pointer; font-weight: 600; list-style: none;
 }
 .more > summary::-webkit-details-marker { display: none; }
-.more > summary::before { content: "▸"; color: var(--muted); }
-.more[open] > summary::before { content: "▾"; }
+/* the marker is decoration: an empty alternative text keeps it out of the
+   summary's accessible name */
+.more > summary::before { content: "▸" / ""; color: var(--muted); }
+.more[open] > summary::before { content: "▾" / ""; }
 .more > .more-body { display: grid; gap: var(--s3); padding: 0 var(--s4) var(--s4); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
 .sparse .actions { justify-content: center; }

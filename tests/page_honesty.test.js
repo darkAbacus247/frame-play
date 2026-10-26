@@ -25,6 +25,7 @@ test('MOCK: a photo chosen on Your own room is shown here only: never fingerprin
   try {
     const input = app.$('main').querySelectorAll('input').find((i) => i.getAttribute('type') === 'file');
     assert.ok(input, 'the picker');
+    app.button('Choose a photo').focus();
     input.files = [{ name: 'my-room.jpg', type: 'image/jpeg', size: 300000, arrayBuffer: async () => new ArrayBuffer(16) }];
     input.dispatch('change');
     await app.settle();
@@ -40,6 +41,7 @@ test('MOCK: a photo chosen on Your own room is shown here only: never fingerprin
   assert.equal(road.step, 9);
   assert.equal(road.rooms[2], null, 'no room on the road');
   assert.match(app.main(), /Your photo, on this device only\. Nothing was sent, and no level was made from it\./);
+  assert.equal(app.doc.activeElement, app.button('Choose a photo'), 'the focus is back on Choose a photo, not lost to the page');
 });
 
 test('MOCK: Steps 2 and 5 hold no file input at all', async () => {
