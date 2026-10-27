@@ -20,10 +20,11 @@ import { mountMarker } from './src/marker.js';
 import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal, NOT_SAME_WORDS, OURS, replayOurs, REPLAY_WORDS } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
+  freeView, ownView, ownResult, closingRooms, closingView, doneView, doneLine, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
   oursCardView, OURS_TITLE, endRoundButton, END_CARD,
 } from './src/screens.js';
 import { Fx } from './src/fx.js';
+import { emit } from './src/events.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -55,6 +56,8 @@ const A = {
   pulsed: false,
   headerStep: 0, // the step the header was last drawn for
   missingWhy: null, // the header's reason while a room's level is missing
+  boards: new Map(), // each room's picture size on its reveal (boardCap)
+  lastBox: null, // the last reveal's space for its picture
   tour: { on: false, offered: false, lastProgress: Date.now(), notOn: null },
 };
 
@@ -442,18 +445,20 @@ function renderHeader() {
   // in MOCK no photo can make your own room, so its step names the one way on
   const mockOwn = r.step === R.OWN_STEP && A.mode !== 'live' && A.mode !== 'rehearsal';
   const why = el('span', { class: 'why', text: fw.ok || r.step >= R.FREE_PLAY ? '' : A.missingWhy || (mockOwn ? 'Continue to the end to go on' : fw.why) });
-  const pulse = !A.pulsed && shouldPulse({ firstVisit: A.firstVisit, reducedMotion: reducedMotion() });
-  A.pulsed = true;
-  const tourBtn = el('button', {
-    type: 'button', class: `btn quiet tour-btn${pulse ? ' pulse-once' : ''}`, 'aria-pressed': String(A.tour.on),
-    tip: A.tour.on ? 'Ends the tour' : 'A short guided tour, one step at a time',
-    text: A.tour.on ? 'End the tour' : 'Take the tour', onclick: toggleTour,
-  });
-  $('road').replaceChildren(back, counter, next, why, tourBtn);
+  $('road').replaceChildren(back, counter, next, why);
 }
 
+// The footer: Take the tour, Settings, Sound and the mode, centred as one
+// group (the header already carries the name)
 function renderDock() {
+  const pulse = !A.pulsed && shouldPulse({ firstVisit: A.firstVisit, reducedMotion: reducedMotion() });
+  A.pulsed = true;
   $('dock').replaceChildren(
+    el('button', {
+      type: 'button', class: `btn quiet tour-btn${pulse ? ' pulse-once' : ''}`, 'aria-pressed': String(A.tour.on),
+      tip: A.tour.on ? 'Ends the tour' : 'A short guided tour, one step at a time',
+      text: A.tour.on ? 'End the tour' : 'Take the tour', onclick: toggleTour,
+    }),
     el('button', {
       type: 'button', class: 'btn', 'aria-expanded': String(A.drawerOpen), 'aria-controls': 'drawer',
       tip: A.drawerOpen ? 'Close the settings' : 'Open the settings', onclick: toggleDrawer,
@@ -463,7 +468,6 @@ function renderDock() {
       onclick: () => setSoundOn(!audio.on), text: `Sound: ${audio.on ? 'on' : 'off'}`,
     }),
     el('span', { class: `mode-chip ${A.mode}`, text: A.mode.toUpperCase() }),
-    el('span', { class: 'mark', text: 'FRAME//PLAY' }),
   );
 }
 
@@ -493,6 +497,7 @@ function renderDrawer() {
       sw('Show outlines while playing', outlinesOn(), () => { S.setOutlinesWhilePlaying(!outlinesOn()); applySettings(); }, 'Draws the outlines the AI found while you play'),
       el('button', { type: 'button', class: 'btn', text: 'Read this screen aloud', tip: 'Reads the main words on this screen', onclick: readScreen }),
       el('button', { type: 'button', class: 'btn', text: 'Start over from Step 1', tip: 'Starts the road again, after you confirm. Saved levels stay', onclick: confirmStartOver }),
+      A.installPrompt ? el('button', { type: 'button', class: 'btn install-btn', text: 'Install', tip: 'Installs FRAME//PLAY as an app on this device, opened from its own window', onclick: install }) : null,
     ]),
     // shown, never folded: the disclosure is always in view in Settings
     el('h3', { text: 'About FRAME//PLAY' }),
@@ -536,7 +541,7 @@ async function render() {
   // off it (←, the browser's Back and Forward, the welcome-back card) ends it
   if (A.road.step !== R.FREE_PLAY) A.free = null;
   // each arrival on the closing screen celebrates once
-  if (A.road.step !== R.LAST_STEP) A.celebrated = false;
+  if (A.road.step !== R.LAST_STEP) { A.celebrated = false; A.done = null; }
   stopViews();
   hideTip();
   A.missingWhy = null;
@@ -556,6 +561,8 @@ async function render() {
     else if (kind === 'play') await screenPlay(main, slot, null, token);
     else if (kind === 'three') await screenThree(main, token);
     else if (kind === 'own') await screenOwn(main, token);
+    // drawn again after "I'm done" (a check of the server), the thank-you stays
+    else if (kind === 'end' && A.done) main.replaceChildren(doneView({ rooms: A.done.rooms, open: true, actions: A.done.actions }));
     else if (kind === 'end') await screenEnd(main, token);
     else await screenFree(main, token);
   } catch (e) {
@@ -805,7 +812,24 @@ async function screenFound(main, slot, token) {
       infoH: ceilH(info), beside: info.getBoundingClientRect().left > pic.getBoundingClientRect().left + 1,
     });
   };
-  A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags, maxHeight }));
+  const key = boardKey(ref);
+  A.reveals.push(mountReveal(pic, {
+    level, rt, picture: entry.picture, ui: uiFlags, maxHeight,
+    onFit: (f, box) => { A.boards.set(key, { cssW: f.cssW, cssH: f.cssH }); A.lastBox = box; },
+  }));
+}
+
+// The size each room's picture had on its reveal, so Play draws it no larger
+// (src/ui.js capBoard). A room played before its reveal was drawn here (a
+// reload on Play, Free play) takes the last reveal's space for its shape.
+const boardKey = (ref) => (ref ? (ref.kind === 'sample' ? `sample:${ref.id}` : refKey(ref)) : '');
+function boardCap(ref, level) {
+  const known = A.boards.get(boardKey(ref));
+  if (known) return known;
+  if (!A.lastBox) return null;
+  const { width: w, height: h } = level.picture;
+  const s = Math.min(A.lastBox.w / w, A.lastBox.h / h);
+  return { cssW: Math.floor(w * s), cssH: Math.floor(h * s) };
 }
 
 async function screenPlay(main, slot, ref, token) {
@@ -829,7 +853,7 @@ async function screenPlay(main, slot, ref, token) {
   const leave = onRoad ? leaveButton(slot, () => leaveRoom(slot)) : null;
   const end = onRoad ? endRoundButton(() => confirmEndRound(slot)) : null;
   A.view = mountPlay(main, {
-    level, rt, picture: entry.picture, audio,
+    level, rt, picture: entry.picture, audio, cap: boardCap(ref || A.road.rooms[slot], level),
     say: (t) => { say(t); progress(); },
     ui: uiFlags,
     sideExtras: onRoad ? [describeBtn, end, leave, desc] : [describeBtn, desc],
@@ -989,10 +1013,43 @@ async function screenEnd(main, token) {
       playAgain: (ref) => { A.free = ref; setRoad(R.startFreePlay(A.road)); },
       ownRoom: () => setRoad({ ...A.road, step: R.OWN_STEP }),
       startOver: confirmStartOver,
+      done: () => imDone(rooms),
     },
   });
   main.replaceChildren(section);
   celebrate(section);
+}
+
+// "I'm done" ends the visit: a short thank-you (the one line of what was
+// played and won, a soft fade, the music's closing sting once, which
+// src/audio.js plays only with Effects on), then the app window closes.
+// An ordinary tab stays open (the browser does not allow it): then the
+// screen says it can be closed and offers Free play and Start over.
+const DONE_CLOSE_MS = 1800;
+function imDone(rooms) {
+  stopViews();
+  stopTour();
+  const main = $('main');
+  const token = ++A.renderToken;
+  const actions = {
+    freePlay: () => setRoad(R.startFreePlay(A.road)),
+    startOver: confirmStartOver,
+  };
+  A.done = { rooms, actions };
+  main.replaceChildren(doneView({ rooms, actions }));
+  emit('closing');
+  say(`Thank you for playing. ${doneLine(rooms)}`);
+  setTimeout(() => {
+    if (token !== A.renderToken) return;
+    try { globalThis.close(); } catch { /* not allowed here */ }
+    // a closed window runs no more; a tab that stayed open says so
+    setTimeout(() => {
+      if (token !== A.renderToken || globalThis.closed) return;
+      main.replaceChildren(doneView({ rooms, open: true, actions }));
+      const p = main.querySelector('[data-primary]');
+      if (p) p.focus({ preventScroll: true });
+    }, 100);
+  }, reducedMotion() ? DONE_CLOSE_MS / 2 : DONE_CLOSE_MS);
 }
 
 // The closing screen celebrates once on each arrival: the music's sting
@@ -1552,7 +1609,7 @@ function startTour() {
   A.tour.on = true;
   writePref('tour', true);
   hideOffer();
-  renderHeader();
+  renderDock();
   updateTour();
   say('Tour on. ' + (tourNow() || { line: '' }).line);
 }
@@ -1563,7 +1620,7 @@ function stopTour() {
   writePref('tour', false);
   clearVeil();
   $('tour-strip').replaceChildren();
-  renderHeader();
+  renderDock();
 }
 
 function toggleTour() {
@@ -1752,9 +1809,39 @@ function rehearsalBand() {
   } else if (A.mode !== 'rehearsal' && band) band.remove();
 }
 
+// ---- install and launch ----
+// The page is an installable app (manifest.webmanifest, sw.js: the
+// worker keeps the page's own static files only). Settings offers Install
+// only while the browser offers installation.
+function installable() {
+  const nav = globalThis.navigator;
+  if (nav && nav.serviceWorker && /^https?:$/.test(globalThis.location && globalThis.location.protocol)) {
+    nav.serviceWorker.register('sw.js').catch(() => { /* not installable here */ });
+  }
+  addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    A.installPrompt = e;
+    renderDrawer();
+  });
+  addEventListener('appinstalled', () => { A.installPrompt = null; renderDrawer(); });
+}
+
+async function install() {
+  const e = A.installPrompt;
+  if (!e) return;
+  A.installPrompt = null;
+  try {
+    e.prompt();
+    const choice = await e.userChoice;
+    say(choice && choice.outcome === 'accepted' ? 'Installed. FRAME//PLAY opens from your apps.' : 'Not installed.');
+  } catch { /* the browser withdrew the offer */ }
+  renderDrawer();
+}
+
 // ---- boot ----
 async function boot() {
   initTooltips(() => A.tour.on);
+  installable();
   A.firstVisit = readPref('visited', null) === null;
   writePref('visited', true);
   A.tour.on = readPref('tour', false) === true;

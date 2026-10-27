@@ -62,7 +62,7 @@ test('Describe this room says whether its words are open', async () => {
 
 test('Settings shows the About words, never folded', async () => {
   const app = await at(END);
-  app.$('dock').querySelectorAll('button')[0].click();
+  app.$('dock').querySelectorAll('button')[1].click(); // Settings, after Take the tour
   await app.settle(3);
   const drawer = app.$('drawer');
   assert.equal(drawer.querySelectorAll('details').length, 0);

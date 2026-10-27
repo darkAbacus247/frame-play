@@ -264,6 +264,12 @@ class Statics(unittest.TestCase):
         self.assertIsNone(static_file('/src/../server/server.py'))
         self.assertIsNone(static_file('/server/server.py'))
 
+    def test_the_installable_app_files_are_served(self):
+        for path in ('/manifest.webmanifest', '/sw.js', '/icons/icon-192.png', '/icons/icon-512.png'):
+            self.assertIsNotNone(static_file(path), path)
+        self.assertIsNone(static_file('/icons/../server/server.py'))
+        self.assertIsNone(static_file('/tools/make_icons.py'))
+
 
 if __name__ == '__main__':
     unittest.main()

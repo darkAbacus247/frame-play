@@ -685,7 +685,33 @@ export function wonLine(rooms) {
   return `You won ${COUNT[won] === 'no' ? 'none' : COUNT[won]} of your ${COUNT[n]} rooms.`;
 }
 
-// actions: { freePlay, playAgain(ref, title), ownRoom, startOver };
+// The thank-you screen's one line: the rooms played and how many were won.
+export function doneLine(rooms) {
+  const n = rooms.filter((r) => r.ref).length;
+  const won = rooms.filter((r) => r.ref && r.won).length;
+  if (!n) return 'You walked the road without playing a room.';
+  if (n === 1) return won ? 'You played one room and won it.' : 'You played one room.';
+  return `You played ${COUNT[n]} rooms and won ${won === n ? `all ${COUNT[n]}` : won ? COUNT[won] : 'none'}.`;
+}
+
+// "I'm done": thank you, the one line, a soft fade (none with Reduce motion,
+// by the stylesheet's .rm). The app window closes after; where the browser
+// keeps an ordinary tab open, `open` is true and the screen says so and
+// offers the ways back. actions: { freePlay, startOver }
+export const CLOSE_TAB = 'You can close this tab now.';
+export function doneView({ rooms, open = false, actions }) {
+  return el('section', { class: 'screen done' }, [
+    el('h1', { text: 'Thank you for playing' }),
+    el('p', { class: 'lede done-line', text: doneLine(rooms) }),
+    open ? el('p', { class: 'done-tab', text: CLOSE_TAB }) : null,
+    open ? el('div', { class: 'actions' }, [
+      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Free play', tip: 'Play any room as often as you like', onclick: actions.freePlay }),
+      el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
+    ]) : null,
+  ]);
+}
+
+// actions: { freePlay, playAgain(ref, title), ownRoom, startOver, done };
 // canReplay: this server can replay our kitchen photo's recorded answer
 export function closingView({ rooms, mode, primaryLabel, actions, canReplay = false }) {
   const sends = mode === 'live' || mode === 'rehearsal';
@@ -717,6 +743,7 @@ export function closingView({ rooms, mode, primaryLabel, actions, canReplay = fa
     ]))),
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),
+      el('button', { type: 'button', class: 'btn done-btn', text: 'I’m done', tip: 'Ends your visit with a thank-you, then closes the app', onclick: actions.done }),
       el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own, or use ours`, onclick: actions.ownRoom }),
       el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
     ]),

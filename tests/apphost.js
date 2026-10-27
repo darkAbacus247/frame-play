@@ -162,6 +162,8 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
     // by its accessible name: aria-label, or its text as one run
     button: (name) => $('main').querySelectorAll('button').find((b) => (b.getAttribute('aria-label') || nameOf(b)) === name) || null,
     popstate: (state) => { for (const f of listeners.get('popstate') || []) f({ state }); },
+    // a window event the page listens for (beforeinstallprompt, appinstalled)
+    fire: (type, ev = {}) => { for (const f of listeners.get(type) || []) f(ev); },
     savedRoad: () => JSON.parse(storage.getItem('frameplay.road')),
     posts: () => requests.filter(([m]) => m === 'POST').length,
     // a picked file, as the screen's file input hands it on

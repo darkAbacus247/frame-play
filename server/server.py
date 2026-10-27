@@ -45,10 +45,15 @@ TYPES = {
     '.svg': 'image/svg+xml',
     '.json': 'application/json; charset=utf-8',
     '.jpg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webmanifest': 'application/manifest+json',
 }
 
 FIXED_FILES = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js',
-               '/styles.css': 'styles.css', '/favicon.svg': 'favicon.svg'}
+               '/styles.css': 'styles.css', '/favicon.svg': 'favicon.svg',
+               # the installable app: its manifest, icons and service worker
+               '/manifest.webmanifest': 'manifest.webmanifest', '/sw.js': 'sw.js',
+               '/icons/icon-192.png': 'icons/icon-192.png', '/icons/icon-512.png': 'icons/icon-512.png'}
 PATTERNS = (re.compile(r'/src/[a-z_]+\.js'), re.compile(r'/rooms/[a-z0-9_-]+\.json'), re.compile(r'/rooms/kitchen\.jpg'))
 REPLAY_ROUTE = '/api/replay/kitchen'
 # a replay carries no photo: its body, if any, is at most this long

@@ -394,7 +394,7 @@ export class Layout {
 export const MAIN_CHAIN = [{ tag: 'html', cls: [] }, { tag: 'body', cls: [] }, { tag: 'div', cls: ['app'] }, { tag: 'main', cls: [] }];
 
 // The header for a step and the dock, as app.js draws them.
-export function header({ lap, counter, why, tourOn = false, band = null }) {
+export function header({ lap, counter, why, band = null }) {
   return el('header', { class: 'top' }, [
     el('span', { class: 'brand', text: 'FRAME//PLAY' }),
     el('span', { class: 'lap', text: lap }),
@@ -403,17 +403,16 @@ export function header({ lap, counter, why, tourOn = false, band = null }) {
       el('span', { class: 'counter', text: counter }),
       el('button', { type: 'button', class: 'btn icon-btn' }, [el('span', { text: '→' })]),
       el('span', { class: 'why', text: why }),
-      el('button', { type: 'button', class: 'btn quiet tour-btn', text: tourOn ? 'End the tour' : 'Take the tour' }),
     ]),
     band ? el('p', { class: 'band', text: band }) : null,
   ]);
 }
-export function dock(mode, sound = 'on') {
+export function dock(mode, sound = 'on', tourOn = false) {
   return el('footer', { class: 'dock' }, [
+    el('button', { type: 'button', class: 'btn quiet tour-btn', text: tourOn ? 'End the tour' : 'Take the tour' }),
     el('button', { type: 'button', class: 'btn' }, [el('span', { text: '⚙' }), el('span', { text: 'Settings' })]),
     el('button', { type: 'button', class: 'btn', text: `Sound: ${sound}` }),
     el('span', { class: `mode-chip ${mode}`, text: mode.toUpperCase() }),
-    el('span', { class: 'mark', text: 'FRAME//PLAY' }),
   ]);
 }
 

@@ -202,7 +202,7 @@ function view(mode, own) {
   const rooms = closingRooms({ road: endRoad(own), mode, levels, summaries: [null, null, null, { named: 8 }] });
   const actions = {
     freePlay: () => calls.push('free'), playAgain: (ref, t) => calls.push(['again', ref, t]),
-    ownRoom: () => calls.push('own'), startOver: () => calls.push('over'),
+    ownRoom: () => calls.push('own'), startOver: () => calls.push('over'), done: () => calls.push('done'),
   };
   return { section: closingView({ rooms, mode, primaryLabel: 'Free play', actions }), calls };
 }
@@ -216,7 +216,7 @@ test('one heading, one primary, real buttons for every way on; MOCK says what yo
   const primary = buttons.filter((b) => b.hasAttribute('data-primary'));
   assert.deepEqual(primary.map((b) => b.textContent), ['Free play']);
   // the accessible name starts with the visible words (label in name)
-  assert.deepEqual(buttons.map(nameOf), ['Play again: The Desk Top', 'Play again: The Living Room', 'Play again: The Apartment', 'Free play', 'Try your own room', 'Start over']);
+  assert.deepEqual(buttons.map(nameOf), ['Play again: The Desk Top', 'Play again: The Living Room', 'Play again: The Apartment', 'Free play', 'I’m done', 'Try your own room', 'Start over']);
   assert.ok(buttons.every((b) => !b.hasAttribute('aria-label')), 'no label that hides the visible words');
   assert.ok(buttons.every((b) => b.getAttribute('type') === 'button' && b.dataset.tip && b.getAttribute('aria-describedby')), 'keyboard buttons with words for screen readers');
   // in MOCK your own room is a photo you mark yourself, so it is offered too
@@ -226,7 +226,7 @@ test('one heading, one primary, real buttons for every way on; MOCK says what yo
   assert.equal(list.getAttribute('aria-label'), 'The rooms you played');
   assert.equal(list.children.length, 4);
   for (const b of buttons) b.click();
-  assert.deepEqual(calls, [['again', desk, 'The Desk Top'], ['again', living, 'The Living Room'], ['again', apartment, 'The Apartment'], 'free', 'own', 'over']);
+  assert.deepEqual(calls, [['again', desk, 'The Desk Top'], ['again', living, 'The Living Room'], ['again', apartment, 'The Apartment'], 'free', 'done', 'own', 'over']);
 });
 
 test('every mode offers Try your own room (in MOCK it is marked by hand)', () => {
