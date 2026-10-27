@@ -289,7 +289,7 @@ test('D3: a read that never answers is stopped at the limit, in the page’s wor
   assert.equal(READ_LIMIT_MS, 120000);
   await withFetch([() => new Promise(() => {})], async (calls) => {
     const t0 = Date.now();
-    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { timeoutMs: 30 }), (e) => e.message === TOO_LONG_WORDS && e.code === 'too_long');
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { timeoutMs: 30 }), (e) => e.message === TOO_LONG_WORDS && e.code === 'too_long' && e.retrySame === true);
     assert.ok(Date.now() - t0 < 2000);
     assert.equal(calls[0].init.signal.aborted, true, 'the request itself is aborted');
   });
