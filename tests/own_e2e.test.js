@@ -109,7 +109,7 @@ test('REHEARSAL end to end: the desk’s own picture, uploaded as a file, become
     const onSurface = room.objects.filter((o) => o.on_surface);
     assert.equal(level.objects.length, onSurface.length, 'every object on the desk was found');
     for (const o of level.objects) {
-      assert.equal(o.outline.source, 'traced_in_box', `${o.name}: traced inside SAM’s box`);
+      assert.equal(o.outline.source, 'sam_mask', `${o.name}: the stand-in’s mask, decoded`);
       const got = fillRings(o.outline.rings, W, H);
       const best = Math.max(...onSurface.filter((x) => x.name === o.name).map((x) => iou(got, fillRings(x.rings, W, H))));
       assert.ok(best >= 0.9, `${o.name} ${o.instance}: IoU ${best.toFixed(3)} against the painted shape`);

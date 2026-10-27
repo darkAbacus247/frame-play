@@ -11,6 +11,7 @@ import { findPath, cellOf } from '../src/nav.js';
 import { sampleField } from '../src/distance.js';
 import { createRound, stepRound, walkToPoint } from '../src/play.js';
 import { drawPlan } from '../src/render.js';
+import { fillRings } from '../src/raster.js';
 import { makeRng } from '../src/rng.js';
 import { GOLDEN, apartment, levelSummary, replayApartment } from './golden_apartment.js';
 
@@ -118,13 +119,62 @@ test('golden replay: the apartment through the stand-in, in SAM’s own grammar,
   assert.equal(reply.floor.boxes.length, 4, 'SAM’s floor: one match a room');
   assert.equal(reply.usage.sam_calls, 11, 'the floor and ten kinds of things: more than the old ceiling of 9');
   assert.equal(level.origin, 'rehearsal');
-  assert.equal(level.surface.source, 'traced_floor');
+  assert.equal(level.surface.source, 'sam_mask', 'the stand-in’s floor mask is the play area');
+  assert.equal(level.provenance.floor.words, 'The stand-in for SAM 3.1’s mask of the floor is the play area; everything else is wall.');
   assert.equal(level.surface.rooms, 4);
-  assert.equal(level.surface.doorways.length, 3);
+  assert.equal(level.surface.doorways.filter((d) => !d.exit).length, 3, 'three doorways between rooms');
+  assert.equal(level.surface.doorways.filter((d) => d.exit).length, 1, 'and one where the floor meets the exit');
   assert.equal(level.objects.length, 13);
-  assert.ok(level.objects.every((o) => o.outline.source === 'traced_in_box'));
+  assert.ok(level.objects.every((o) => o.outline.source === 'sam_mask'), 'every outline is the stand-in’s mask');
+  assert.ok(reply.objects.every((o) => o.mask.decoded && o.mask.encoding === 'one_bit'));
   assert.equal(level.objects.filter((o) => o.name === 'chair').length, 2, 'both chairs');
   assert.deepEqual(level.changes_by_code, []);
   assert.ok(level.proof.winnable);
   assert.ok(Math.abs(level.proof.route_length - mock.level.proof.route_length) < 0.05 * mock.level.proof.route_length, `${level.proof.route_length} against MOCK ${mock.level.proof.route_length}`);
+});
+
+test('REHEARSAL: the apartment walks only on the stand-in’s floor mask, from room to room only through its doorways', { timeout: 120000 }, async () => {
+  const { reply, entry } = await replayApartment();
+  const { level, rt } = entry.built;
+  const W = rt.W, H = rt.H;
+  assert.equal(reply.floor.mask.matches, 4, 'the masks of four floor matches, one a room');
+  const floor = fillRings(reply.floor.mask.rings, W, H);
+  const rug = fillRings(level.objects.find((o) => o.name === 'rug').outline.rings, W, H);
+  // nowhere off the floor mask (the rug, flat on the floor, is walked over)
+  let off = 0;
+  for (let i = 0; i < W * H; i++) if (rt.walk[i] && !floor[i] && !rug[i]) off++;
+  assert.equal(off, 0, 'no walkable pixel off the floor mask');
+  // the walls between rooms are walls: the floor mask is empty there
+  for (const [x, y] of [[527, 100], [527, 300], [600, 387], [900, 387], [100, 427], [400, 427]]) {
+    assert.equal(floor[y * W + x], 0, `a wall at ${x}, ${y}`);
+    assert.equal(rt.walk[y * W + x], 0);
+  }
+  // and every doorway is open
+  for (const [name, [x, y, w, h]] of Object.entries(DOORS)) {
+    assert.equal(floor[Math.floor(y + h / 2) * W + Math.floor(x + w / 2)], 1, `${name} is floor`);
+  }
+  // the proof's route stays on the floor, and leaves a room only through a doorway
+  const route = level.proof.route;
+  assert.ok(route.length > 2);
+  let prev = roomOf(...route[0]), door = false, crossings = 0;
+  for (let k = 1; k < route.length; k++) {
+    const [ax, ay] = route[k - 1], [bx, by] = route[k];
+    const n = Math.ceil(Math.hypot(bx - ax, by - ay));
+    for (let t = 1; t <= n; t++) {
+      const x = ax + ((bx - ax) * t) / n, y = ay + ((by - ay) * t) / n;
+      const i = Math.floor(y) * W + Math.floor(x);
+      assert.ok(floor[i] || rug[i], `the route leaves the floor mask at ${x.toFixed(1)}, ${y.toFixed(1)}`);
+      const here = roomOf(x, y);
+      assert.ok(here, `the route is in no room and no doorway at ${x.toFixed(1)}, ${y.toFixed(1)}`);
+      if (here === 'door') { door = true; continue; }
+      if (here !== prev) {
+        assert.ok(door, `from the ${prev} to the ${here} without a doorway`);
+        crossings++;
+      }
+      prev = here;
+      door = false;
+    }
+  }
+  assert.ok(crossings >= 3, 'the route goes through the rooms: coins in three of them, the exit in the bedroom');
+  assert.equal(floor[Math.floor(level.start[1]) * W + Math.floor(level.start[0])], 1, 'the start is on the floor mask');
 });

@@ -28,8 +28,9 @@ three rooms, a cactus in the kitchen, obstacles (a sofa, a coffee table, a
 dining table and two chairs, a bed, a cabinet) and the exit in the
 bedroom, which only the kitchen opens onto. The stand-in answers for any
 of them (`--room apartment`), so a rehearsal of the apartment runs the
-whole live path: a read seen from above, a floor in four matches, the
-floor grown on the picture, walls and doorways.
+whole live path: a read seen from above, a floor in four matches whose
+masks (each doorway in the mask of a room it opens from) are the play
+area, every outline a decoded mask, walls and doorways.
 
 ### How a photo becomes a room
 
@@ -90,8 +91,11 @@ floor grown on the picture, walls and doorways.
   refused in words before anything is sent, and no level is made from it.
   An edit of a few pixels (a coin nudged by 4 px, a small mark) can pass,
   and the stand-in then answers with its sample's own places, in the very
-  grammar sam-3.1 answers in, so the same reader, match choice and point
-  fallback run (its zero_matches drill makes the whole room from Muse
+  grammar sam-3.1 answers in and with real one_bit masks (the painter's
+  exact silhouettes of what the picture shows, coded by the codec's own
+  canonical encoder; `server/standin_masks/`, made by
+  `tests/standin_silhouettes.js`), so the same reader, mask decoder, match
+  choice, floor and point fallback run (its zero_matches drill makes the whole room from Muse
   Spark's points; its sam_busy drill answers every SAM call as busy, so the
   page shows the busy words and Try this photo again; its 401 drill refuses
   the key, and the page turns the picker off with Check again, as LIVE does
@@ -352,8 +356,10 @@ MOCK.
 MIT. See [LICENSE](LICENSE).
 
 **NOTICE.** `server/sam_mask.py` is derived from Meta's meta-sam-parser 0.1.0
-(its mask codec, and the contour tracing of its mask conversion): it is a
-port written for this repository, and it is distributed under the SAM
-License, not MIT. The license text is in
+(its mask codec, including the canonical one_bit encoder the stand-in
+uses, and the contour tracing of its mask conversion): it is a port
+written for this repository, and it is distributed under the SAM License,
+not MIT. So is `server/tests/lossless_encoder.py`, a test-only lossless
+encoder written as the mirror of that decoder. The license text is in
 [LICENSES/SAM_LICENSE.txt](LICENSES/SAM_LICENSE.txt), verbatim, as plain
 UTF-8 text. Everything else in this repository is MIT.

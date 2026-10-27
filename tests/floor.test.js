@@ -142,23 +142,32 @@ const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 
 // The first live desk answers (10-27) through the pipeline (server/tests/recorded.py).
 const recordedReply = () => JSON.parse(execFileSync(PYTHON, ['-B', '-m', 'server.tests.recorded'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 }));
 
-test('REHEARSAL: both old rooms through the stand-in get a traced floor and stay winnable', { timeout: 120000 }, async () => {
+test('REHEARSAL: both old rooms through the stand-in walk on its floor mask, and on a grown floor without it, and stay winnable', { timeout: 120000 }, async () => {
   for (const id of ['desk', 'living']) {
-    const reply = standInReply(id);
-    assert.equal(reply.status, 'ok');
     const room = loadRoom(JSON.parse(readFileSync(new URL(`../rooms/${id}.json`, import.meta.url), 'utf8')));
     const W = room.width, H = room.height;
     const pixels = { width: W, height: H, data: jpegLike(paintRoom(room).rgba, W, H, 90) };
-    const entry = await levelFromReply(reply, { width: W, height: H }, pixels, { kind: 'sample', id }, () => Promise.resolve());
-    assert.equal(entry.built.error, undefined, `${id}: ${entry.built.error}`);
-    const { level, rt } = entry.built;
-    assert.equal(level.origin, 'rehearsal');
-    assert.equal(level.surface.source, 'traced_floor', id);
-    assert.match(level.provenance.floor.words, /^Code grew the (desk|floor) from the stand-in for Muse Spark’s/);
-    assert.ok(level.proof.winnable, id);
-    // off the surface is a wall: above it, and (the desk) past its front edge
-    assert.equal(rt.walk[300 * W + 512], 0, `${id}: above the surface`);
-    if (id === 'desk') assert.equal(rt.walk[740 * W + 512], 0, 'below the desk’s front edge');
+    for (const withMask of [true, false]) {
+      const reply = standInReply(id);
+      assert.equal(reply.status, 'ok');
+      // without the mask (as when none decodes), code grows the floor instead
+      if (!withMask) delete reply.floor.mask;
+      const entry = await levelFromReply(reply, { width: W, height: H }, pixels, { kind: 'sample', id }, () => Promise.resolve());
+      assert.equal(entry.built.error, undefined, `${id}: ${entry.built.error}`);
+      const { level, rt } = entry.built;
+      assert.equal(level.origin, 'rehearsal');
+      if (withMask) {
+        assert.equal(level.surface.source, 'sam_mask', id);
+        assert.match(level.provenance.floor.words, /^The stand-in for SAM 3\.1’s mask of the (desk|floor) is the play area/);
+      } else {
+        assert.equal(level.surface.source, 'traced_floor', id);
+        assert.match(level.provenance.floor.words, /^Code grew the (desk|floor) from the stand-in for Muse Spark’s/);
+      }
+      assert.ok(level.proof.winnable, id);
+      // off the surface is a wall: above it, and (the desk) past its front edge
+      assert.equal(rt.walk[300 * W + 512], 0, `${id}: above the surface`);
+      if (id === 'desk') assert.equal(rt.walk[740 * W + 512], 0, 'below the desk’s front edge');
+    }
   }
 });
 

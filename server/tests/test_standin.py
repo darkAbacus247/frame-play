@@ -10,6 +10,7 @@ from server.config import ConfigError, settings_from
 from server.limits import Limits
 from server.pipeline import Pipeline, sam_text
 from server.server import main as server_main
+from server.sam_mask import decode_data
 from server.standin import DRILLS, StandIn, load_room, make_server, pixel_box
 from server.tests import images, standin_replay
 from server.tests.test_server import Running
@@ -89,6 +90,37 @@ class TheRealGrammar(unittest.TestCase):
         self.assertEqual(part['type'], 'output_text')
         self.assertEqual(sam_text(obj), part['text'])
 
+    def test_every_mask_is_real_and_is_the_painter_s_silhouette(self):
+        # P5: one_bit payloads that decode (canonically), and decode to the
+        # very pixels the painter shows of the thing, for every sample room;
+        # a smaller copy's masks decode too, and still cover the thing
+        for rid in ('desk', 'living', 'apartment'):
+            s = StandIn(rid)
+            room = load_room(rid)
+            for o in room['objects']:
+                text = s.find(o['name'], room['width'], room['height'])
+                records = samtext.parse(text, room['width'], room['height']).records
+                sil = s.silhouettes[o['id']]
+                x0, y0, w, h, flat = sil
+                best = 0.0
+                for r in records:
+                    raster, mw, mh = decode_data(text.split('data=')[1 + r['id']].split('|>')[0])
+                    left, top = r['box'][0], r['box'][1]
+                    inter = union = 0
+                    for yy in range(min(top, y0), max(top + mh, y0 + h)):
+                        for xx in range(min(left, x0), max(left + mw, x0 + w)):
+                            a = 0 <= xx - left < mw and 0 <= yy - top < mh and raster[(yy - top) * mw + xx - left]
+                            b = 0 <= xx - x0 < w and 0 <= yy - y0 < h and flat[(yy - y0) * w + xx - x0]
+                            inter += bool(a and b)
+                            union += bool(a or b)
+                    best = max(best, inter / union)
+                self.assertEqual(best, 1.0, f'{rid} {o["id"]}: the mask is the silhouette, pixel for pixel')
+            for noun in {o['name'] for o in room['objects']} | {room['surface']['name']}:
+                for rec in samtext.parse(s.find(noun, 512, 384), 512, 384).records:
+                    shape = samtext.mask_shape(rec, (512, 384))
+                    self.assertIsNotNone(shape, f'{rid} {noun} at 512 x 384')
+                    self.assertGreater(shape['area'], 0)
+
     def test_the_drills_speak_the_grammar(self):
         s = StandIn('desk', drill='zero_matches')
         self.assertEqual(s.find('mug', 1024, 768), '<0f>\n')
@@ -103,8 +135,12 @@ class TheRealGrammar(unittest.TestCase):
         s = StandIn('apartment')
         p = samtext.parse(s.find('floor', 1024, 768), 1024, 768)
         self.assertEqual((p.errors, p.warnings), ([], []))
+        # each doorway is in the mask (and so the box) of the first room it
+        # opens from: the living room holds two, the kitchen one
         self.assertEqual(sorted(r['box'] for r in p.records),
-                         [[54, 54, 520, 420], [54, 434, 520, 714], [534, 54, 970, 380], [534, 394, 970, 714]])
+                         [[54, 54, 534, 434], [54, 434, 520, 714], [534, 54, 970, 394], [534, 394, 970, 714]])
+        for r in p.records:
+            self.assertIsNotNone(samtext.mask_shape(r, (1024, 768)), 'a real mask')
         read = s.read()
         self.assertEqual(read['view'], 'top_down')
         self.assertEqual(len(read['floor_seeds']), 4)

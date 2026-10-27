@@ -13,9 +13,13 @@ shapes:
   in sam-3.1's own text grammar (samtext.py): ids from 0, exact inclusive
   boxes computed from the room's own shapes with the picture's size and a
   full-precision confidence, a mask token whose data is the box's rows and
-  cols and a payload in the real alphabet (made up: it means nothing), and
-  a closing newline. No match is the frame marker alone. The floor is one
-  match a room when the room file draws it as several rings.
+  cols and a real one_bit payload (sam_mask.encode_one_bit, the reference's
+  canonical encoder) of the painter's exact silhouette of the thing as the
+  picture shows it (server/standin_masks/<room>.json, made by
+  tests/standin_silhouettes.js), so the server decodes it as it decodes
+  SAM 3.1's own; and a closing newline. No match is the frame marker alone.
+  The floor is one match a room when the room file draws it as several
+  rings, each doorway in the mask of the first room it opens from.
 
 Drills on demand (--drill, or POST /drill {"name": ...} from this machine):
 401, 404 (model_not_found), 429 (once, with Retry-After), 503,
@@ -39,7 +43,7 @@ from pathlib import Path
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server import config, samtext  # noqa: E402
+from server import config, sam_mask, samtext  # noqa: E402
 from server.imageinfo import ImageError, size, sniff  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -120,14 +124,55 @@ def confidence(room_id, obj_id):
     return 0.86 + (int.from_bytes(d[:4], 'big') / 2 ** 32) * 0.12
 
 
-def payload(room_id, obj_id, area):
-    n = max(16, min(4000, int(area // 60)))
-    out = []
-    seed = _digest(room_id, obj_id, 'mask')
-    while len(out) < n:
-        seed = hashlib.sha256(seed).digest()
-        out.extend(samtext.ALPHABET[b % 85] for b in seed)
-    return ''.join(out[:n])
+def load_silhouettes(room_id):
+    """The painter's silhouettes of a sample room, by object id and surface
+    shape: (x0, y0, w, h, bytes of 0 and 1), or None for a thing not seen."""
+    data = json.loads((ROOT / 'server' / 'standin_masks' / f'{room_id}.json').read_text(encoding='utf-8'))
+    if data.get('room') != room_id:
+        raise ValueError('the silhouettes are for another room')
+
+    def unrun(c):
+        if c is None:
+            return None
+        flat = bytearray()
+        value = 0
+        for run in c['runs']:
+            flat += bytes([value]) * run
+            value ^= 1
+        return c['x0'], c['y0'], c['w'], c['h'], bytes(flat)
+    return {**{k: unrun(v) for k, v in data['objects'].items()},
+            **{k: unrun(v) for k, v in data['surface'].items()}}
+
+
+def mask_raster(crops, box, sx=1.0, sy=1.0):
+    """The silhouettes inside an inclusive box of the picture as sent (a
+    copy sx, sy times the room's size), row major: pixel (c, r) is the
+    room's pixel under the centre of the copy's pixel (x1 + c, y1 + r)."""
+    x1, y1, x2, y2 = box
+    w, h = x2 - x1 + 1, y2 - y1 + 1
+    out = bytearray(w * h)
+    for crop in crops:
+        if crop is None:
+            continue
+        cx, cy, cw, ch, flat = crop
+        if (sx, sy) == (1, 1):
+            for y in range(max(y1, cy), min(y2 + 1, cy + ch)):
+                a, b = max(x1, cx), min(x2 + 1, cx + cw)
+                if a >= b:
+                    continue
+                src = flat[(y - cy) * cw + a - cx:(y - cy) * cw + b - cx]
+                at = (y - y1) * w + a - x1
+                out[at:at + b - a] = bytes(p | q for p, q in zip(out[at:at + b - a], src))
+            continue
+        for r in range(h):
+            ry = math.floor((y1 + r + 0.5) / sy) - cy
+            if not 0 <= ry < ch:
+                continue
+            for c in range(w):
+                rx = math.floor((x1 + c + 0.5) / sx) - cx
+                if 0 <= rx < cw and flat[ry * cw + rx]:
+                    out[r * w + c] = 1
+    return bytes(out)
 
 
 class StandIn:
@@ -140,24 +185,42 @@ class StandIn:
         self.drill_used = False
         self.lock = threading.Lock()
         self.requests = []
+        self.silhouettes = load_silhouettes(room_id)
+        self.payloads = {}
+
+    def payload(self, keys, box, sx, sy):
+        """The one_bit payload of the silhouettes named by keys in a box,
+        coded once for each box."""
+        k = (tuple(keys), tuple(box), sx, sy)
+        if k not in self.payloads:
+            raster = mask_raster([self.silhouettes.get(key) for key in keys], box, sx, sy)
+            self.payloads[k] = sam_mask.encode_one_bit(raster, box[2] - box[0] + 1, box[3] - box[1] + 1)
+        return self.payloads[k]
 
     # ---- answers ----
     def floor_matches(self):
         """The floor as SAM finds it: one match a room. A surface drawn as
         several rings (a floor plan's rooms and the doorways between them)
-        is one match for each ring of 2% of the picture or more; any other
-        surface is one match."""
+        is one match for each ring of 2% of the picture or more, and each
+        smaller ring (a doorway) belongs to the first room it touches, so
+        its mask runs on through the doorway; any other surface is one
+        match. Returns (id, the shapes, their silhouettes' keys)."""
         shape = self.room['surface']['shape']
         rings = shape.get('rings')
         if not rings:
-            return [('surface', shape)]
+            return [('surface', [shape], ['surface'])]
         W, H = self.room['width'], self.room['height']
-        out = []
-        for k, ring in enumerate(rings):
-            b = pixel_box(ring, W, H)
-            if (b[2] - b[0] + 1) * (b[3] - b[1] + 1) >= 0.02 * W * H:
-                out.append((f'surface{k}', ring))
-        return out
+        boxes = [pixel_box(ring, W, H) for ring in rings]
+        rooms = [k for k, b in enumerate(boxes) if (b[2] - b[0] + 1) * (b[3] - b[1] + 1) >= 0.02 * W * H]
+        parts = {k: [k] for k in rooms}
+        for d, b in enumerate(boxes):
+            if d in parts:
+                continue
+            k = next((k for k in rooms if boxes[k][0] <= b[2] + 1 and b[0] <= boxes[k][2] + 1
+                      and boxes[k][1] <= b[3] + 1 and b[1] <= boxes[k][3] + 1), None)
+            if k is not None:
+                parts[k].append(d)
+        return [(f'surface{k}', [rings[j] for j in parts[k]], [f'surface{j}' for j in parts[k]]) for k in rooms]
 
     def read(self):
         W, H = self.room['width'], self.room['height']
@@ -197,14 +260,14 @@ class StandIn:
         if self.room.get('surface') and noun == self.room['surface']['name']:
             matches = self.floor_matches()
         else:
-            matches = [(o['id'], o['shape']) for o in self.room['objects'] if o['name'] == noun]
+            matches = [(o['id'], [o['shape']], [o['id']]) for o in self.room['objects'] if o['name'] == noun]
         found = []
-        for oid, shape in matches:
-            b = pixel_box(shape, RW, RH)
+        for oid, shapes, keys in matches:
+            boxes = [pixel_box(shape, RW, RH) for shape in shapes]
+            b = [min(x[0] for x in boxes), min(x[1] for x in boxes), max(x[2] for x in boxes), max(x[3] for x in boxes)]
             if (sx, sy) != (1, 1):
                 b = [math.floor(b[0] * sx), math.floor(b[1] * sy), min(W - 1, math.ceil((b[2] + 1) * sx) - 1), min(H - 1, math.ceil((b[3] + 1) * sy) - 1)]
-            area = (b[2] - b[0] + 1) * (b[3] - b[1] + 1)
-            found.append({'box': b, 'confidence': confidence(self.room_id, oid), 'payload': payload(self.room_id, oid, area)})
+            found.append({'box': b, 'confidence': confidence(self.room_id, oid), 'payload': self.payload(keys, b, sx, sy)})
         text = samtext.compose(found, W, H, newline=False)
         if self.drill == 'malformed_record':
             text += f'{"," if found else ""}{len(found)}<|box;x1=5;y1=5;x2=1;w={W};h={H};c=0.9|><|mask;x=0;y=0;c=0.9;data=1,1,!|>'

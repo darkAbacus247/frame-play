@@ -127,8 +127,9 @@ test('REHEARSAL through the merged pipeline and page: a winnable desk, an honest
     assert.equal(level.objects.length, 9, 'every thing on the desk is in the room');
     assert.ok(level.proof.winnable, 'code proved the room can be won');
     const c = level.provenance.outline_sources;
-    assert.equal(c.traced_in_box + c.box, 9, 'all 9 inside the boxes the stand-in for SAM gave, read in its real grammar');
-    assert.match(textOf(app.$('main').querySelector('.summary')), /stand-in for SAM 3\.1/);
+    assert.equal(c.sam_mask, 9, 'all 9 from the masks the stand-in for SAM gave, read in its real grammar and decoded');
+    assert.equal(level.surface.source, 'sam_mask', 'the stand-in’s mask of the desk is the play area');
+    assert.match(textOf(app.$('main').querySelector('.summary')), /The stand-in for SAM 3\.1’s masks gave 9 exact outlines; code traced 0\./);
     assert.doesNotMatch(app.main(), /left out/, 'no box was bad');
 
     // ---- SAM busy on every call: the busy words and Try this photo again ----
