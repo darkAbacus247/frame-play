@@ -7,9 +7,13 @@ shapes:
 - POST /v1/chat/completions: choices[0].message.content holds the strict
   JSON read of the room (from the room file's own objects, roles and
   reasons), and usage includes reasoning tokens;
-- POST /v1/responses: output_text in the SAM text grammar (samtext.py), with
-  exact boxes computed from the room's own shapes, a confidence, and a
-  well-formed opaque one_bit payload.
+- POST /v1/responses: the answer in the shape sam-3.1 gave on the first
+  live calls (10-27): output[0].content[0].text (and no output_text field)
+  in sam-3.1's own text grammar (samtext.py): ids from 0, exact inclusive
+  boxes computed from the room's own shapes with the picture's size and a
+  full-precision confidence, a mask token whose data is the box's rows and
+  cols and a payload in the real alphabet (made up: it means nothing), and
+  a closing newline. No match is the frame marker alone.
 
 Drills on demand (--drill, or POST /drill {"name": ...} from this machine):
 401, 404 (model_not_found), 429 (once, with Retry-After), 503,
@@ -106,7 +110,10 @@ def _digest(*parts):
 
 
 def confidence(room_id, obj_id):
-    return round(0.86 + (_digest(room_id, obj_id)[0] / 255) * 0.12, 2)
+    """A steady confidence from 0.86 to 0.98, written to full precision as
+    sam-3.1 writes its own."""
+    d = _digest(room_id, obj_id)
+    return 0.86 + (int.from_bytes(d[:4], 'big') / 2 ** 32) * 0.12
 
 
 def payload(room_id, obj_id, area):
@@ -115,7 +122,7 @@ def payload(room_id, obj_id, area):
     seed = _digest(room_id, obj_id, 'mask')
     while len(out) < n:
         seed = hashlib.sha256(seed).digest()
-        out.extend(samtext.B85[b % 85] for b in seed)
+        out.extend(samtext.ALPHABET[b % 85] for b in seed)
     return ''.join(out[:n])
 
 
@@ -158,22 +165,22 @@ class StandIn:
         RW, RH = self.room['width'], self.room['height']
         sx, sy = W / RW, H / RH
         if self.drill == 'zero_matches':
-            return f'<0f><w>{W}<h>{H}'
+            return samtext.compose([], W, H)
         if self.room.get('surface') and noun == self.room['surface']['name']:
             matches = [('surface', self.room['surface']['shape'])]
         else:
             matches = [(o['id'], o['shape']) for o in self.room['objects'] if o['name'] == noun]
-        parts = [f'<0f><w>{W}<h>{H}']
-        for i, (oid, shape) in enumerate(matches, 1):
+        found = []
+        for oid, shape in matches:
             b = pixel_box(shape, RW, RH)
             if (sx, sy) != (1, 1):
                 b = [math.floor(b[0] * sx), math.floor(b[1] * sy), min(W - 1, math.ceil((b[2] + 1) * sx) - 1), min(H - 1, math.ceil((b[3] + 1) * sy) - 1)]
             area = (b[2] - b[0] + 1) * (b[3] - b[1] + 1)
-            parts.append(f'<id>{i}<box>{b[0]} {b[1]} {b[2]} {b[3]}<c>{confidence(self.room_id, oid):.2f}'
-                         f'<mask>{samtext.envelope(payload(self.room_id, oid, area))}')
+            found.append({'box': b, 'confidence': confidence(self.room_id, oid), 'payload': payload(self.room_id, oid, area)})
+        text = samtext.compose(found, W, H, newline=False)
         if self.drill == 'malformed_record':
-            parts.append('<id>99<box>5 5 1<c>0.9<mask>' + samtext.envelope('abc'))
-        return ''.join(parts)
+            text += f'{"," if found else ""}{len(found)}<|box;x1=5;y1=5;x2=1;w={W};h={H};c=0.9|><|mask;x=0;y=0;c=0.9;data=1,1,!|>'
+        return text + '\n'
 
     def answer(self, path, headers, body):
         """(status, headers, JSON) for one request."""
@@ -247,9 +254,13 @@ class StandIn:
             return 400, {}, {'error': {'code': 'invalid_image', 'message': 'The image cannot be read'}}
         text = self.find(str(noun).strip().lower(), W, H)
         return 200, {}, {
-            'id': 'resp-standin', 'object': 'response', 'model': config.SAM_MODEL, 'status': 'completed',
-            'output': [{'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': text}]}],
-            'output_text': text,
+            'metadata': dict(meta), 'model': config.SAM_MODEL, 'background': False, 'tools': [],
+            'id': 'resp_standin', 'object': 'response', 'status': 'completed', 'error': None, 'incomplete_details': None,
+            'output': [{'type': 'message', 'id': 'msg_standin', 'role': 'assistant', 'status': 'completed',
+                        'content': [{'type': 'output_text', 'text': text, 'annotations': [], 'logprobs': []}]}],
+            'instructions': None,
+            'usage': {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0, 'images_processed': 1},
+            'store': False,
         }
 
 

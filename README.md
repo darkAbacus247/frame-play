@@ -153,10 +153,29 @@ picture through them.
 
 ## Known limits (so far)
 
-- Live mode is written against the Model API's documented shapes and tested
-  only against a local stand-in; it has not yet been run against Meta.
-- sam-3.1's answer text is parsed from our reading of Meta's published SAM 3
-  text format; the first live answers will confirm it.
+- Live mode has been run against Meta once (2026-10-27, the desk sample
+  picture). Those calls showed that the first reader of sam-3.1's answer
+  text, written from a summary of Meta's documents, did not match the real
+  grammar, so every box was dropped. The reader is now written from those
+  recorded answers and tested against them
+  (`server/tests/fixtures/desk_1027.json`); a photo unlike the desk may
+  still bring a surprise, which the reader reports as a diagnostic instead
+  of guessing.
+- SAM's mask payload (Meta's opaque one_bit encoding) is checked for its
+  alphabet and its shape and not decoded; outlines are traced by code
+  inside SAM's boxes instead.
+- When SAM gives several matches for one name, the ones holding one of
+  Muse Spark's points for it are kept (a point may fall up to 3% of the
+  picture beside a box: Muse Spark's points are rough), else the most
+  confident from 0.5 up; one box is never two things. What is dropped is
+  listed with the reveal.
+- When SAM finds nothing usable for a thing, code traces around Muse
+  Spark's own points for it instead, in a region a little larger than the
+  points. These shapes are smaller and rougher than SAM's, carry no
+  confidence, and the reveal says how many there are ("SAM 3.1 found 5;
+  for 4 more, code traced around Muse Spark's points"). A point that falls
+  on the thing next to the right one (a coin lying on a notebook) traces
+  that thing instead.
 - Live outlines are traced by code inside SAM's boxes; an object whose trace
   is not tight is traced again on a finer and a coarser grid, and if it is
   still not tight it falls back to its box, and the reveal says so. Small, low

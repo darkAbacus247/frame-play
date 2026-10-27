@@ -85,6 +85,10 @@ def spark_answer(read, finish='stop', usage=None):
 
 
 def sam_answer(text):
-    return ok_json({'id': 'resp-test', 'object': 'response', 'model': 'sam-3.1', 'status': 'completed',
-                    'output': [{'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': text}]}],
-                    'output_text': text})
+    """A Responses answer in the shape sam-3.1 gave on the first live calls:
+    the text in output[0].content[0], and no output_text field."""
+    return ok_json({'id': 'resp_test', 'object': 'response', 'model': 'sam-3.1', 'status': 'completed', 'error': None,
+                    'metadata': {'mask_encoding': 'one_bit', 'include_confidence': 'true'},
+                    'output': [{'type': 'message', 'id': 'msg_test', 'role': 'assistant', 'status': 'completed',
+                                'content': [{'type': 'output_text', 'text': text, 'annotations': [], 'logprobs': []}]}],
+                    'usage': {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0, 'images_processed': 1}})

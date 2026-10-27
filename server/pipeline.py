@@ -11,6 +11,7 @@ empty.
 import base64
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -26,6 +27,19 @@ ROLES = ('collect', 'avoid', 'exit', 'solid', 'flat')
 PER_NOUN = {'collect': 3, 'solid': 2, 'avoid': 1, 'exit': 1, 'flat': 1}
 MAX_OBJECTS = 12
 MIN_CONFIDENCE = 0.35
+# Choosing among several matches for one name (choose_matches): a Muse Spark
+# point counts for a match up to 3% of the picture outside it (on the desk's
+# recorded answers its coin points fell 12 to 13 px beside the coins); with
+# no point in any match, matches under FLOOR are dropped; and two names may
+# not keep the same box (SAME_BOX: IoU of at least 0.5).
+SEED_REACH = 0.03
+FLOOR = 0.5
+SAME_BOX = 0.5
+# When SAM finds nothing usable for a thing (point_regions): a region around
+# Muse Spark's points, grown by 5% of the long side; points to collect less
+# than 10% apart are one thing.
+POINT_MARGIN = 0.05
+POINT_GROUP = 0.10
 
 PROMPT = """You are reading one photo of a room or a desk top for a small game.
 An explorer will walk on ONE play surface (such as floor, desk, table, bed or counter).
@@ -229,12 +243,121 @@ def sam_text(j):
     return None
 
 
+def _conf(r):
+    return r['confidence'] if r['confidence'] is not None else 0.0
+
+
+def _rank(r):
+    return (-_conf(r), -((r['box'][2] - r['box'][0]) * (r['box'][3] - r['box'][1])), r['id'])
+
+
 def choose(records, role):
     """Matches at or above 0.35, ranked by confidence then area, up to the
-    role's count."""
-    keep = [r for r in records if (r['confidence'] if r['confidence'] is not None else 0.0) >= MIN_CONFIDENCE]
-    keep.sort(key=lambda r: (-(r['confidence'] or 0.0), -((r['box'][2] - r['box'][0]) * (r['box'][3] - r['box'][1])), r['id']))
+    role's count (the surface's choice: no points to go by)."""
+    keep = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
     return keep[:PER_NOUN.get(role, 1)]
+
+
+def _reach(p, box, W, H):
+    """How far a point lies outside a half-open box, as a share of the
+    picture's width or height (the larger); 0 inside."""
+    x0, y0, x1, y1 = box
+    dx = max(x0 - p[0], p[0] - x1, 0.0)
+    dy = max(y0 - p[1], p[1] - y1, 0.0)
+    return max(dx / W, dy / H)
+
+
+def choose_matches(records, seeds, role, W, H):
+    """Which of SAM's matches for one name are this object. A match that
+    holds one of Muse Spark's points for it is kept (each point picks the
+    match it falls in, or the nearest within SEED_REACH of the picture, since
+    the points are rough); with no point in any match, the most confident
+    matches at or above FLOOR. Never more than the role keeps.
+    Returns (kept, dropped): kept as (record, seeded), dropped as (record, why)."""
+    cap = PER_NOUN.get(role, 1)
+    usable = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
+    dropped = [(r, 'low') for r in records if _conf(r) < MIN_CONFIDENCE]
+    picked = []
+    for p in seeds:
+        near = [(_reach(p, r['box'], W, H), k) for k, r in enumerate(usable)]
+        near = [x for x in near if x[0] <= SEED_REACH]
+        if near:
+            k = min(near)[1]
+            if k not in picked:
+                picked.append(k)
+    if picked:
+        kept = [(usable[k], True) for k in sorted(picked)]
+        dropped += [(r, 'no_point') for k, r in enumerate(usable) if k not in picked]
+    else:
+        kept = [(r, False) for r in usable if _conf(r) >= FLOOR]
+        dropped += [(r, 'below_floor') for r in usable if _conf(r) < FLOOR]
+    dropped += [(r, 'over_count') for r, _ in kept[cap:]]
+    return kept[:cap], dropped
+
+
+def iou(a, b):
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union else 0.0
+
+
+def settle_claims(picks):
+    """One box is never two objects: of matches of different names that
+    cover the same thing (IoU at least SAME_BOX), the one holding a Muse
+    Spark point wins, then the more confident, then the earlier name.
+    picks: [(order, name, record, seeded)]. Returns (kept, lost) where lost
+    holds (pick, the name that kept the box)."""
+    ranked = sorted(picks, key=lambda q: (not q[3], -_conf(q[2]), q[0], q[2]['id']))
+    kept, lost = [], []
+    for q in ranked:
+        rival = next((k for k in kept if k[1] != q[1] and iou(k[2]['box'], q[2]['box']) >= SAME_BOX), None)
+        if rival:
+            lost.append((q, rival[1]))
+        else:
+            kept.append(q)
+    return kept, lost
+
+
+def point_regions(seeds, role, W, H):
+    """Where to trace a thing SAM did not find: around Muse Spark's own
+    points for it, as half-open boxes with the points they hold. (A point
+    may lie inside a box SAM found for another name: a coin on a notebook.)
+    Things to collect may be several (Muse Spark gives a point on each
+    coin), so their points form one region per group of points closer than
+    POINT_GROUP of the picture's long side; any other role is one region.
+    Each region is the points' bounds grown by POINT_MARGIN of the long side:
+    smaller than the thing may be, and said to be what it is."""
+    pts = list(seeds)
+    if not pts:
+        return []
+    side = max(W, H)
+    groups = []
+    for p in pts:
+        g = next((g for g in groups if role == 'collect' and any(math.dist(p, q) <= POINT_GROUP * side for q in g)), None)
+        if g is None and groups and role != 'collect':
+            g = groups[0]
+        if g is None:
+            groups.append([p])
+        else:
+            g.append(p)
+    m = max(16, round(POINT_MARGIN * side))
+    out = []
+    for g in groups[:PER_NOUN.get(role, 1)]:
+        xs, ys = [p[0] for p in g], [p[1] for p in g]
+        box = [max(0, math.floor(min(xs)) - m), max(0, math.floor(min(ys)) - m),
+               min(W, math.floor(max(xs)) + 1 + m), min(H, math.floor(max(ys)) + 1 + m)]
+        out.append((box, g))
+    return out
+
+
+DROP_WORDS = {
+    'low': 'its confidence was under 0.35',
+    'no_point': 'none of Muse Spark’s points for it fell in it',
+    'below_floor': 'its confidence was under 0.5',
+    'over_count': 'more matches than its role keeps',
+}
 
 
 class Pipeline:
@@ -319,6 +442,7 @@ class Pipeline:
         usage = {'calls': 0, 'spark_calls': 0, 'sam_calls': 0, 'tokens_in': 0, 'tokens_out': 0, 'reasoning_tokens': 0, 'estimated_usd': 0.0}
         lock = threading.Lock()
         stages = {}
+        found = {}
 
         def reply(status, error=None, scene=None, surface=None, objects=None):
             r = {
@@ -347,6 +471,10 @@ class Pipeline:
             }
             if s.mode == 'rehearsal':
                 r['provenance']['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
+            if found:
+                who = 'The stand-in for SAM 3.1' if s.mode == 'rehearsal' else 'SAM 3.1'
+                more = f'; for {found["points"]} more, code traces around Muse Spark’s points' if found['points'] else ''
+                r['provenance']['found'] = {**found, 'words': f'{who} found {found["sam"]}{more}.'}
             self._log_photo(r, stages)
             return r
 
@@ -425,12 +553,15 @@ class Pipeline:
                 else:
                     self.limits.release(r)
                 note('find', config.SAM_MODEL, e.status or e.code, int((self.clock() - t) * 1000), getattr(e, 'attempt', 1),
-                     noun=noun, error=e.code, **({'excerpt': e.excerpt} if e.excerpt else {}))
+                     noun=noun, error=e.code, **({'excerpt': e.excerpt} if e.excerpt else {}),
+                     **({'surface': True} if kind == 'surface' else {}))
                 return job, None, e
             self.limits.settle(r, SAM_COST)
             text = sam_text(j)
             parsed = samtext.parse(text, W, H)
             extra = {'noun': noun, 'matches': len(parsed.records), 'usd': SAM_COST}
+            if kind == 'surface':
+                extra['surface'] = True
             if parsed.errors:
                 extra['diagnostics'] = parsed.errors + parsed.warnings
                 if 'no_frame' in parsed.errors or 'size_mismatch' in parsed.errors:
@@ -462,22 +593,65 @@ class Pipeline:
                     surface = {'name': room['surface'], 'box': best[0]['box'], 'confidence': best[0]['confidence']}
             if surface is None:
                 warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
+        # which matches are which object: each name's own choice, then no box
+        # kept by two names
+        picks = []
+        dropped = {}
+        for k, o in enumerate(on):
+            if o['name'] not in nouns:
+                continue
+            parsed, err = answers[('object', o['name'])]
+            if err is not None or 'size_mismatch' in parsed.errors:
+                continue
+            kept, lost = choose_matches(parsed.records, o['seeds'], o['role'], W, H)
+            picks += [(k, o['name'], r, seeded) for r, seeded in kept]
+            dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost]
+        picks, lost = settle_claims(picks)
+        for (k, name, r, seeded), winner in lost:
+            dropped[name].append((r, f'the same box was kept for the {winner}', 'same_box'))
+        for c in calls:
+            if c['stage'] == 'find' and c.get('surface'):
+                c['kept'] = 1 if surface else 0
+            elif c['stage'] == 'find' and c.get('noun') in dropped:
+                c['kept'] = sum(1 for q in picks if q[1] == c['noun'])
+                if dropped[c['noun']]:
+                    c['dropped'] = sorted(why for _, _, why in dropped[c['noun']])
         objects = []
         counts = {}
-        for o in on:
+        for k, o in enumerate(on):
             if o['name'] not in nouns:
                 warnings.append(f'not sent: {o["name"]} (over the call ceiling)')
                 continue
             parsed, err = answers[('object', o['name'])]
+            picked = []
             if err is not None:
-                warnings.append(f'not found: {o["name"]} ({err.message if isinstance(err, (CallError, Refusal)) else "error"})')
-                continue
-            if 'size_mismatch' in parsed.errors:
-                warnings.append(f'not used: {o["name"]} (the answer was for a different picture size)')
-                continue
-            picked = choose(parsed.records, o['role'])
+                why = err.message if isinstance(err, (CallError, Refusal)) else 'error'
+            elif 'size_mismatch' in parsed.errors:
+                why = 'the answer was for a different picture size'
+            else:
+                for r, words, _ in sorted(dropped[o['name']], key=lambda d: d[0]['id']):
+                    if r['confidence'] is not None and r['confidence'] >= MIN_CONFIDENCE:
+                        warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
+                picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
+                why = None
             if not picked:
-                warnings.append(f'not found: {o["name"]}')
+                # SAM found nothing usable: Muse Spark's own points, when it
+                # gave any, still say where the thing is
+                regions = point_regions(o['seeds'], o['role'], W, H)
+                if not regions:
+                    warnings.append(f'not found: {o["name"]}' + (f' ({why})' if why else ''))
+                    continue
+                warnings.append(f'not found by SAM 3.1: {o["name"]}' + (f' ({why})' if why else '')
+                                + '; code traces around Muse Spark’s points for it instead')
+                for box, pts in regions:
+                    if len(objects) >= MAX_OBJECTS:
+                        break
+                    counts[o['name']] = counts.get(o['name'], 0) + 1
+                    objects.append({
+                        'id': f'o{len(objects) + 1}', 'name': o['name'], 'instance': counts[o['name']],
+                        'role': o['role'], 'reason': o['reason'], 'on_surface': True,
+                        'found_by': 'points', 'box': box, 'confidence': None, 'seeds': pts, 'mask': None,
+                    })
                 continue
             for m in picked:
                 if len(objects) >= MAX_OBJECTS:
@@ -492,17 +666,23 @@ class Pipeline:
                     'role': o['role'],
                     'reason': o['reason'],
                     'on_surface': True,
+                    'found_by': 'sam',
                     'box': m['box'],
                     'confidence': m['confidence'],
                     'seeds': seeds,
-                    'mask': {'height': H, 'width': W, 'encoding': 'one_bit', 'decoded': False,
+                    'mask': {'height': y1 - y0, 'width': x1 - x0, 'encoding': 'one_bit', 'decoded': False,
                              'payload_chars': (m['mask'] or {}).get('payload_chars')},
                 })
-        if spend_stopped and not objects:
+        by_sam = sum(1 for o in objects if o['found_by'] == 'sam')
+        if spend_stopped and not by_sam:
             return reply('refused', {'code': 'spend_stop', 'message': 'This server reached its spending stop while reading this photo.'}, scene=scene)
         if not objects:
             stages['find'] = 'nothing'
-            return reply('error', {'code': 'nothing_found', 'message': 'SAM 3.1 found none of the things Muse Spark named. Try another photo with clearer edges.'}, scene=scene, surface=surface)
+            return reply('error', {'code': 'nothing_found', 'message': 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.'}, scene=scene, surface=surface)
+        found['sam'] = by_sam
+        found['points'] = len(objects) - by_sam
+        if found['points']:
+            stages['find'] = 'points' if not by_sam else 'some_points'
         if self.clock() > deadline:
             return reply('error', {'code': 'timeout', 'message': 'The photo ran out of time. Please try again.'}, scene=scene)
         return reply('ok', None, scene=scene, surface=surface, objects=objects)
@@ -514,4 +694,35 @@ class Pipeline:
                        type=r['received']['type'], width=r['received']['width'], height=r['received']['height'],
                        sha256=r['provenance']['image_sha256'], stages=stages, calls=r['usage']['calls'],
                        tokens_in=r['usage']['tokens_in'], tokens_out=r['usage']['tokens_out'],
-                       estimated_usd=r['usage']['estimated_usd'], mode=r['provenance']['mode'])
+                       estimated_usd=r['usage']['estimated_usd'], mode=r['provenance']['mode'],
+                       found=found_counts(r))
+
+
+def found_counts(r):
+    """For the log, per name sent to SAM: how many matches SAM gave, how
+    many were kept, how many were placed by Muse Spark's points instead, and
+    the codes of what was dropped or surprised the reader. Names, counts and
+    codes only: never the photo, a box, a point, a reason, an answer text or
+    the key."""
+    points = {}
+    for o in r['objects']:
+        if o.get('found_by') == 'points':
+            points[o['name']] = points.get(o['name'], 0) + 1
+    out = []
+    for c in r['provenance']['calls']:
+        if c['stage'] != 'find' or 'noun' not in c:
+            continue
+        row = {'name': c['noun'], 'matches': c.get('matches', 0), 'kept': c.get('kept', 0)}
+        if c.get('surface'):
+            row['surface'] = True
+        else:
+            row['points'] = points.get(c['noun'], 0)
+        if c.get('dropped'):
+            row['dropped'] = c['dropped']
+        if c.get('diagnostics'):
+            row['diagnostics'] = c['diagnostics']
+        if c.get('error'):
+            row['error'] = c['error']
+        out.append(row)
+    # the calls finish in any order: the surface first, then by name
+    return sorted(out, key=lambda row: (not row.get('surface'), row['name']))

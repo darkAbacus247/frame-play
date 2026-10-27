@@ -1,11 +1,14 @@
+import base64
 import json
+import re
 import threading
 import unittest
+from pathlib import Path
 
-from server import config
+from server import config, samtext
 from server.config import ConfigError, settings_from
 from server.limits import Limits
-from server.pipeline import Pipeline
+from server.pipeline import Pipeline, sam_text
 from server.server import main as server_main
 from server.standin import DRILLS, StandIn, load_room, make_server, pixel_box
 from server.tests import images
@@ -31,6 +34,75 @@ class Shapes(unittest.TestCase):
             self.assertEqual(len(names), len(set(names)), 'one entry per noun')
         with self.assertRaises(ValueError):
             load_room('../server/config')
+
+
+FIXTURE = json.loads((Path(__file__).parent / 'fixtures' / 'desk_1027.json').read_text(encoding='utf-8'))
+_REC = (r'\d+<\|box;x1=\d+;y1=\d+;x2=\d+;y2=\d+;w=\d+;h=\d+;c=0\.\d+\|>'
+        r'<\|mask;x=0;y=0;c=0\.\d+;data=\d+,\d+,[' + re.escape(samtext.ALPHABET) + r']+\|>')
+# the shape of every answer sam-3.1 gave on the first live calls
+SHAPE = re.compile(rf'<0f>(?:{_REC}(?:,{_REC})*)?\n')
+# the stand-in's desk nouns, and the nouns Muse Spark used for the same things
+SAME_THING = {'mug': 'coffee mug', 'desk lamp': 'desk lamp', 'cardboard box': 'cardboard box', 'notebook': 'blue notebook',
+              'desk': 'desk', 'coin': 'gold coin', 'cactus': 'potted cactus', 'stack of books': 'book stack'}
+
+
+class TheRealGrammar(unittest.TestCase):
+    """The stand-in rehearses what sam-3.1 really answers."""
+
+    def test_the_recorded_answers_have_this_shape(self):
+        for noun, text in FIXTURE['answers'].items():
+            self.assertRegex(text, SHAPE, noun)
+            self.assertIsNotNone(SHAPE.fullmatch(text), noun)
+
+    def test_every_stand_in_answer_has_the_same_shape(self):
+        for rid in ('desk', 'living'):
+            s = StandIn(rid)
+            room = load_room(rid)
+            nouns = {o['name'] for o in room['objects']} | {room['surface']['name']}
+            for noun in nouns:
+                for W, H in ((room['width'], room['height']), (512, 384)):
+                    text = s.find(noun, W, H)
+                    self.assertIsNotNone(SHAPE.fullmatch(text), f'{rid} {noun}: {text[:120]}')
+                    ids = [int(x) for x in re.findall(r'(\d+)<\|box', text)]
+                    self.assertEqual(ids, list(range(len(ids))), 'ids count from 0')
+                    p = samtext.parse(text, W, H)
+                    self.assertEqual((p.errors, p.warnings), ([], []), noun)
+        self.assertEqual(StandIn('desk').find('unicorn', 1024, 768), '<0f>\n', 'no match is the frame alone')
+
+    def test_the_desk_boxes_are_the_ones_sam_found(self):
+        s = StandIn('desk')
+        for ours, theirs in SAME_THING.items():
+            mine = [r['box'] for r in samtext.parse(s.find(ours, 1024, 768), 1024, 768).records]
+            real = [r['box'] for r in samtext.parse(FIXTURE['answers'][theirs], 1024, 768).records]
+            for b in mine:
+                near = min(max(abs(u - v) for u, v in zip(b, r)) for r in real)
+                # within 2 px for every object; the desk's own front edge, 3
+                self.assertLessEqual(near, 3 if ours == 'desk' else 2, f'{ours}: {b} against {real}')
+
+    def test_the_answer_envelope_is_the_real_one(self):
+        status, _, obj = self.post_responses('mug')
+        self.assertEqual(status, 200)
+        self.assertNotIn('output_text', obj, 'sam-3.1 gives its text only inside output')
+        self.assertEqual(obj['status'], 'completed')
+        self.assertEqual(obj['metadata'], {'mask_encoding': 'one_bit', 'include_confidence': 'true'})
+        part = obj['output'][0]['content'][0]
+        self.assertEqual(part['type'], 'output_text')
+        self.assertEqual(sam_text(obj), part['text'])
+
+    def test_the_drills_speak_the_grammar(self):
+        s = StandIn('desk', drill='zero_matches')
+        self.assertEqual(s.find('mug', 1024, 768), '<0f>\n')
+        s = StandIn('desk', drill='malformed_record')
+        p = samtext.parse(s.find('mug', 1024, 768), 1024, 768)
+        self.assertEqual((len(p.records), p.errors), (1, ['malformed_record']))
+
+    def post_responses(self, noun):
+        body = {'model': 'sam-3.1', 'stream': False, 'store': False,
+                'metadata': {'mask_encoding': 'one_bit', 'include_confidence': 'true'},
+                'input': [{'role': 'user', 'content': [
+                    {'type': 'input_text', 'text': noun},
+                    {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,' + base64.b64encode(images.jpeg(1024, 768)).decode()}]}]}
+        return StandIn('desk').answer('/v1/responses', {'Authorization': 'Bearer ' + config.REHEARSAL_CREDENTIAL}, body)
 
 
 class Rehearsal(unittest.TestCase):
@@ -91,13 +163,20 @@ class Rehearsal(unittest.TestCase):
             '404': ('error', 'model_not_found'),
             '503': ('error', 'unavailable'),
             'content_filter': ('refused', 'content_filter'),
-            'zero_matches': ('error', 'nothing_found'),
             'people': ('refused', 'people_present'),
         }
         for name, (status, code) in expect.items():
             self.drill(name)
             r = self.post()
             self.assertEqual((r['status'], r['error']['code']), (status, code), name)
+        # no match at all: every thing is placed by Muse Spark's points instead
+        self.drill('zero_matches')
+        r = self.post()
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['provenance']['found']['sam'], 0)
+        self.assertEqual(r['provenance']['found']['points'], len(r['objects']))
+        self.assertTrue(all(o['found_by'] == 'points' for o in r['objects']))
+        expect['zero_matches'] = None
         self.drill('429')
         r = self.post()
         self.assertEqual(r['status'], 'ok', 'a 429 with a short Retry-After is retried once')

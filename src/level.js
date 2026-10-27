@@ -15,7 +15,9 @@ export const LABELS = {
   marked: 'MARKED BY YOU · outlines traced by code; no model was called',
 };
 export const ROLES = ['collect', 'avoid', 'exit', 'solid', 'flat'];
-export const OUTLINE_SOURCES = ['exact', 'sam_mask', 'traced_in_box', 'box'];
+// traced_at_points and points_box: a thing SAM did not find, traced around
+// Muse Spark's points for it, or the region around them
+export const OUTLINE_SOURCES = ['exact', 'sam_mask', 'traced_in_box', 'box', 'traced_at_points', 'points_box'];
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 

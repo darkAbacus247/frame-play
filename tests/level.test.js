@@ -45,7 +45,7 @@ test('the desk room can be won, untouched by repairs', () => {
   // start in the lowest fifth, near the middle
   assert.ok(level.start[1] > 600 && Math.abs(level.start[0] - room.width / 2) < 60, `start ${level.start}`);
   assert.equal(level.surface.horizon_y, 318);
-  assert.deepEqual(level.provenance.outline_sources, { exact: room.objects.length, sam_mask: 0, traced_in_box: 0, box: 0 });
+  assert.deepEqual(level.provenance.outline_sources, { exact: room.objects.length, sam_mask: 0, traced_in_box: 0, box: 0, traced_at_points: 0, points_box: 0 });
   // the frame hangs on the wall: no footprint; the notebook is flat: no footprint
   const byId = Object.fromEntries(level.objects.map((o) => [o.id, o]));
   assert.equal(byId.frame.footprint, null);

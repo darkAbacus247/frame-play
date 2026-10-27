@@ -316,13 +316,24 @@ function majority(mask, w, h, keepOff) {
 }
 
 // Keep the regions that hold a seed (or the centre); with none of those
-// set, the largest region.
-function keepSeeded(mask, w, h, seedCells) {
+// set, the largest region, or with `nearest`, the one nearest a seed.
+function keepSeeded(mask, w, h, seedCells, nearest = false) {
   const { labels, count, sizes } = components(mask, w, h, 4);
   if (!count) return mask;
   const keep = new Uint8Array(count + 1);
   for (const i of seedCells) if (labels[i]) keep[labels[i]] = 1;
-  if (!keep.some((v) => v)) {
+  if (!keep.some((v) => v) && nearest) {
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < mask.length; i++) {
+      if (!labels[i]) continue;
+      const y = Math.floor(i / w), x = i - y * w;
+      for (const s of seedCells) {
+        const sy = Math.floor(s / w), d = (x - (s - sy * w)) ** 2 + (y - sy) ** 2;
+        if (d < bd) { bd = d; best = labels[i]; }
+      }
+    }
+    keep[best] = 1;
+  } else if (!keep.some((v) => v)) {
     let best = 1;
     for (let l = 2; l <= count; l++) if (sizes[l] > sizes[best]) best = l;
     keep[best] = 1;
@@ -343,6 +354,10 @@ export function boxRingsOf(box) {
 // these grids; each try must pass the same tightness test, or the object
 // still falls back to its box.
 export const RETRY_CELLS = [128, 64];
+
+// How far from Muse Spark's point a shape traced around it may lie: the
+// same 3% the server allows a point beside SAM's box (SEED_REACH).
+export const POINT_REACH = 0.03;
 
 // Trace one object. pixels: { width, height, data: RGBA }. box: half-open
 // [x0, y0, x1, y1] in pixels. seeds: [[x, y]...] in pixels.
@@ -370,6 +385,23 @@ export function snugBox(pixels, box, seeds = []) {
   if (x1 - x0 < 4 || y1 - y0 < 4) return null;
   if ((x1 - x0) * (y1 - y0) < 0.1 * (box[2] - box[0]) * (box[3] - box[1])) return null;
   return t.bounds;
+}
+
+// A thing SAM did not find: the server sends a region around Muse Spark's
+// own points for it instead (server/pipeline.py, point_regions). The same
+// cut runs there with the points as certain foreground, held to a looser
+// test (the shape need not reach the region's sides; it must hold a point
+// and stand out from the region). Returns { source: 'traced_at_points' |
+// 'points_box', rings, why }: failing the test, the region itself is kept,
+// labeled that way.
+export function traceAroundPoints(pixels, box, points, opts = {}) {
+  let t = traceOnce(pixels, box, points, { ...opts, around: true });
+  for (const maxCells of opts.maxCells ? [] : RETRY_CELLS) {
+    if (t.source === 'traced_in_box') break;
+    const again = traceOnce(pixels, box, points, { ...opts, around: true, maxCells });
+    if (again.source === 'traced_in_box') t = again;
+  }
+  return { ...t, source: t.source === 'traced_in_box' ? 'traced_at_points' : 'points_box' };
 }
 
 function traceOnce(pixels, box, seeds, opts) {
@@ -435,7 +467,9 @@ function traceOnce(pixels, box, seeds, opts) {
         const i = ci + di, j = cj + dj;
         if (i < 0 || j < 0 || i >= cw || j >= ch) continue;
         const c = j * cw + i;
-        if (inBoxCell[c]) { state[c] = 1; seedCells.push(c); }
+        // Muse Spark's points are rough (on the recorded desk, 12 px beside
+        // a coin): around them, they only choose which region is kept
+        if (inBoxCell[c]) { if (!opts.around) state[c] = 1; seedCells.push(c); }
       }
     }
   }
@@ -459,7 +493,7 @@ function traceOnce(pixels, box, seeds, opts) {
     bg = fitGmm(clab, bgIdx.length ? bgIdx : idx((c) => state[c] === 2));
   }
   const boxCells = Math.max(1, idx((c) => inBoxCell[c]).length);
-  mask = keepSeeded(mask, cw, ch, seedCells);
+  mask = keepSeeded(mask, cw, ch, seedCells, !!opts.around);
   mask = fillHoles(mask, cw, ch, 0.02 * boxCells);
   // one majority pass on cells bigger than a pixel (the band cut below then
   // redraws the edge); on single pixels it would only eat curved edges
@@ -504,7 +538,7 @@ function traceOnce(pixels, box, seeds, opts) {
       const j = Math.floor(c / cw), i = c - j * cw;
       return Math.min(ah - 1, Math.floor((j + 0.5) * sy)) * aw + Math.min(aw - 1, Math.floor((i + 0.5) * sx));
     });
-    pmask = keepSeeded(pmask, aw, ah, seedPixels);
+    pmask = keepSeeded(pmask, aw, ah, seedPixels, !!opts.around);
     pmask = fillHoles(pmask, aw, ah, 0.02 * bw * bh);
   }
 
@@ -516,8 +550,19 @@ function traceOnce(pixels, box, seeds, opts) {
   if (opts.loose) return { source: 'loose', bounds: [tx0, ty0, tx1, ty1], why: null };
   const touches = Math.abs(tx0 - bx0) <= 2 && Math.abs(ty0 - by0) <= 2 && Math.abs(tx1 - bx1) <= 2 && Math.abs(ty1 - by1) <= 2;
   const cover = ((tx1 - tx0) * (ty1 - ty0)) / (bw * bh);
-  if (!touches) return fallback('The traced shape did not reach every side of SAM’s box');
-  if (cover < 0.85) return fallback('The traced shape covered too little of SAM’s box');
+  if (opts.around) {
+    // a region around Muse Spark's points is a guess, not a tight box: the
+    // shape must lie at a point (or within POINT_REACH of the picture's long
+    // side) and stand out from the region, nothing more
+    const reach = POINT_REACH * Math.max(W, H);
+    const near = usable.some(([x, y]) => Math.max(tx0 - x, x - tx1, 0) <= reach && Math.max(ty0 - y, y - ty1, 0) <= reach);
+    if (!near) return fallback('The traced shape was not at Muse Spark’s point');
+    if (touches && cover > 0.95) return fallback('Nothing around Muse Spark’s points stood out from its background');
+    if ((tx1 - tx0) < 3 || (ty1 - ty0) < 3) return fallback('The traced shape was too small');
+  } else {
+    if (!touches) return fallback('The traced shape did not reach every side of SAM’s box');
+    if (cover < 0.85) return fallback('The traced shape covered too little of SAM’s box');
+  }
   const rings = simplifyShape(traceMask(pmask, aw, ah).map((r) => r.map(([x, y]) => [x + ax0, y + ay0])), opts.simplify ?? 0.75);
   if (!rings.length) return fallback('The traced shape had no outline');
   return { source: 'traced_in_box', rings, why: null };

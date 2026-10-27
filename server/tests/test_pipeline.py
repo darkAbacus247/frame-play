@@ -10,10 +10,10 @@ from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import Transport
-from server.pipeline import Pipeline, clean_read, name_problem
-from server.samtext import envelope
+from server.pipeline import Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims
+from server.samtext import compose
 from server.server import Log
-from server.tests import images
+from server.tests import images, recorded
 from server.tests.fakemeta import FakeMeta, ok_json, sam_answer, spark_answer
 from server.tests.test_config import TEST_VALUE
 from server.tests.test_server import Running
@@ -36,15 +36,20 @@ READ = {
     'title': 'The Desk',
     'theme_line': 'Gather the coins.',
 }
-M = envelope('abc')
+
+
+def ans(*matches):
+    """An answer text in sam-3.1's grammar: matches of (x1, y1, x2, y2, c)."""
+    return compose([{'box': m[:4], 'confidence': m[4], 'payload': 'abc'} for m in matches], W, H)
+
+
 ANSWERS = {
-    'desk': f'<0f><w>{W}<h>{H}<id>1<box>0 20 63 47<c>0.97<mask>{M}',
-    'mug': f'<0f><w>{W}<h>{H}<id>1<box>5 20 14 30<c>0.91<mask>{M}<id>2<box>40 40 41 41<c>0.2<mask>{M}',
-    'coin': (f'<0f><w>{W}<h>{H}<id>1<box>20 30 23 33<c>0.8<mask>{M}<id>2<box>30 30 33 33<c>0.9<mask>{M}'
-             f'<id>3<box>40 30 43 33<c>0.7<mask>{M}<id>4<box>50 30 53 33<c>0.6<mask>{M}'),
-    'cactus': f'<0f><w>{W}<h>{H}<id>1<box>50 20 55 28<c>0.88<mask>{M}<id>2<box>10 40 12 42<c>0.5<mask>{M}',
-    'box': f'<0f><w>{W}<h>{H}<id>1<box>25 21 35 27<c>0.95<mask>{M}',
-    'lamp': f'<0f><w>{W}<h>{H}',
+    'desk': ans((0, 20, 63, 47, 0.97)),
+    'mug': ans((5, 20, 14, 30, 0.91), (40, 40, 41, 41, 0.2)),
+    'coin': ans((20, 30, 23, 33, 0.8), (30, 30, 33, 33, 0.9), (40, 30, 43, 33, 0.7), (50, 30, 53, 33, 0.6)),
+    'cactus': ans((50, 20, 55, 28, 0.88), (10, 40, 12, 42, 0.5)),
+    'box': ans((25, 21, 35, 27, 0.95)),
+    'lamp': ans(),
 }
 
 
@@ -94,7 +99,7 @@ class Reads(WithFake):
         mug = r['objects'][0]
         self.assertEqual(mug['box'], [5, 20, 15, 31], 'half-open boxes')
         self.assertEqual(mug['seeds'], [[12.8, 24.0]], 'seeds in pixels, inside the box')
-        self.assertEqual(mug['mask'], {'height': H, 'width': W, 'encoding': 'one_bit', 'decoded': False, 'payload_chars': 3})
+        self.assertEqual(mug['mask'], {'height': 11, 'width': 10, 'encoding': 'one_bit', 'decoded': False, 'payload_chars': 3})
         self.assertIn('not found: lamp', r['warnings'])
         self.assertTrue(any('left hand' in w for w in r['warnings']), 'a body word is dropped')
         self.assertEqual(r['usage']['spark_calls'], 1)
@@ -150,11 +155,25 @@ class Reads(WithFake):
         self.assertEqual(self.fake.count('/chat/completions'), 1)
         self.assertEqual(self.fake.count('/responses'), 0)
 
-    def test_zero_matches(self):
+    def test_zero_matches_fall_back_to_the_points(self):
         self.fake.on('/chat/completions', spark_answer(READ))
-        self.fake.always('/responses', sam_answer(f'<0f><w>{W}<h>{H}'))
+        self.fake.always('/responses', sam_answer('<0f>\n'))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual([(o['name'], o['found_by'], o['confidence']) for o in r['objects']], [('mug', 'points', None)],
+                         'only the mug came with a point')
+        self.assertEqual(r['objects'][0]['seeds'], [[12.8, 24.0]])
+        self.assertEqual(r['provenance']['found'], {'sam': 0, 'points': 1, 'words': 'The stand-in for SAM 3.1 found 0; for 1 more, code traces around Muse Spark’s points.'})
+        self.assertIn('not found by SAM 3.1: mug; code traces around Muse Spark’s points for it instead', r['warnings'])
+        self.assertIn('not found: coin', r['warnings'], 'no point, no region')
+
+    def test_zero_matches_and_no_points(self):
+        read = {**READ, 'objects': [{**o, 'seeds': []} for o in READ['objects']]}
+        self.fake.on('/chat/completions', spark_answer(read))
+        self.fake.always('/responses', sam_answer('<0f>\n'))
         r = self.pipe.run(photo())
         self.assertEqual((r['status'], r['error']['code']), ('error', 'nothing_found'))
+        self.assertEqual(r['error']['message'], 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.')
         self.assertIn('not found: mug', r['warnings'])
 
     def test_a_malformed_read_keeps_a_short_redacted_excerpt(self):
@@ -169,11 +188,12 @@ class Reads(WithFake):
 
     def test_a_size_mismatch_is_not_used(self):
         self.fake.on('/chat/completions', spark_answer(READ))
-        wrong = dict(ANSWERS, mug=ANSWERS['mug'].replace(f'<w>{W}', '<w>999'))
+        wrong = dict(ANSWERS, mug=ANSWERS['mug'].replace(f'w={W}', 'w=999'))
         self.fake.always('/responses', sam_by_noun(wrong))
         r = self.pipe.run(photo())
-        self.assertNotIn('mug', [o['name'] for o in r['objects']])
-        self.assertTrue(any('different picture size' in w for w in r['warnings']))
+        mug = next(o for o in r['objects'] if o['name'] == 'mug')
+        self.assertEqual(mug['found_by'], 'points', 'the box for another size is not used; the mug’s point is')
+        self.assertIn('not found by SAM 3.1: mug (the answer was for a different picture size); code traces around Muse Spark’s points for it instead', r['warnings'])
 
     def test_the_spend_stop(self):
         self.fake.on('/chat/completions', spark_answer(READ))
@@ -189,8 +209,127 @@ class Reads(WithFake):
         self.assertEqual(line['event'], 'photo')
         self.assertEqual(line['request_id'], r['request_id'])
         self.assertEqual(line['sha256'], r['provenance']['image_sha256'])
-        for word in ('Spiky', 'coin', 'You are reading', 'base64'):
-            self.assertNotIn(word, self.lines[-1], 'no prompt, no answer, no photo in the log')
+        for word in ('Spiky', 'You are reading', 'base64', '<0f>', 'abc', '[5, 20', '0.91', '12.8'):
+            self.assertNotIn(word, self.lines[-1], 'no prompt, no reason, no answer text, no box, no point, no photo in the log')
+        # per name sent to SAM: how many matches it gave and how many were kept
+        self.assertEqual(line['found'], [
+            {'name': 'desk', 'matches': 1, 'kept': 1, 'surface': True},
+            {'name': 'box', 'matches': 1, 'kept': 1, 'points': 0},
+            {'name': 'cactus', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['over_count']},
+            {'name': 'coin', 'matches': 4, 'kept': 3, 'points': 0, 'dropped': ['over_count']},
+            {'name': 'lamp', 'matches': 0, 'kept': 0, 'points': 0},
+            {'name': 'mug', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['low']},
+        ])
+
+    def test_the_log_shows_a_surprise_without_a_capture(self):
+        # SAM answers in a grammar the reader does not know: the log says
+        # which name, how many matches, and the reader's codes
+        self.fake.on('/chat/completions', spark_answer(READ))
+        odd = dict(ANSWERS, mug='<0f>0<|box;x1=5;y1=20;x2=14|>\n')
+        self.fake.always('/responses', sam_by_noun(odd))
+        self.pipe.run(photo())
+        line = json.loads(self.lines[-1])
+        mug = next(f for f in line['found'] if f['name'] == 'mug')
+        self.assertEqual(mug, {'name': 'mug', 'matches': 0, 'kept': 0, 'points': 1, 'diagnostics': ['malformed_record']})
+        self.assertNotIn('x1=', self.lines[-1])
+
+
+class RecordedDesk(unittest.TestCase):
+    """The first live answers (10-27) for the desk sample picture, played
+    back through the whole pipeline by a test double: nothing is sent."""
+
+    def test_the_right_nine_objects(self):
+        r = recorded.run()
+        self.assertEqual(r['status'], 'ok', r.get('error'))
+        got = sorted((o['name'], o['role']) for o in r['objects'])
+        self.assertEqual(got, sorted([('gold coin', 'collect')] * 3 + [
+            ('blue notebook', 'collect'), ('coffee mug', 'solid'), ('desk lamp', 'solid'),
+            ('potted cactus', 'avoid'), ('book stack', 'solid'), ('cardboard box', 'exit')]))
+        boxes = {(o['name'], o['instance']): o['box'] for o in r['objects']}
+        self.assertEqual(boxes[('blue notebook', 1)], [293, 429, 477, 522], 'the notebook, not the book stack’s spine')
+        self.assertEqual(sorted(b for (n, _), b in boxes.items() if n == 'gold coin'),
+                         [[283, 444, 317, 465], [453, 332, 487, 353], [725, 552, 759, 573]])
+        self.assertEqual(r['surface']['box'], [0, 319, 1024, 687])
+        self.assertEqual([s['name'] for s in r['scene']['scenery']], ['picture frame'])
+
+    def test_what_was_dropped_is_said(self):
+        r = recorded.run()
+        self.assertEqual(r['warnings'], ['not used: a match for blue notebook at 59% (none of Muse Spark’s points for it fell in it)'])
+        self.assertEqual(r['provenance']['found'], {'sam': 9, 'points': 0, 'words': 'The stand-in for SAM 3.1 found 9.'})
+        self.assertTrue(all(o['found_by'] == 'sam' for o in r['objects']))
+        calls = {c.get('noun'): c for c in r['provenance']['calls'] if c['stage'] == 'find'}
+        self.assertEqual((calls['blue notebook']['matches'], calls['blue notebook']['kept'], calls['blue notebook']['dropped']), (2, 1, ['no_point']))
+        self.assertEqual((calls['gold coin']['matches'], calls['gold coin']['kept']), (3, 3))
+        self.assertNotIn('diagnostics', calls['gold coin'], 'the real answers parse with no surprise')
+
+    def test_the_log_line_for_the_recorded_desk(self):
+        lines = []
+        recorded.run(log=Log(stream=lines))
+        found = json.loads(lines[-1])['found']
+        self.assertEqual([(f['name'], f['matches'], f['kept']) for f in found], [
+            ('desk', 1, 1), ('blue notebook', 2, 1), ('book stack', 1, 1), ('cardboard box', 1, 1), ('coffee mug', 1, 1),
+            ('desk lamp', 1, 1), ('gold coin', 3, 3), ('potted cactus', 1, 1)])
+        self.assertEqual(found[1].get('dropped'), ['no_point'])
+        # on 10-27 this line would have read 0 kept for every name, with the
+        # reader's codes beside them, and no capture would have been needed
+
+    def test_one_box_is_never_two_objects(self):
+        # SAM answers "coffee mug" with the lamp: the lamp holds Muse Spark's
+        # lamp points, so it stays the lamp, and the mug is placed by its own
+        # point instead
+        r = recorded.run({'coffee mug': recorded.FIXTURE['answers']['desk lamp']})
+        found = [(o['name'], o['found_by']) for o in r['objects'] if o['name'] in ('desk lamp', 'coffee mug')]
+        self.assertEqual(found, [('coffee mug', 'points'), ('desk lamp', 'sam')])
+        mug = next(o for o in r['objects'] if o['name'] == 'coffee mug')
+        self.assertLess(iou(mug['box'], [161, 170, 298, 386]), 0.01, 'not on the lamp')
+        self.assertIn('not used: a match for coffee mug at 82% (the same box was kept for the desk lamp)', r['warnings'])
+        self.assertIn('not found by SAM 3.1: coffee mug; code traces around Muse Spark’s points for it instead', r['warnings'])
+
+
+class Choosing(unittest.TestCase):
+    def rec(self, i, box, c):
+        return {'id': i, 'box': box, 'confidence': c, 'mask': None}
+
+    def test_points_pick_their_matches(self):
+        recs = [self.rec(0, [10, 10, 20, 20], 0.6), self.rec(1, [50, 50, 60, 60], 0.95), self.rec(2, [80, 10, 90, 20], 0.7)]
+        kept, dropped = choose_matches(recs, [[15, 15], [92, 15]], 'collect', 100, 100)
+        self.assertEqual([(r['id'], s) for r, s in kept], [(2, True), (0, True)], 'a point 2 px outside a box still counts; best first')
+        self.assertEqual([(r['id'], why) for r, why in dropped], [(1, 'no_point')], 'the most confident match holds no point')
+
+    def test_a_point_too_far_counts_for_nothing(self):
+        recs = [self.rec(0, [10, 10, 20, 20], 0.9), self.rec(1, [50, 50, 60, 60], 0.45)]
+        kept, dropped = choose_matches(recs, [[40, 40]], 'solid', 100, 100)
+        self.assertEqual([r['id'] for r, _ in kept], [0], 'no point in any match: the most confident above the floor')
+        self.assertEqual([(r['id'], why) for r, why in dropped], [(1, 'below_floor')])
+
+    def test_the_role_caps_and_the_minimum(self):
+        recs = [self.rec(k, [10 * k, 0, 10 * k + 5, 5], c) for k, c in enumerate((0.9, 0.8, 0.7, 0.6, 0.2))]
+        kept, dropped = choose_matches(recs, [], 'collect', 100, 100)
+        self.assertEqual([r['confidence'] for r, _ in kept], [0.9, 0.8, 0.7])
+        self.assertEqual(sorted(why for _, why in dropped), ['low', 'over_count'])
+        kept, _ = choose_matches(recs, [], 'exit', 100, 100)
+        self.assertEqual(len(kept), 1)
+
+    def test_point_regions(self):
+        # a lamp's two points are one thing; three coins' points are three
+        lamp = point_regions([[251, 211], [257, 373]], 'solid', 1024, 768)
+        self.assertEqual(lamp, [([200, 160, 309, 425], [[251, 211], [257, 373]])])
+        coins = point_regions([[469.0, 342.5], [328.7, 454.7], [770.0, 561.4]], 'collect', 1024, 768)
+        self.assertEqual([len(g) for _, g in coins], [1, 1, 1])
+        notebook = point_regions([[394.2, 474.6], [460.8, 472.3]], 'collect', 1024, 768)
+        self.assertEqual(len(notebook), 1, 'points closer than 10% of the long side are one thing')
+        edge = point_regions([[2, 3]], 'exit', 1024, 768)
+        self.assertEqual(edge[0][0], [0, 0, 54, 55], 'held inside the picture')
+        self.assertEqual(point_regions([], 'solid', 1024, 768), [])
+
+    def test_settle_claims(self):
+        a = self.rec(0, [0, 0, 10, 10], 0.9)
+        b = self.rec(0, [1, 0, 11, 10], 0.95)
+        c = self.rec(1, [40, 40, 50, 50], 0.5)
+        kept, lost = settle_claims([(0, 'mug', a, True), (1, 'cup', b, False), (1, 'cup', c, False)])
+        self.assertEqual(sorted(q[1] for q in kept), ['cup', 'mug'], 'a point beats a higher confidence')
+        self.assertEqual([(q[1], q[2]['box'], w) for q, w in lost], [('cup', [1, 0, 11, 10], 'mug')])
+        self.assertAlmostEqual(iou([0, 0, 10, 10], [5, 0, 15, 10]), 1 / 3)
 
 
 class Names(unittest.TestCase):

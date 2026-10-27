@@ -5,7 +5,7 @@ import { loadRoom } from '../src/rooms.js';
 import { paintRoom } from '../src/painter.js';
 import { fillRings, maskBounds } from '../src/raster.js';
 import { pointInShape } from '../src/geom.js';
-import { traceInBox, FlowGraph } from '../src/trace_in_box.js';
+import { traceInBox, traceAroundPoints, FlowGraph } from '../src/trace_in_box.js';
 import { buildLevel } from '../src/level.js';
 import { inputFromReply } from '../src/reply.js';
 import { jpegLike } from './jpegsim.js';
@@ -114,6 +114,25 @@ test('a box with no background around it falls back too', () => {
   const data = new Uint8ClampedArray(W * H * 4).fill(200);
   const res = traceInBox({ width: W, height: H, data }, [0, 0, W, H], []);
   assert.equal(res.source, 'box');
+});
+
+test('around Muse Spark’s points: a rough point beside a coin still finds the coin; nothing to find keeps the region', () => {
+  const { room: r, pixels } = room('desk');
+  const coin = r.objects.find((o) => o.id === 'coin2');
+  const truth = fillRings(coin.rings, r.width, r.height);
+  // the point Muse Spark really gave for this coin on 10-27: 12 px to its right
+  const point = [770.0, 561.4];
+  const region = [719, 510, 822, 613];
+  const t = traceAroundPoints(pixels, region, [point]);
+  assert.equal(t.source, 'traced_at_points', t.why);
+  const got = fillRings(t.rings, r.width, r.height);
+  let area = 0, on = 0;
+  for (let i = 0; i < got.length; i++) { area += got[i]; on += got[i] && truth[i]; }
+  assert.ok(on / area >= 0.75 && on / truth.reduce((s, v) => s + v, 0) >= 0.95, `the coin: ${on} of ${area} px on it`);
+  const blank = { width: 200, height: 150, data: new Uint8ClampedArray(200 * 150 * 4).fill(128) };
+  const none = traceAroundPoints(blank, [60, 40, 130, 110], [[95, 75]]);
+  assert.equal(none.source, 'points_box');
+  assert.deepEqual(none.rings, [[[60, 40], [130, 40], [130, 110], [60, 110]]]);
 });
 
 test('the max-flow solver finds the minimum cut', () => {
