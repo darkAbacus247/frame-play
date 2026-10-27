@@ -139,15 +139,27 @@ test('marks that cannot make a winnable room say exactly why, and nothing is mad
   assert.deepEqual(notYet, { ok: false, words: 'Not yet: Add an exit.' });
   const tiny = await M.makeMarkedRoom({ marks: [{ role: 'collect', box: [10, 10, 12, 40] }], picture: null, pixels: grey(320, 240), sha256: SHA, yieldNow: quick });
   assert.match(tiny.words, /smaller than 8 px or outside the photo/);
-  // the only coin behind a hazard that spans the photo, the exit in front
+  // the only coin behind a hazard that spans the photo, the exit in front:
+  // the room is repaired (the hazard is collected instead), and says so
   const walled = [
     { role: 'collect', box: [150, 20, 170, 60] },
     { role: 'avoid', box: [0, 120, 320, 200] },
     { role: 'exit', box: [140, 205, 180, 236] },
   ];
-  const r = await M.makeMarkedRoom({ marks: walled, picture: null, pixels: grey(320, 240), sha256: SHA, yieldNow: quick });
+  const fixed = await M.makeMarkedRoom({ marks: walled, picture: null, pixels: grey(320, 240), sha256: SHA, yieldNow: quick });
+  assert.equal(fixed.ok, true, fixed.words);
+  assert.deepEqual(fixed.entry.built.level.changes_by_code, [
+    { what: 'The coin is solid', why: 'Out of reach' },
+    { what: 'The hazard became a collectible', why: 'Nothing else could be collected' },
+  ]);
+  // the only coin drawn inside the exit's own footprint: nothing can repair it
+  const inside = [
+    { role: 'collect', box: [150, 180, 170, 198] },
+    { role: 'exit', box: [100, 120, 220, 200] },
+  ];
+  const r = await M.makeMarkedRoom({ marks: inside, picture: null, pixels: grey(320, 240), sha256: SHA, yieldNow: quick });
   assert.equal(r.ok, false);
-  assert.match(r.words, /^These marks do not make a room that can be won: .+\. Move, change or remove a box, then make the room again\.$/);
+  assert.equal(r.words, 'These marks do not make a room that can be won: The explorer cannot walk to the coin on the floor, and the exit alone cannot be both the exit and a thing to collect. Move, change or remove a box, then make the room again.');
   assert.doesNotMatch(r.words, /Try a sample room or another photo/, 'only the ways this screen offers');
   assert.ok(!('entry' in r));
 });

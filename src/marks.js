@@ -159,7 +159,7 @@ export async function makeMarkedRoom({ marks, picture, pixels, sha256, yieldNow 
   const outlines = await markedOutlines(reply, pixels, yieldNow);
   const built = buildLevel(inputFromReply(reply, { kind: 'marked', sha256 }, (o, k) => outlines[k]));
   if (built.error) {
-    return { ok: false, words: `These marks do not make a room that can be won: ${built.why || built.error}. Move, change or remove a box, then make the room again.` };
+    return { ok: false, words: `These marks do not make a room that can be won: ${(built.why || built.error).replace(/\.$/, '')}. Move, change or remove a box, then make the room again.` };
   }
   return { ok: true, entry: { picture, built, summary: null, marks: clean } };
 }
