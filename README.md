@@ -280,7 +280,7 @@ MOCK.
 MIT. See [LICENSE](LICENSE).
 
 **NOTICE.** `server/sam_mask.py` is derived from Meta's meta-sam-parser 0.1.0
-(its mask codec): it is a
+(its mask codec, and the contour tracing of its mask conversion): it is a
 port written for this repository, and it is distributed under the SAM
 License, not MIT. The license text is in
 [LICENSES/SAM_LICENSE.txt](LICENSES/SAM_LICENSE.txt), verbatim (stored as

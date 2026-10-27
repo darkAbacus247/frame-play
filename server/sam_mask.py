@@ -1,5 +1,6 @@
 # Derived from Meta's meta-sam-parser 0.1.0 (the mask codec,
-# _mask_codec.py / mask-codec.js), Copyright (c) Meta Platforms, Inc. and
+# _mask_codec.py / mask-codec.js, and the contour tracing of its mask
+# conversion, _mask_conversion.py / svg-path.js), Copyright (c) Meta Platforms, Inc. and
 # affiliates. All Rights Reserved.
 #
 # This file is distributed under the SAM License (LICENSES/SAM_LICENSE.txt),
@@ -36,6 +37,11 @@ the raster must give back the very same payload). Anything else raises
 InvalidMaskError; its messages are the reference's.
 
 decode_mask(encoding, payload, width, height) -> bytes of 0 and 1, row major.
+decode_data('ROWS,COLS,PAYLOAD') -> (raster, width, height).
+mask_shape(raster, width, height, left, top, x, y) -> the game's view of a
+mask in picture pixels: its rings (outline and holes, simplified), its area,
+its bounds and an occupancy grid. The outline is traced as the reference's
+mask conversion traces it (marching squares over the pixel centres).
 """
 from __future__ import annotations
 
@@ -523,6 +529,204 @@ def decode_mask(encoding, payload, width, height):
         raise
     except Exception as error:   # anything else the bytes provoke is a bad payload too
         raise InvalidMaskError('Mask payload could not be decoded.', error) from error
+
+
+# --- from a mask to shapes -------------------------------------------------------------
+# The outline follows the reference's mask conversion: marching squares over
+# the pixel centres, each contour passing through the midpoints between an
+# inside and an outside centre, so holes come out as rings of their own and
+# filling the rings at pixel centres (even-odd) gives back the mask exactly.
+# Where two inside pixels touch only at a corner, the contour joins them.
+#
+# Coordinates are picture pixels as the game reads them: pixel (px, py)
+# covers [px, px + 1) x [py, py + 1). A mask's pixel (c, r) is the picture's
+# pixel (left + x + c, top + y + r), where left, top is the box's corner and
+# x, y the mask token's offsets.
+#
+# Internally points are kept doubled, relative to the mask, with pixel
+# centres on even numbers: (2c, 2r) is the centre of the mask's pixel (c, r).
+
+# For each corner case (tl << 3 | tr << 2 | br << 1 | bl, the four pixels
+# around a grid point), the segments drawn between the midpoints of its sides.
+_SEGMENTS = {
+    1: (('left', 'bottom'),), 14: (('left', 'bottom'),),
+    2: (('bottom', 'right'),), 13: (('bottom', 'right'),),
+    3: (('left', 'right'),), 12: (('left', 'right'),),
+    4: (('top', 'right'),), 11: (('top', 'right'),),
+    5: (('left', 'top'), ('bottom', 'right')),
+    6: (('top', 'bottom'),), 9: (('top', 'bottom'),),
+    7: (('left', 'top'),), 8: (('left', 'top'),),
+    10: (('top', 'right'), ('left', 'bottom')),
+}
+
+
+def _contours(raster, width, height):
+    """Closed rings of doubled mask coordinates, one per boundary, outer or hole."""
+    def pixel(r, c):
+        return raster[r * width + c] if 0 <= r < height and 0 <= c < width else 0
+
+    neighbours = {}
+    for row in range(height + 1):
+        for col in range(width + 1):
+            case = pixel(row - 1, col - 1) << 3 | pixel(row - 1, col) << 2 | pixel(row, col) << 1 | pixel(row, col - 1)
+            if case in (0, 15):
+                continue
+            sides = {'top': (2 * col - 1, 2 * row - 2), 'bottom': (2 * col - 1, 2 * row),
+                     'left': (2 * col - 2, 2 * row - 1), 'right': (2 * col, 2 * row - 1)}
+            for a, b in _SEGMENTS[case]:
+                neighbours.setdefault(sides[a], []).append(sides[b])
+                neighbours.setdefault(sides[b], []).append(sides[a])
+
+    # Every midpoint lies between exactly two cells, so each has two neighbours
+    # and the segments join into simple closed rings.
+    rings = []
+    seen = set()
+    for start in neighbours:
+        if start in seen:
+            continue
+        ring = [start]
+        seen.add(start)
+        previous, current = start, neighbours[start][0]
+        while current != start:
+            ring.append(current)
+            seen.add(current)
+            a, b = neighbours[current]
+            previous, current = current, (b if a == previous else a)
+        if len(ring) >= 3:
+            rings.append(ring)
+    return rings
+
+
+def _signed_area(ring):
+    """Shoelace area; positive runs clockwise on screen (y down), as in src/geom.js."""
+    total = 0
+    for i in range(len(ring)):
+        (ax, ay), (bx, by) = ring[i - 1], ring[i]
+        total += ax * by - bx * ay
+    return total / 2
+
+
+def _is_outer(ring, raster, width):
+    # The ring's topmost point is a midpoint between two pixels one above the
+    # other; the one below it is inside the ring. The ring is an outline when
+    # that pixel is the mask's, a hole when it is not.
+    x2, y2 = min(ring, key=lambda p: (p[1], p[0]))
+    return raster[(y2 + 1) // 2 * width + x2 // 2] == 1
+
+
+def _drop_collinear(ring):
+    out = []
+    n = len(ring)
+    for i in range(n):
+        (ax, ay), (bx, by), (cx, cy) = ring[i - 1], ring[i], ring[(i + 1) % n]
+        if (bx - ax) * (cy - by) != (by - ay) * (cx - bx):
+            out.append(ring[i])
+    return out
+
+
+def _distance_to_segment(p, a, b):
+    (px, py), (ax, ay), (bx, by) = p, a, b
+    dx, dy = bx - ax, by - ay
+    length2 = dx * dx + dy * dy
+    t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length2))
+    return math.hypot(px - ax - t * dx, py - ay - t * dy)
+
+
+def _douglas_peucker(points, tolerance):
+    """An open polyline simplified so no dropped point is farther than tolerance; ends kept."""
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        a, b = stack.pop()
+        worst, at = -1.0, -1
+        for i in range(a + 1, b):
+            d = _distance_to_segment(points[i], points[a], points[b])
+            if d > worst:
+                worst, at = d, i
+        if at >= 0 and worst > tolerance:
+            keep[at] = True
+            stack += [(a, at), (at, b)]
+    return [p for p, k in zip(points, keep) if k]
+
+
+def simplify_ring(ring, tolerance):
+    """A closed ring simplified (Douglas-Peucker, split at the point farthest
+    from the first); None when it collapses below three points."""
+    if tolerance <= 0 or len(ring) < 4:
+        return list(ring)
+    far = max(range(len(ring)), key=lambda i: math.dist(ring[i], ring[0]))
+    first = _douglas_peucker(ring[:far + 1], tolerance)
+    second = _douglas_peucker(ring[far:] + [ring[0]], tolerance)
+    out = first[:-1] + second[:-1]
+    return out if len(out) >= 3 else None
+
+
+def mask_outline(raster, width, height, left=0, top=0, x=0, y=0, tolerance=0.75):
+    """The mask's outline as rings in picture pixels: outlines run clockwise
+    on screen (positive area), holes the other way; read them even-odd.
+    tolerance is how far (picture pixels) simplification may move the line;
+    0 keeps every corner, and then the rings fill back to the mask exactly."""
+    dx, dy = left + x, top + y
+    rings = []
+    for ring in _contours(raster, width, height):
+        outer = _is_outer(ring, raster, width)
+        points = [(dx + (px + 1) / 2, dy + (py + 1) / 2) for px, py in _drop_collinear(ring)]
+        area = _signed_area(points)
+        if (area > 0) != outer:
+            points.reverse()
+        points = simplify_ring(points, tolerance)
+        if points and _signed_area(points) != 0:
+            rings.append([[px, py] for px, py in points])
+    return rings
+
+
+def occupancy_grid(raster, width, height, left=0, top=0, x=0, y=0, cell=8, threshold=0.5):
+    """The mask downsampled onto the picture's grid of cell x cell squares
+    (square (i, j) covers picture pixels [i*cell, (i+1)*cell) x [j*cell, (j+1)*cell)).
+    Only the squares the mask's raster touches are given: col0, row0 is the
+    first, and cells[j][i] is 1 when at least threshold of the square's
+    pixels are the mask's (pixels outside the raster count as not)."""
+    if cell < 1:
+        raise ValueError('cell must be at least 1')
+    dx, dy = left + x, top + y
+    col0, row0 = dx // cell, dy // cell
+    cols = (dx + width - 1) // cell - col0 + 1
+    rows = (dy + height - 1) // cell - row0 + 1
+    counts = [[0] * cols for _ in range(rows)]
+    for r in range(height):
+        line = counts[(dy + r) // cell - row0]
+        base = r * width
+        for c in range(width):
+            if raster[base + c]:
+                line[(dx + c) // cell - col0] += 1
+    need = threshold * cell * cell
+    return {'cell': cell, 'col0': col0, 'row0': row0, 'cols': cols, 'rows': rows,
+            'cells': [[int(n > 0 and n >= need) for n in line] for line in counts]}
+
+
+def mask_bounds(raster, width, height, left=0, top=0, x=0, y=0):
+    """The half-open picture box [x0, y0, x1, y1] of the mask's pixels, or None."""
+    xs = [i % width for i, v in enumerate(raster) if v]
+    if not xs:
+        return None
+    ys = [i // width for i, v in enumerate(raster) if v]
+    dx, dy = left + x, top + y
+    return [dx + min(xs), dy + min(ys), dx + max(xs) + 1, dy + max(ys) + 1]
+
+
+def mask_shape(raster, width, height, left=0, top=0, x=0, y=0, tolerance=0.75, cell=8, threshold=0.5):
+    """What the game needs from one decoded mask, in picture pixels: its rings
+    (outline and holes), its area (pixels), its tight bounds and its occupancy grid."""
+    if len(raster) != width * height:
+        raise ValueError('raster is not width * height')
+    where = dict(left=left, top=top, x=x, y=y)
+    return {
+        'rings': mask_outline(raster, width, height, tolerance=tolerance, **where),
+        'area': sum(raster),
+        'bounds': mask_bounds(raster, width, height, **where),
+        'grid': occupancy_grid(raster, width, height, cell=cell, threshold=threshold, **where),
+    }
 
 
 def encoding_of(payload):
