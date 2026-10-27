@@ -5,8 +5,9 @@
   followed.
 - One timer covers the whole answer (status line, headers and body).
 - Answers are capped at 8 MiB, error bodies at 64 KiB.
-- One retry on a network error, 429, 500 or 502, and on 503 only when
-  Retry-After is 3 s or less. Never retried: 400, 401, 402, 403, 404, 413,
+- One retry on a network error, 500 or 502, and on 503 only when
+  Retry-After is 3 s or less. A 429 (not quota) is retried twice while time
+  remains, after Retry-After or 1 s, then 2 s. Never retried: 400, 401, 402, 403, 404, 413,
   504, or a malformed answer. Retry-After is read as seconds or as a date.
 - With the owner's key, an account or model problem (401, 402, 403, a 404
   for a model route, a quota 429) marks the transport broken. While it is broken, the server sends
@@ -278,11 +279,11 @@ class Transport:
                 return j, attempt, int((clock() - t0) * 1000)
             except CallError as e:
                 e.attempt = attempt
-                if attempt >= 2 or not e.retryable:
+                if attempt >= (3 if e.status == 429 else 2) or not e.retryable:
                     raise
                 wait = e.retry_after if e.retry_after is not None else 0
                 if e.status == 429 and e.retry_after is None:
-                    wait = 1
+                    wait = attempt  # 1 s, then 2 s
                 if wait > deadline - clock() - 1:
                     raise
                 if wait:

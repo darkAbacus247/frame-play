@@ -52,7 +52,8 @@ class AgainstAFake(unittest.TestCase):
 
     def test_retry_table(self):
         cases = [
-            (429, {'Retry-After': '2'}, 2, [2]),
+            (429, {'Retry-After': '2'}, 3, [2, 2]),
+            (429, {}, 3, [1, 2]),
             (500, {}, 2, []),
             (502, {}, 2, []),
             (503, {'Retry-After': '3'}, 2, [3]),
@@ -65,7 +66,8 @@ class AgainstAFake(unittest.TestCase):
             self.fake.requests.clear()
             self.slept.clear()
             self.fake.script.clear()
-            self.fake.on('/x', (status, headers, b'{"error": {"code": "drill", "message": "no"}}'), (status, headers, b'{}'))
+            self.fake.on('/x', (status, headers, b'{"error": {"code": "drill", "message": "no"}}'), (status, headers, b'{}'),
+                         (status, headers, b'{}'))
             with self.assertRaises(CallError, msg=status) as c:
                 self.post()
             self.assertEqual(len(self.fake.requests), sends, f'{status} {headers}')
@@ -78,6 +80,21 @@ class AgainstAFake(unittest.TestCase):
         self.fake.on('/x', (500, {}, b''), ok_json({'ok': 2}))
         j, attempt, _ = self.post()
         self.assertEqual((j, attempt), ({'ok': 2}, 2))
+
+    def test_a_429_may_be_retried_twice(self):
+        self.fake.on('/x', (429, {}, b''), (429, {}, b''), ok_json({'ok': 3}))
+        j, attempt, _ = self.post()
+        self.assertEqual((j, attempt, self.slept), ({'ok': 3}, 3, [1, 2]))
+
+    def test_a_second_429_retry_waits_only_while_time_remains(self):
+        self.fake.on('/x', (429, {'Retry-After': '2'}, b''), (429, {'Retry-After': '2'}, b''), ok_json({'ok': 3}))
+        clock = [0.0]
+
+        def sleep(s):
+            clock[0] += s
+        with self.assertRaises(CallError) as c:
+            self.t.post('/x', {}, 4.5, sleep=sleep, clock=lambda: clock[0])
+        self.assertEqual((c.exception.attempt, len(self.fake.requests)), (2, 2), 'no wait past the photo deadline')
 
     def test_an_empty_404_body_is_handled(self):
         self.fake.on('/x', (404, {}, b''))
@@ -190,7 +207,7 @@ class Latch(unittest.TestCase):
     def fail(self, route, status, code=None):
         self.fake.script.clear()
         body = json.dumps({'error': {'code': code, 'message': 'no'}}).encode() if code else b''
-        self.fake.on(route, (status, {}, body), (status, {}, body))  # the same again for a retry
+        self.fake.on(route, *[(status, {}, body)] * 3)  # the same again for each retry
         with self.assertRaises(CallError) as c:
             self.post(route)
         return c.exception
