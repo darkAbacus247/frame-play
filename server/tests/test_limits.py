@@ -1,6 +1,7 @@
 import threading
 import unittest
 
+from server import config
 from server.limits import SAM_COST, SPARK_WORST, Limits, Refusal
 
 
@@ -15,8 +16,9 @@ class Clock:
 class Ceilings(unittest.TestCase):
     def test_in_flight(self):
         lim = Limits(clock=Clock())
-        lim.admit()
-        lim.admit()
+        self.assertEqual(config.IN_FLIGHT, 4)
+        for _ in range(config.IN_FLIGHT):
+            lim.admit()
         with self.assertRaises(Refusal) as c:
             lim.admit()
         self.assertEqual(c.exception.code, 'busy')
@@ -27,7 +29,8 @@ class Ceilings(unittest.TestCase):
     def test_per_hour_and_per_day(self):
         clock = Clock(1_800_000_000.0 - (1_800_000_000.0 % 86400) + 3600)  # 01:00 UTC
         lim = Limits(clock=clock)
-        for _ in range(40):
+        self.assertEqual(config.PER_HOUR, 120)
+        for _ in range(config.PER_HOUR):
             lim.admit()
             lim.finish()
         with self.assertRaises(Refusal) as c:

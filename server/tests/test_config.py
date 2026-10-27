@@ -60,6 +60,21 @@ class Modes(unittest.TestCase):
         config.check_models(config.MODELS)
 
 
+class Ceilings(unittest.TestCase):
+    def test_the_spark_answer_has_room_to_finish(self):
+        self.assertEqual(config.SPARK_MAX_COMPLETION_TOKENS, 4000)
+        from server.limits import SPARK_WORST
+        self.assertLess(SPARK_WORST, 0.035, 'the worst Spark call is still reserved at a few cents')
+
+    def test_room_for_several_judges_with_the_day_and_dollar_guards_kept(self):
+        self.assertEqual((config.IN_FLIGHT, config.PER_HOUR), (4, 120))
+        self.assertEqual((config.PER_DAY, config.USD_STOP), (200, 5.0))
+        from server.limits import Limits
+        lim = Limits()
+        self.assertEqual((lim.max_in_flight, lim.per_hour), (4, 120))
+        self.assertEqual(Limits(in_flight=10, per_hour=1000).per_hour, 120, 'a setting never raises them')
+
+
 class TheKey(unittest.TestCase):
     def test_the_holder_never_prints_or_copies(self):
         k = KeyHolder(TEST_VALUE)

@@ -26,14 +26,22 @@ MAX_SIDE = 4096
 MAX_ANSWER_BYTES = 8 * 1024 * 1024
 MAX_ERROR_BYTES = 64 * 1024
 CALL_TIMEOUT_S = 20.0
+SPARK_TIMEOUT_S = 30.0  # the room read, sent once; a timeout is not sent again
 PHOTO_TIMEOUT_S = 60.0
 SPARK_CALLS_PER_PHOTO = 1
 SAM_CALLS_PER_PHOTO = 9
-IN_FLIGHT = 2
-PER_HOUR = 40
+# Several judges at once: 4 photos in flight, 120 an hour. The day's cap and
+# the $5 stop stay the hard guards.
+IN_FLIGHT = 4
+PER_HOUR = 120
 PER_DAY = 200
 USD_STOP = 5.0
-SPARK_MAX_COMPLETION_TOKENS = 2400
+# The first real desk read used 1,691 output tokens (1,151 reasoning); a
+# cluttered room needs room to finish its JSON.
+SPARK_MAX_COMPLETION_TOKENS = 4000
+# After an account or model problem, no photo is sent for this long; then one
+# photo may check again.
+LIVE_HOLD_S = 600.0
 
 # Published prices (Standard): muse-spark-1.3 $1.25 per 1M input tokens and
 # $4.25 per 1M output tokens, reasoning included; sam-3.1 $2.50 per 1,000 images.

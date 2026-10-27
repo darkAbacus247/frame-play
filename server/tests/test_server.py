@@ -7,8 +7,12 @@ import unittest
 
 from server import config
 from server.config import settings_from
-from server.server import CSP, FramePlayServer, Log, build_server, is_loopback, main, static_file
+from server.limits import Limits
+from server.meta_api import Transport
+from server.pipeline import Pipeline
+from server.server import CSP, FramePlayServer, Log, build_server, error_body, is_loopback, main, sentence, static_file
 from server.tests import images
+from server.tests.fakemeta import FakeMeta, ok_json
 
 
 class Running:
@@ -81,6 +85,8 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(j['outline_source'], 'traced_in_box')
         self.assertEqual(j['ceilings']['usd_stop_per_day'], 5.0)
         self.assertEqual(j['ceilings']['sam_calls_per_photo'], 9)
+        self.assertEqual((j['ceilings']['photos_in_flight'], j['ceilings']['photos_per_hour']), (4, 120))
+        self.assertEqual(j['live_state'], 'off')
 
     def test_room_in_mock_mode_is_409_in_words(self):
         status, _, body = self.run_.request('POST', '/api/room', images.jpeg(), {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'})
@@ -101,6 +107,18 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(self.run_.request('DELETE', '/')[0], 405)
         self.assertEqual(self.run_.request('PUT', '/nothing')[0], 404)
         self.assertEqual(self.run_.request('POST', '/api/other', b'x', {'X-FramePlay-Request': '1'})[0], 404)
+
+    def test_every_refusal_is_whole_sentences(self):
+        answers = [self.run_.request('GET', '/nothing'), self.run_.request('GET', '/api/room'),
+                   self.run_.request('POST', '/api/health'),
+                   self.run_.request('POST', '/api/room', images.jpeg(), {'Content-Type': 'image/jpeg'}),
+                   self.run_.request('POST', '/api/room', images.jpeg(), {'X-FramePlay-Request': '1'})]
+        for status, _, body in answers:
+            msg = json.loads(body)['error']['message']
+            self.assertTrue(msg.endswith('.'), (status, msg))
+        self.assertEqual(sentence('The photo is odd'), 'The photo is odd.')
+        self.assertEqual(sentence('Already whole. '), 'Already whole.')
+        self.assertEqual(error_body('x', 'No period')['error']['message'], 'No period.')
 
     def test_logs_never_hold_the_address_or_headers(self):
         self.run_.request('GET', '/api/health', headers={'User-Agent': 'secret-agent', 'Cookie': 'c=1'})
@@ -149,6 +167,83 @@ class PhotoChecks(unittest.TestCase):
         self.assertEqual(j['label'], 'REHEARSAL · local stand-in, not Meta')
         self.assertEqual(j['rehearsal']['stand_in_base'], 'http://127.0.0.1:9/v1')
         self.assertEqual(j['key'], 'absent')
+
+
+class LiveUnavailable(unittest.TestCase):
+    """After an account or model problem, no photo is sent until a check succeeds."""
+
+    def setUp(self):
+        self.fake = FakeMeta()
+        s = settings_from({}, self.fake.base, 'desk')
+        self.transport = Transport(self.fake.base, config.REHEARSAL_CREDENTIAL)
+        self.clock = [5000.0]
+        self.transport.now = lambda: self.clock[0]
+        self.transport.latching = True  # as with the owner's key
+        self.pipe = Pipeline(s, Limits(), log=Log(stream=[]), transport=self.transport, sleep=lambda x: None)
+        self.run_ = Running(s, pipeline=self.pipe, limits=self.pipe.limits)
+        self.pipe.log = self.run_.srv.log
+
+    def tearDown(self):
+        self.run_.stop()
+        self.fake.stop()
+
+    def post(self):
+        status, h, body = self.run_.request('POST', '/api/room', images.jpeg(), {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'})
+        return status, h, json.loads(body)
+
+    def health(self):
+        return json.loads(self.run_.request('GET', '/api/health')[2])
+
+    def test_one_refusal_stops_every_further_call(self):
+        self.assertEqual((self.health()['live_state'], self.health()['live_reason']), ('ok', None))
+        self.fake.always('/chat/completions', ok_json({'error': {'code': 'invalid_api_key'}}, 401))
+        status, _, first = self.post()
+        self.assertEqual((status, first['status']), (200, 'error'))
+        self.assertEqual(self.fake.count('/chat/completions'), 1)
+        for _ in range(3):
+            status, h, j = self.post()
+            self.assertEqual(status, 503)
+            self.assertEqual(j['error']['code'], 'live_unavailable')
+            self.assertIn('sample rooms still work', j['error']['message'])
+            self.assertEqual(h['Retry-After'], '600')
+        self.assertEqual(len(self.fake.requests), 1, 'nothing more was sent to the Model API')
+        hl = self.health()
+        self.assertEqual(hl['mode'], 'rehearsal')
+        self.assertEqual(hl['live_state'], 'unavailable')
+        self.assertTrue(hl['live_reason'].endswith('.'))
+        self.assertEqual(hl['live_check_again_s'], 600)
+        self.assertEqual(self.pipe.limits.counters()['photos_this_hour'], 1, 'a held photo is not counted')
+
+    def test_after_the_hold_one_photo_checks_again_and_a_good_answer_clears_it(self):
+        self.fake.always('/chat/completions', ok_json({'error': {'code': 'payment_required'}}, 402))
+        self.post()
+        self.clock[0] += config.LIVE_HOLD_S
+        self.assertEqual(self.health()['live_state'], 'ok')
+        self.post()  # the check fails: held again
+        self.assertEqual(self.fake.count('/chat/completions'), 2)
+        self.assertEqual(self.post()[0], 503)
+        self.assertEqual(self.fake.count('/chat/completions'), 2)
+        self.clock[0] += config.LIVE_HOLD_S
+        self.fake.always('/chat/completions', ok_json({'choices': []}))  # an answer, if not a read
+        status, _, j = self.post()
+        self.assertEqual((status, j['status']), (200, 'error'))
+        self.assertEqual(self.health()['live_state'], 'ok')
+        self.assertIsNone(self.transport.broken)
+        self.assertFalse(self.transport.probing, 'the check is released after its photo')
+        self.post()
+        self.assertEqual(self.fake.count('/chat/completions'), 4, 'photos flow again')
+
+    def test_mock_says_off_and_a_server_without_a_pipeline_says_ok(self):
+        srv = FramePlayServer(('127.0.0.1', 0), settings_from({}), log=Log(stream=[]))
+        try:
+            self.assertEqual(srv.health()['live_state'], 'off')
+        finally:
+            srv.server_close()
+        srv = FramePlayServer(('127.0.0.1', 0), settings_from({}, 'http://127.0.0.1:9/v1'), log=Log(stream=[]))
+        try:
+            self.assertEqual(srv.health()['live_state'], 'ok')
+        finally:
+            srv.server_close()
 
 
 class RehearsalStaysHome(unittest.TestCase):

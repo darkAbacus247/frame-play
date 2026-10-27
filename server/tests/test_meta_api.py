@@ -1,8 +1,9 @@
+import json
 import time
 import unittest
 from unittest import mock
 
-from server import config
+from server import config, meta_api
 from server.config import KeyHolder
 from server.meta_api import CallError, Transport, retry_after_seconds
 from server.tests.fakemeta import FakeMeta, ok_json
@@ -51,7 +52,8 @@ class AgainstAFake(unittest.TestCase):
 
     def test_retry_table(self):
         cases = [
-            (429, {'Retry-After': '2'}, 2, [2]),
+            (429, {'Retry-After': '2'}, 3, [2, 2]),
+            (429, {}, 3, [1, 2]),
             (500, {}, 2, []),
             (502, {}, 2, []),
             (503, {'Retry-After': '3'}, 2, [3]),
@@ -64,17 +66,35 @@ class AgainstAFake(unittest.TestCase):
             self.fake.requests.clear()
             self.slept.clear()
             self.fake.script.clear()
-            self.fake.on('/x', (status, headers, b'{"error": {"code": "drill", "message": "no"}}'), (status, headers, b'{}'))
+            self.fake.on('/x', (status, headers, b'{"error": {"code": "drill", "message": "no"}}'), (status, headers, b'{}'),
+                         (status, headers, b'{}'))
             with self.assertRaises(CallError, msg=status) as c:
                 self.post()
             self.assertEqual(len(self.fake.requests), sends, f'{status} {headers}')
             self.assertEqual(self.slept, sleeps, f'{status} {headers}')
             self.assertEqual(c.exception.status, status)
+            self.assertEqual(c.exception.transient, status in (429, 500, 502, 503, 504), status)
+            self.assertTrue(c.exception.message.endswith('.'), status)
 
     def test_a_retry_can_succeed(self):
         self.fake.on('/x', (500, {}, b''), ok_json({'ok': 2}))
         j, attempt, _ = self.post()
         self.assertEqual((j, attempt), ({'ok': 2}, 2))
+
+    def test_a_429_may_be_retried_twice(self):
+        self.fake.on('/x', (429, {}, b''), (429, {}, b''), ok_json({'ok': 3}))
+        j, attempt, _ = self.post()
+        self.assertEqual((j, attempt, self.slept), ({'ok': 3}, 3, [1, 2]))
+
+    def test_a_second_429_retry_waits_only_while_time_remains(self):
+        self.fake.on('/x', (429, {'Retry-After': '2'}, b''), (429, {'Retry-After': '2'}, b''), ok_json({'ok': 3}))
+        clock = [0.0]
+
+        def sleep(s):
+            clock[0] += s
+        with self.assertRaises(CallError) as c:
+            self.t.post('/x', {}, 4.5, sleep=sleep, clock=lambda: clock[0])
+        self.assertEqual((c.exception.attempt, len(self.fake.requests)), (2, 2), 'no wait past the photo deadline')
 
     def test_an_empty_404_body_is_handled(self):
         self.fake.on('/x', (404, {}, b''))
@@ -87,6 +107,7 @@ class AgainstAFake(unittest.TestCase):
         with self.assertRaises(CallError) as c:
             self.post()
         self.assertEqual(c.exception.code, 'malformed')
+        self.assertFalse(c.exception.transient)
         self.assertEqual(len(self.fake.requests), 1)
         self.assertLessEqual(len(c.exception.excerpt), 300)
         self.assertNotIn(TEST_VALUE, c.exception.excerpt)
@@ -109,7 +130,41 @@ class AgainstAFake(unittest.TestCase):
         with self.assertRaises(CallError) as c:
             self.t.post_once('/x', {}, 0.4)
         self.assertEqual(c.exception.code, 'timeout')
+        self.assertTrue(c.exception.transient)
+        self.assertEqual(c.exception.message, 'The Model API did not answer in time. Please try the same photo again.')
         self.assertLess(time.monotonic() - t0, 1.5, 'the timer covers the trickling body, not just each read')
+
+    def test_a_room_read_that_timed_out_is_sent_once(self):
+        def stall(req, handler):
+            time.sleep(0.6)
+            return None  # never answers within the timer
+        self.fake.always('/chat/completions', stall)
+        self.fake.always('/responses', stall)
+        with mock.patch.object(config, 'SPARK_TIMEOUT_S', 0.2), mock.patch.object(config, 'CALL_TIMEOUT_S', 0.2):
+            for route, sends in (('/chat/completions', 1), ('/responses', 2)):
+                with self.assertRaises(CallError, msg=route) as c:
+                    self.post(route)
+                self.assertEqual(c.exception.code, 'timeout')
+                self.assertTrue(c.exception.transient)
+                self.assertEqual(self.fake.count(route), sends, route)
+            with self.assertRaises(CallError):
+                self.t.post('/chat/completions', {}, time.monotonic() + 30, sleep=self.slept.append, retry_timeout=True)
+            self.assertEqual(self.fake.count('/chat/completions'), 3, 'the caller may ask for the retry')
+
+    def test_the_room_read_has_its_own_timer(self):
+        used = []
+        real = self.t.post_once
+
+        def spy(route, body, timeout):
+            used.append((route, timeout))
+            return real(route, body, timeout)
+        self.t.post_once = spy
+        self.fake.always('/chat/completions', ok_json({}))
+        self.fake.always('/responses', ok_json({}))
+        for route in ('/chat/completions', '/responses'):
+            self.t.post(route, {}, time.monotonic() + 100)
+        self.assertEqual(used,[('/chat/completions', config.SPARK_TIMEOUT_S), ('/responses', config.CALL_TIMEOUT_S)])
+        self.assertEqual((config.SPARK_TIMEOUT_S, config.CALL_TIMEOUT_S), (30.0, 20.0))
 
     def test_answer_caps(self):
         self.fake.always('/x', ok_json({'pad': 'x' * 5000}))
@@ -136,6 +191,122 @@ class AgainstAFake(unittest.TestCase):
             self.t.post_once('/x', {}, 5)
         self.assertIn(c.exception.code, ('network', 'malformed'))
         self.assertTrue(c.exception.retryable or c.exception.code == 'malformed')
+
+
+class Words(unittest.TestCase):
+    def test_every_failure_is_whole_sentences(self):
+        texts = list(meta_api.WORDS.values()) + [
+            meta_api.TIMEOUT_WORDS, meta_api.NETWORK_WORDS, meta_api.OUT_OF_TIME_WORDS, meta_api.REDIRECT_WORDS,
+            meta_api.TOO_LARGE_WORDS, meta_api.MALFORMED_WORDS, meta_api.QUOTA_WORDS, meta_api.LIVE_UNAVAILABLE,
+            meta_api.other_status_words(418), meta_api.other_status_words(599)]
+        for text in texts:
+            self.assertTrue(text.endswith('.'), text)
+            self.assertRegex(text, r'^[A-Z]', text)
+            self.assertNotRegex(text, r'[a-z] [A-Z][a-z]+ [a-z]', 'no sentence runs into the next: ' + text)
+
+    def test_the_advice_fits_the_fault(self):
+        for status in (429, 500, 502, 503, 504):
+            self.assertIn('same photo again', meta_api.WORDS[status], status)
+        for status in (401, 402, 403, 404):
+            self.assertIn('owner', meta_api.WORDS[status], status)
+            self.assertIn('sample rooms still work', meta_api.WORDS[status], status)
+        self.assertIn('owner', meta_api.QUOTA_WORDS)
+        self.assertIn('same photo again', meta_api.TIMEOUT_WORDS)
+
+    def test_transient_means_a_passing_fault(self):
+        for status, quota, want in ((429, False, True), (429, True, False), (500, False, True), (503, False, True),
+                                    (504, False, True), (400, False, False), (401, False, False), (402, False, False),
+                                    (404, False, False), (413, False, False)):
+            self.assertEqual(meta_api.is_transient(status, quota), want, (status, quota))
+        self.assertFalse(CallError('x', 'y.').transient, 'absent means not transient')
+
+
+class Latch(unittest.TestCase):
+    """Account or model problems mark the transport broken."""
+
+    def setUp(self):
+        self.fake = FakeMeta()
+        self.t = Transport(self.fake.base, KeyHolder(TEST_VALUE))
+        self.clock = [1000.0]
+        self.t.now = lambda: self.clock[0]
+
+    def tearDown(self):
+        self.fake.stop()
+
+    def post(self, route='/responses'):
+        return self.t.post(route, {'a': 1}, time.monotonic() + 30, sleep=lambda s: None)
+
+    def fail(self, route, status, code=None):
+        self.fake.script.clear()
+        body = json.dumps({'error': {'code': code, 'message': 'no'}}).encode() if code else b''
+        self.fake.on(route, *[(status, {}, body)] * 3)  # the same again for each retry
+        with self.assertRaises(CallError) as c:
+            self.post(route)
+        return c.exception
+
+    def test_account_and_model_problems_trip_it(self):
+        for status, route, code in ((401, '/x', None), (402, '/responses', 'payment_required'), (403, '/x', None),
+                                    (404, '/chat/completions', None), (404, '/x', 'model_not_found'),
+                                    (429, '/responses', 'insufficient_quota')):
+            self.t.broken = None
+            e = self.fail(route, status, code)
+            self.assertTrue(e.latched, (status, route, code))
+            self.assertIsNotNone(self.t.broken, (status, route, code))
+            self.assertEqual(self.t.live_state()[0], 'unavailable')
+            self.assertNotIn(TEST_VALUE, json.dumps(self.t.broken))
+
+    def test_passing_faults_do_not(self):
+        for status, route, code in ((404, '/x', None), (429, '/responses', 'rate_limited'), (500, '/responses', None),
+                                    (400, '/responses', None), (503, '/responses', None)):
+            e = self.fail(route, status, code)
+            self.assertFalse(e.latched, (status, route, code))
+            self.assertIsNone(self.t.broken, (status, route, code))
+            self.assertEqual(self.t.live_state(), ('ok', None, 0))
+
+    def test_a_quota_429_is_not_retried(self):
+        self.fake.on('/responses', ok_json({'error': {'code': 'insufficient_quota'}}, 429), ok_json({'ok': 1}))
+        with self.assertRaises(CallError) as c:
+            self.post()
+        self.assertEqual(self.fake.count('/responses'), 1)
+        self.assertFalse(c.exception.retryable)
+        self.assertIn('quota', c.exception.message)
+
+    def test_the_hold_then_one_photo_checks_again(self):
+        self.assertEqual(self.t.claim(), 'open')
+        self.fail('/responses', 401)
+        self.assertIsNone(self.t.claim(), 'held: nothing may be sent')
+        state, words, wait = self.t.live_state()
+        self.assertEqual((state, wait), ('unavailable', 600))
+        self.assertTrue(words)
+        self.clock[0] += config.LIVE_HOLD_S
+        self.assertEqual(self.t.live_state()[0], 'ok', 'after the hold the picker may come back')
+        self.assertEqual(self.t.claim(), 'probe')
+        self.assertIsNone(self.t.claim(), 'one photo checks at a time')
+        self.assertEqual(self.t.live_state()[0], 'unavailable')
+        self.fake.script.clear()
+        self.fake.on('/responses', ok_json({'ok': True}))
+        self.post()
+        self.t.release()
+        self.assertIsNone(self.t.broken, 'an answer that is not an error clears it')
+        self.assertEqual(self.t.claim(), 'open')
+
+    def test_a_failed_check_holds_again(self):
+        self.fail('/responses', 402)
+        self.clock[0] += config.LIVE_HOLD_S + 1
+        self.assertEqual(self.t.claim(), 'probe')
+        self.fail('/responses', 402)
+        self.t.release()
+        self.assertIsNone(self.t.claim())
+        self.assertEqual(self.t.live_state()[2], 600)
+
+    def test_rehearsal_drills_do_not_latch(self):
+        t = Transport(self.fake.base, config.REHEARSAL_CREDENTIAL)
+        self.assertFalse(t.latching)
+        self.fake.on('/responses', (401, {}, b''))
+        with self.assertRaises(CallError) as c:
+            t.post('/responses', {}, time.monotonic() + 30, sleep=lambda s: None)
+        self.assertFalse(c.exception.latched)
+        self.assertEqual(t.claim(), 'open')
 
 
 class RetryAfter(unittest.TestCase):

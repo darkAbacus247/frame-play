@@ -113,7 +113,7 @@ class Reads(WithFake):
         body = next(q['body'] for q in self.fake.requests if q['path'] == '/v1/chat/completions')
         self.assertEqual(body['model'], 'muse-spark-1.3')
         self.assertEqual(body['reasoning_effort'], 'low')
-        self.assertEqual(body['max_completion_tokens'], 2400)
+        self.assertEqual(body['max_completion_tokens'], 4000)
         self.assertNotIn('temperature', body)
         rf = body['response_format']
         self.assertEqual((rf['type'], rf['json_schema']['strict']), ('json_schema', True))
@@ -459,7 +459,9 @@ class TheKeyNeverLeaks(unittest.TestCase):
             reply = json.loads(body)
             self.assertEqual(reply['error']['code'], 'bad_key')
             self.assertEqual(reply['error']['status'], 401, 'the page tells a refused key by its status')
-            self.assertEqual(reply['error']['message'], "The Model API did not accept this server's key")
+            self.assertEqual(reply['error']['message'],
+                             "The Model API did not accept this server's key. The owner of this server must fix this; "
+                             "the sample rooms still work.")
             self.assertEqual(reply['provenance']['models'], ['muse-spark-1.3', 'sam-3.1'])
             for text in (body.decode(), health.decode(), '\n'.join(run_.lines), '\n'.join(lines)):
                 self.assertNotIn(TEST_VALUE, text)

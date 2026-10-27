@@ -1,7 +1,9 @@
 """FRAME//PLAY's server: Python standard library only.
 
 Routes: GET / and an allowlist of the page's own files (the rooms included),
-GET /api/health, POST /api/room. Everything else is 404.
+GET /api/health, POST /api/room. Everything else is 404. After an account or
+model problem, POST /api/room answers 503 live_unavailable, sending nothing,
+and health says live_state: unavailable.
 
   python server/server.py                       # this machine only, port 8191
   python server/server.py --public              # every interface, at $PORT
@@ -26,6 +28,7 @@ if __package__ in (None, ''):
 
 from server import config  # noqa: E402
 from server.imageinfo import ImageError, check_photo  # noqa: E402
+from server.meta_api import LIVE_UNAVAILABLE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -85,8 +88,14 @@ class Log:
                     pass
 
 
+def sentence(text):
+    """Words end with a full stop, so the page can add its advice after them."""
+    text = str(text).strip()
+    return text if text[-1:] in '.!?' else text + '.'
+
+
 def error_body(code, message):
-    return {'status': 'error', 'error': {'code': code, 'message': message}}
+    return {'status': 'error', 'error': {'code': code, 'message': sentence(message)}}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -134,10 +143,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/health':
             return self.send_json(200, self.server.health(), head=head)
         if route == '/api/room':
-            return self.send_json(405, error_body('method', 'Use POST for /api/room'), {'Allow': 'POST'}, head)
+            return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'}, head)
         f = static_file(route)
         if f is None:
-            return self.send_json(404, error_body('not_found', 'There is nothing here'), head=head)
+            return self.send_json(404, error_body('not_found', 'There is nothing here.'), head=head)
         return self.send_bytes(200, f.read_bytes(), TYPES.get(f.suffix, 'application/octet-stream'), head=head)
 
     def do_HEAD(self):
@@ -148,18 +157,18 @@ class Handler(BaseHTTPRequestHandler):
         if route != '/api/room':
             self.close_connection = True  # its body is never read
             if route == '/api/health' or static_file(route) is not None:
-                return self.send_json(405, error_body('method', 'This address only answers GET'), {'Allow': 'GET'})
-            return self.send_json(404, error_body('not_found', 'There is nothing here'))
+                return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
+            return self.send_json(404, error_body('not_found', 'There is nothing here.'))
         self.post_room()
 
     def other_method(self):
         route = self.route
         self.close_connection = True
         if route == '/api/room':
-            return self.send_json(405, error_body('method', 'Use POST for /api/room'), {'Allow': 'POST'})
+            return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'})
         if route == '/api/health' or static_file(route) is not None:
-            return self.send_json(405, error_body('method', 'This address only answers GET'), {'Allow': 'GET'})
-        return self.send_json(404, error_body('not_found', 'There is nothing here'))
+            return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
+        return self.send_json(404, error_body('not_found', 'There is nothing here.'))
 
     do_PUT = do_DELETE = do_PATCH = do_OPTIONS = other_method
 
@@ -167,35 +176,50 @@ class Handler(BaseHTTPRequestHandler):
         s = self.server.settings
         if self.headers.get('X-FramePlay-Request') != '1':
             self.close_connection = True
-            return self.send_json(403, error_body('forbidden', 'This address only answers the FRAME//PLAY page'))
+            return self.send_json(403, error_body('forbidden', 'This address only answers the FRAME//PLAY page. Please open the page itself.'))
         if (self.headers.get('Sec-Fetch-Site') or '').lower() == 'cross-site':
             self.close_connection = True
-            return self.send_json(403, error_body('forbidden', 'A request from another site is refused'))
+            return self.send_json(403, error_body('forbidden', 'A request from another site is refused. Please open the FRAME//PLAY page itself.'))
         if s.mode == 'mock':
             self.close_connection = True
             return self.send_json(409, error_body('live_off', 'This server is in MOCK mode, so it sends no photo anywhere. Play the sample rooms.'))
+        transport = getattr(self.server.pipeline, 'transport', None)
+        claim = getattr(transport, 'claim', None)
+        held = claim() if claim is not None else 'open'
+        if held is None:
+            # an account or model problem: nothing is sent to the Model API
+            self.close_connection = True
+            _, _, wait = transport.live_state()
+            return self.send_json(503, error_body('live_unavailable', LIVE_UNAVAILABLE), {'Retry-After': str(max(1, wait))})
+        try:
+            self.read_and_run()
+        finally:
+            if held == 'probe':
+                transport.release()
+
+    def read_and_run(self):
         try:
             length = int(self.headers.get('Content-Length', ''))
         except ValueError:
             self.close_connection = True
-            return self.send_json(411, error_body('length', 'The photo must come with its length'))
+            return self.send_json(411, error_body('length', 'The photo must come with its length. Please try again from the page.'))
         if length < 0:
             self.close_connection = True
-            return self.send_json(400, error_body('length', 'The length cannot be read'))
+            return self.send_json(400, error_body('length', 'The length of the photo cannot be read. Please try again from the page.'))
         if length > config.MAX_BODY:
             self.close_connection = True
             return self.send_json(413, error_body('too_large', 'The photo is larger than 4 MiB. The page shrinks it first; please try again from the page.'))
         data = self.rfile.read(length)
         if len(data) != length:
             self.close_connection = True
-            return self.send_json(400, error_body('short', 'The photo arrived incomplete'))
+            return self.send_json(400, error_body('short', 'The photo arrived incomplete. Please try the same photo again.'))
         try:
             photo = check_photo(data, config.MAX_SIDE)
         except ImageError as e:
             return self.send_json(415, error_body('bad_image', str(e)))
         pipeline = self.server.pipeline
         if pipeline is None:
-            return self.send_json(503, error_body('not_ready', 'The live path is not available on this server'))
+            return self.send_json(503, error_body('not_ready', 'The live path is not available on this server. The sample rooms still work.'))
         stream = 'application/x-ndjson' in (self.headers.get('Accept') or '')
         pipeline.handle(self, photo, stream)
 
@@ -237,14 +261,30 @@ class FramePlayServer(ThreadingHTTPServer):
                 'photos_per_day': s.day_cap,
                 'usd_stop_per_day': s.usd_stop,
                 'seconds_per_call': config.CALL_TIMEOUT_S,
+                'seconds_per_read': config.SPARK_TIMEOUT_S,
                 'seconds_per_photo': config.PHOTO_TIMEOUT_S,
             },
         }
+        h.update(self.live_state())
         if self.limits is not None:
             h['counters'] = self.limits.counters()
         if s.mode == 'rehearsal':
             h['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
         return h
+
+    def live_state(self):
+        """'off' in MOCK; otherwise 'ok', or 'unavailable' after an account or
+        model problem, with the reason in words (never the key)."""
+        if self.settings.mode == 'mock':
+            return {'live_state': 'off', 'live_reason': None}
+        transport = getattr(self.pipeline, 'transport', None)
+        if not hasattr(transport, 'live_state'):
+            return {'live_state': 'ok', 'live_reason': None}
+        state, words, wait = transport.live_state()
+        if state == 'ok':
+            return {'live_state': 'ok', 'live_reason': None}
+        reason = words if words.endswith('.') else words + '.'
+        return {'live_state': 'unavailable', 'live_reason': reason, 'live_check_again_s': wait}
 
 
 def build_server(settings, host='127.0.0.1', port=8191, log=None):
