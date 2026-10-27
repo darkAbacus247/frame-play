@@ -101,22 +101,19 @@ main {
   padding: var(--s4) var(--pad);
 }
 /* zoomed in, the dock wraps rather than squeezing a control narrower than
-   its words; the header's buttons likewise keep their own width */
+   its words; the header's buttons likewise keep their own width. Its
+   controls (Take the tour, Settings, Sound, the mode) are one centred group */
 .dock {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--s2) var(--s3);
   padding: var(--s2) var(--pad);
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
 .dock > *, .top .road > .btn { flex-shrink: 0; }
-.dock .mark { margin-left: auto; font-weight: 800; letter-spacing: 0.04em; color: var(--muted); }
-/* narrow (200% zoom and phones): the header already carries the name */
-@media (max-width: 479px) {
-  .dock .mark { display: none; }
-}
 /* grid places only ever hold under their own grid, so no other screen
    can be pulled into a stray column (tests/layout.test.js) */
 .app > .top { grid-area: header; }

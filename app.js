@@ -444,18 +444,20 @@ function renderHeader() {
   // in MOCK no photo can make your own room, so its step names the one way on
   const mockOwn = r.step === R.OWN_STEP && A.mode !== 'live' && A.mode !== 'rehearsal';
   const why = el('span', { class: 'why', text: fw.ok || r.step >= R.FREE_PLAY ? '' : A.missingWhy || (mockOwn ? 'Continue to the end to go on' : fw.why) });
-  const pulse = !A.pulsed && shouldPulse({ firstVisit: A.firstVisit, reducedMotion: reducedMotion() });
-  A.pulsed = true;
-  const tourBtn = el('button', {
-    type: 'button', class: `btn quiet tour-btn${pulse ? ' pulse-once' : ''}`, 'aria-pressed': String(A.tour.on),
-    tip: A.tour.on ? 'Ends the tour' : 'A short guided tour, one step at a time',
-    text: A.tour.on ? 'End the tour' : 'Take the tour', onclick: toggleTour,
-  });
-  $('road').replaceChildren(back, counter, next, why, tourBtn);
+  $('road').replaceChildren(back, counter, next, why);
 }
 
+// The footer: Take the tour, Settings, Sound and the mode, centred as one
+// group (the header already carries the name)
 function renderDock() {
+  const pulse = !A.pulsed && shouldPulse({ firstVisit: A.firstVisit, reducedMotion: reducedMotion() });
+  A.pulsed = true;
   $('dock').replaceChildren(
+    el('button', {
+      type: 'button', class: `btn quiet tour-btn${pulse ? ' pulse-once' : ''}`, 'aria-pressed': String(A.tour.on),
+      tip: A.tour.on ? 'Ends the tour' : 'A short guided tour, one step at a time',
+      text: A.tour.on ? 'End the tour' : 'Take the tour', onclick: toggleTour,
+    }),
     el('button', {
       type: 'button', class: 'btn', 'aria-expanded': String(A.drawerOpen), 'aria-controls': 'drawer',
       tip: A.drawerOpen ? 'Close the settings' : 'Open the settings', onclick: toggleDrawer,
@@ -465,7 +467,6 @@ function renderDock() {
       onclick: () => setSoundOn(!audio.on), text: `Sound: ${audio.on ? 'on' : 'off'}`,
     }),
     el('span', { class: `mode-chip ${A.mode}`, text: A.mode.toUpperCase() }),
-    el('span', { class: 'mark', text: 'FRAME//PLAY' }),
   );
 }
 
@@ -1571,7 +1572,7 @@ function startTour() {
   A.tour.on = true;
   writePref('tour', true);
   hideOffer();
-  renderHeader();
+  renderDock();
   updateTour();
   say('Tour on. ' + (tourNow() || { line: '' }).line);
 }
@@ -1582,7 +1583,7 @@ function stopTour() {
   writePref('tour', false);
   clearVeil();
   $('tour-strip').replaceChildren();
-  renderHeader();
+  renderDock();
 }
 
 function toggleTour() {

@@ -76,11 +76,11 @@ test('the page holds the round while a card or the settings drawer is open', asy
   const { paused } = played.last;
   assert.equal(paused(), false, 'playing');
   const dock = () => app.$('dock').querySelectorAll('button');
-  dock()[0].click(); // Settings
+  dock()[1].click(); // Settings
   assert.equal(paused(), true, 'the settings drawer is open');
   app.$('drawer').querySelectorAll('button').find((b) => b.textContent === 'Start over from Step 1').click();
   assert.ok(app.cardOpen(), 'Start over?');
-  dock()[0].click(); // the drawer closes; the card stays
+  dock()[1].click(); // the drawer closes; the card stays
   assert.equal(paused(), true, 'the Start over card is open');
   app.cardPrimary().click(); // Keep my road
   assert.equal(paused(), false, 'back to the round');
