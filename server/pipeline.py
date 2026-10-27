@@ -261,20 +261,27 @@ class Pipeline:
             handler.common_headers()
             handler.send_header('Content-Type', 'application/x-ndjson; charset=utf-8')
             handler.send_header('Cache-Control', 'no-store')
+            # chunked, ended by its terminating chunk: the browser knows the
+            # reply is whole, rather than meeting a closed connection
+            handler.send_header('Transfer-Encoding', 'chunked')
             handler.send_header('Connection', 'close')
             handler.end_headers()
             handler.close_connection = True
 
-            def line(obj):
-                text = config.redact(json.dumps(obj, ensure_ascii=False), self.settings.key)
+            def chunk(data):
                 try:
-                    handler.wfile.write(text.encode('utf-8') + b'\n')
+                    handler.wfile.write(b'%x\r\n' % len(data) + data + b'\r\n')
                     handler.wfile.flush()
                 except OSError:
                     pass
 
+            def line(obj):
+                text = config.redact(json.dumps(obj, ensure_ascii=False), self.settings.key)
+                chunk(text.encode('utf-8') + b'\n')
+
             reply = self.run(photo, progress=lambda stage, words: line({'type': 'progress', 'stage': stage, 'words': words, 'mode': self.settings.mode}))
             line({'type': 'reply', 'reply': reply})
+            chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:
             self.limits.finish()
 

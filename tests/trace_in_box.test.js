@@ -9,6 +9,7 @@ import { traceInBox, FlowGraph } from '../src/trace_in_box.js';
 import { buildLevel } from '../src/level.js';
 import { inputFromReply } from '../src/reply.js';
 import { jpegLike } from './jpegsim.js';
+import { decodePNG } from './png.js';
 
 const painted = new Map();
 function room(id) {
@@ -144,4 +145,27 @@ test('the max-flow solver finds the minimum cut', () => {
     const cut = edges.reduce((sum, [a, b, c]) => sum + (ss[a] && !ss[b] ? c : 0), 0);
     assert.ok(Math.abs(flow - cut) < 1e-6, `trial ${trial}: flow ${flow} cut ${cut}`);
   }
+});
+
+// The desk's cactus corner exactly as a real browser decoded the page's own
+// JPEG (tests/fixtures, 150x250 from (780, 290)), with the stand-in's box
+// and seed for it. On the 96-cell grid its terracotta pot, close to the
+// desk's colour, is cut off, so the trace is not tight; the second look
+// keeps the whole cactus, pot and all.
+test('the cactus traces whole through a real browser’s JPEG, by a second look', () => {
+  const crop = decodePNG(readFileSync(new URL('./fixtures/desk_cactus_edge.png', import.meta.url)));
+  const [ox, oy] = [780, 290];
+  const box = [806 - ox, 330 - oy, 898 - ox, 508 - oy];
+  const seeds = [[852 - ox, 419.3 - oy]];
+  assert.equal(traceInBox(crop, box, seeds, { maxCells: 96 }).source, 'box', 'the first look alone falls back (the case this guards)');
+  const t = traceInBox(crop, box, seeds);
+  assert.equal(t.source, 'traced_in_box', t.why);
+  const desk = room('desk').room;
+  const cactus = desk.objects.find((o) => o.id === 'cactus');
+  const truth = fillRings(cactus.rings.map((r) => r.map(([x, y]) => [x - ox, y - oy])), crop.width, crop.height);
+  const v = iou(fillRings(t.rings, crop.width, crop.height), truth);
+  assert.ok(v >= 0.9, `IoU ${v.toFixed(3)} against the painted cactus`);
+  // and a shape that is not tight still falls back after every look
+  const blank = { width: crop.width, height: crop.height, data: new Uint8ClampedArray(crop.data.length).fill(128) };
+  assert.equal(traceInBox(blank, box, seeds).source, 'box');
 });

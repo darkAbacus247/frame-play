@@ -169,6 +169,24 @@ test('the tests’ own PNG CRC-32 matches the standard one, on any Node', async 
   assert.equal(pkg.engines.node, '>=20.6', 'the Node floor is stated');
 });
 
+test('the reply stream is read whole as well as line by line, so the browser records the request as finished', async () => {
+  const src = readFileSync(new URL('../src/photo.js', import.meta.url), 'utf8');
+  assert.match(src, /const copy = res\.clone\(\);\s*const whole = res\.text\(\)/);
+  assert.match(src, /const reader = copy\.body\.getReader\(\);/);
+  // and it still gives the progress lines in order, then the reply
+  const { sendPhoto } = await import('../src/photo.js');
+  const lines = ['{"type":"progress","words":"Reading your room"}\n', '{"type":"progress","words":"Finding every object"}\n{"type":"re', 'ply","reply":{"ok":1}}\n'];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(new ReadableStream({ start(c) { for (const l of lines) c.enqueue(new TextEncoder().encode(l)); c.close(); } }), { headers: { 'Content-Type': 'application/x-ndjson' } });
+  try {
+    const words = [];
+    assert.deepEqual(await sendPhoto(new Blob(['x']), (m) => words.push(m.words)), { ok: 1 });
+    assert.deepEqual(words, ['Reading your room', 'Finding every object']);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('the page shell: in-flow grid, no inline styles or scripts, labels in place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));

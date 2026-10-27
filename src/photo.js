@@ -106,25 +106,36 @@ export async function sendPhoto(blob, onProgress, url = 'api/room') {
     } catch { /* not JSON */ }
     throw new Error(words);
   }
-  const reader = res.body.getReader();
+  // The progress lines are read as they come from a copy of the body, while
+  // the body itself is read whole: a browser records a body read only by a
+  // stream reader as canceled, even when every byte arrived; read whole,
+  // the request finishes cleanly. The reply is taken from the whole body.
+  const copy = res.clone();
+  const whole = res.text().catch(() => null);
+  const reader = copy.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
-  let reply = null;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buf += dec.decode(value, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
+  const each = (text, f) => {
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
       if (!line) continue;
       let msg;
       try { msg = JSON.parse(line); } catch { continue; }
-      if (msg.type === 'progress' && onProgress) onProgress(msg);
-      else if (msg.type === 'reply') reply = msg.reply;
+      f(msg);
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buf += dec.decode(value, { stream: true });
+    const nl = buf.lastIndexOf('\n');
+    if (nl >= 0) {
+      each(buf.slice(0, nl), (msg) => { if (msg.type === 'progress' && onProgress) onProgress(msg); });
+      buf = buf.slice(nl + 1);
     }
     if (done) break;
   }
+  let reply = null;
+  each((await whole) || '', (msg) => { if (msg.type === 'reply') reply = msg.reply; });
   if (!reply) throw new Error('The server stopped before it answered. Please try again.');
   return reply;
 }

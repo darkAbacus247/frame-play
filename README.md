@@ -116,7 +116,8 @@ picture through them.
 - sam-3.1's answer text is parsed from our reading of Meta's published SAM 3
   text format; the first live answers will confirm it.
 - Live outlines are traced by code inside SAM's boxes; an object whose trace
-  is not tight falls back to its box, and the reveal says so. Small, low
+  is not tight is traced again on a finer and a coarser grid, and if it is
+  still not tight it falls back to its box, and the reveal says so. Small, low
   contrast objects are the hardest to trace.
 - One photo, one room; a 2.5D approximation with one baseline per object.
 

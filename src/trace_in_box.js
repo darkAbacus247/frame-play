@@ -20,7 +20,9 @@
 //    pass, back to picture pixels.
 // 6. Tightness: SAM's boxes are tight, so the shape must touch all four
 //    sides within 2 px and its bounds cover at least 85% of the box;
-//    otherwise the object falls back to its box, labeled that way.
+//    otherwise it is traced again on a finer and a coarser grid
+//    (RETRY_CELLS), held to the same test, and failing that the object
+//    falls back to its box, labeled that way.
 import { traceMask, components, fillHoles, maskBounds } from './raster.js';
 import { simplifyShape } from './geom.js';
 
@@ -335,10 +337,27 @@ export function boxRingsOf(box) {
   return [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]];
 }
 
+// A second look: where cells fall can split a part whose colour is close to
+// its background (a terracotta pot on a wooden desk, through a browser's
+// own JPEG) from the rest. A trace that is not tight is tried again on
+// these grids; each try must pass the same tightness test, or the object
+// still falls back to its box.
+export const RETRY_CELLS = [128, 64];
+
 // Trace one object. pixels: { width, height, data: RGBA }. box: half-open
 // [x0, y0, x1, y1] in pixels. seeds: [[x, y]...] in pixels.
 // Returns { source: 'traced_in_box' | 'box', rings, why }.
 export function traceInBox(pixels, box, seeds = [], opts = {}) {
+  const first = traceOnce(pixels, box, seeds, opts);
+  if (first.source === 'traced_in_box' || opts.maxCells) return first;
+  for (const maxCells of RETRY_CELLS) {
+    const again = traceOnce(pixels, box, seeds, { ...opts, maxCells });
+    if (again.source === 'traced_in_box') return again;
+  }
+  return first;
+}
+
+function traceOnce(pixels, box, seeds, opts) {
   const fallback = (why) => ({ source: 'box', rings: boxRingsOf(box), why });
   const W = pixels.width, H = pixels.height, data = pixels.data;
   const bx0 = Math.max(0, Math.floor(box[0])), by0 = Math.max(0, Math.floor(box[1]));

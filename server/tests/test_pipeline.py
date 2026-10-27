@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import socket
 import unittest
 from pathlib import Path
 
@@ -235,6 +236,26 @@ class OverHttp(unittest.TestCase):
         self.assertEqual([x.get('words') for x in lines[:2]], ['Reading your room', 'Finding every object'])
         self.assertEqual(lines[2]['reply']['status'], 'ok')
         self.assertEqual(self.limits.counters()['photos_in_flight'], 0)
+
+    def test_the_stream_is_chunked_and_ends_with_its_terminating_chunk(self):
+        self.fake.on('/chat/completions', spark_answer(READ))
+        body = images.jpeg(W, H)
+        s = socket.create_connection(('127.0.0.1', self.run_.port), timeout=10)
+        try:
+            s.sendall(b'POST /api/room HTTP/1.1\r\nHost: 127.0.0.1\r\nX-FramePlay-Request: 1\r\n'
+                      b'Content-Type: image/jpeg\r\nAccept: application/x-ndjson\r\n'
+                      + b'Content-Length: %d\r\n\r\n' % len(body) + body)
+            raw = b''
+            while True:
+                part = s.recv(65536)
+                if not part:
+                    break
+                raw += part
+        finally:
+            s.close()
+        head, _, rest = raw.partition(b'\r\n\r\n')
+        self.assertIn(b'Transfer-Encoding: chunked', head)
+        self.assertTrue(rest.endswith(b'\r\n0\r\n\r\n'), 'the stream says it is complete')
 
     def test_one_json_object_without_the_stream(self):
         self.fake.on('/chat/completions', spark_answer(READ))
