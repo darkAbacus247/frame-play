@@ -2,7 +2,10 @@
 // Every node keeps what it connects to; every AudioParam keeps its calls and
 // the highest value ever asked of it, so a test can read peaks and routes.
 class Param {
-  constructor(v = 0) { this.value = v; this.calls = []; this.peak = v; }
+  // the default value is not counted as asked for: only sets are
+  constructor(v = 0) { this.v = v; this.calls = []; this.peak = 0; }
+  get value() { return this.v; }
+  set value(v) { this.v = v; if (v > this.peak) this.peak = v; }
   log(kind, v, t) { this.calls.push([kind, v, t]); if (typeof v === 'number' && v > this.peak) this.peak = v; return this; }
   setValueAtTime(v, t) { return this.log('set', v, t); }
   linearRampToValueAtTime(v, t) { return this.log('lin', v, t); }

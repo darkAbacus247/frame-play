@@ -6,6 +6,7 @@ import { Renderer, fitSize, unlockPulse } from './render.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
 import { el, boardRoom, ceilH, ceilW, floorW, spaceH } from './ui.js';
+import { emit } from './events.js';
 
 const KEY_DIRS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -41,6 +42,7 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
     timer = setInterval(() => {
       count++;
       draw();
+      emit('reveal', { k: count - 1, of: n });
       if (count >= n) clearInterval(timer);
     }, 170);
   }
@@ -50,6 +52,29 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
     destroy() { clearInterval(timer); ro.disconnect(); },
   };
 }
+
+// The page's primary buttons click softly and the closing screen gets the
+// music's sting. Watched here, from the outside, so the screens need not
+// know about sound; installed once per page.
+export function watchPage(doc) {
+  if (!doc || doc.fpWatched || typeof doc.addEventListener !== 'function') return false;
+  doc.fpWatched = true;
+  doc.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest('[data-primary]')) emit('ui', { kind: 'primary' });
+  }, true);
+  const MO = globalThis.MutationObserver;
+  if (typeof MO === 'function' && doc.body) {
+    let shown = false;
+    new MO(() => {
+      const now = !!doc.querySelector('.screen.closing');
+      if (now && !shown) emit('closing');
+      shown = now;
+    }).observe(doc.body, { childList: true, subtree: true });
+  }
+  return true;
+}
+if (globalThis.document) watchPage(globalThis.document);
 
 // opts: { level, rt, picture, ui: () => ({outlines, reducedMotion, highContrast, walls}),
 //         audio, say(text), onEnd({status, ratio, travelled, words}),

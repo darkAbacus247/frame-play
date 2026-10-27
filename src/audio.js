@@ -3,6 +3,12 @@
 // and the background music (src/music.js) starts with it: never by itself,
 // not after a reload until the next press or key.
 import { Music, MUSIC_DEFAULT_VOLUME } from './music.js';
+import { on as listen } from './events.js';
+
+// the soft steps are spaced at least this far apart, however fast the walk
+export const STEP_GAP = 0.2;
+// a five-note scale for the reveal's shimmer, one note per outline
+const SHIMMER = [1175, 1319, 1480, 1760, 1976];
 
 export class Synth {
   constructor() {
@@ -13,6 +19,13 @@ export class Synth {
     this.musicOn = true;
     this.musicVolume = MUSIC_DEFAULT_VOLUME;
     this.mode = 'calm';
+    this.effects = true;
+    this.lastStep = -1;
+    // what the game tells the bus with no sound of its own (src/game.js
+    // plays the round's sounds itself)
+    listen('reveal', (d) => this.play('shimmer', d));
+    listen('ui', () => this.play('click'));
+    listen('closing', () => this.sting());
     // a hidden tab holds every sound and the music; it goes on when shown
     const doc = globalThis.document;
     if (doc && typeof doc.addEventListener === 'function') {
@@ -117,19 +130,61 @@ export class Synth {
     src.start(t0);
   }
 
-  play(name) {
+  // name: a game sound; opts.k picks the shimmer's note
+  play(name, opts = {}) {
+    if (!this.effects) return;
     switch (name) {
-      case 'step': this.noise(0.05, { gain: 0.05, freq: 700 }); break;
+      case 'step': {
+        // a soft scuff, never two closer than STEP_GAP, each a little different
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        if (this.lastStep >= 0 && now - this.lastStep < STEP_GAP) return;
+        this.lastStep = now;
+        this.stepN = ((this.stepN || 0) + 1) % 4;
+        this.noise(0.045, { gain: 0.04, freq: [620, 540, 680, 580][this.stepN] });
+        break;
+      }
       case 'bump': this.tone(140, 0.12, { type: 'triangle', gain: 0.18, slide: -40 }); break;
-      case 'collect': this.tone(880, 0.12, { gain: 0.16 }); this.tone(1320, 0.18, { gain: 0.14, at: 0.07 }); break;
-      case 'unlock': [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.22, { gain: 0.13, at: i * 0.08 })); break;
+      case 'collect':
+        // the coin: a bright two-note chime with a faint bell partial
+        this.tone(1047, 0.14, { gain: 0.15 });
+        this.tone(1568, 0.26, { gain: 0.13, at: 0.06 });
+        this.tone(3136, 0.18, { gain: 0.03, at: 0.06 });
+        break;
+      case 'unlock':
+        // the exit opening: a rising figure with a little air on top
+        [587, 740, 880, 1175].forEach((f, i) => this.tone(f, 0.24, { type: 'triangle', gain: 0.12, at: i * 0.075 }));
+        this.noise(0.35, { gain: 0.025, freq: 5200, at: 0.2 });
+        break;
       case 'locked': this.tone(220, 0.14, { type: 'square', gain: 0.06 }); this.tone(196, 0.16, { type: 'square', gain: 0.06, at: 0.1 }); break;
-      case 'hazard': this.tone(110, 0.4, { type: 'sawtooth', gain: 0.12, slide: -50 }); this.noise(0.3, { gain: 0.08, freq: 400 }); break;
-      case 'win': [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.3, { type: 'triangle', gain: 0.14, at: i * 0.09 })); break;
-      case 'loss': [392, 330, 262].forEach((f, i) => this.tone(f, 0.32, { type: 'triangle', gain: 0.13, at: i * 0.14 })); break;
+      case 'hazard':
+        // a bump into the hazard: a low thud and a puff
+        this.tone(170, 0.28, { type: 'sine', gain: 0.16, slide: -100 });
+        this.tone(95, 0.35, { type: 'triangle', gain: 0.1, at: 0.04, slide: -35 });
+        this.noise(0.25, { gain: 0.07, freq: 320 });
+        break;
+      case 'win':
+        // the win jingle: a short tune, then the chord it lands on
+        [[587, 0], [740, 0.1], [880, 0.2], [740, 0.3], [880, 0.4], [1175, 0.5]]
+          .forEach(([f, at]) => this.tone(f, 0.22, { type: 'triangle', gain: 0.13, at }));
+        [587, 740, 880, 1175].forEach((f) => this.tone(f, 0.8, { gain: 0.05, at: 0.62, attack: 0.03 }));
+        break;
+      case 'loss':
+        // the loss sting: three falling notes, the last one sagging
+        [[440, 0], [370, 0.15], [294, 0.3]].forEach(([f, at], i) => this.tone(f, i === 2 ? 0.5 : 0.22, { type: 'triangle', gain: 0.12, at, slide: i === 2 ? -40 : 0 }));
+        break;
       case 'start': this.tone(440, 0.12, { gain: 0.1 }); this.tone(660, 0.16, { gain: 0.1, at: 0.08 }); break;
       case 'tick': this.tone(1200, 0.04, { gain: 0.05 }); break;
       case 'refuse': this.tone(180, 0.18, { type: 'square', gain: 0.05 }); break;
+      case 'shimmer': {
+        // an outline drawing in on the reveal: a high glint and a breath of air
+        const f = SHIMMER[(opts.k | 0) % SHIMMER.length];
+        this.tone(f, 0.16, { gain: 0.035 });
+        this.tone(f * 1.5, 0.12, { gain: 0.02, at: 0.04 });
+        this.noise(0.12, { gain: 0.015, freq: 6500 });
+        break;
+      }
+      case 'click': this.tone(880, 0.035, { type: 'triangle', gain: 0.04 }); this.tone(1320, 0.03, { gain: 0.02, at: 0.02 }); break;
       default: break;
     }
   }
