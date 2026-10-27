@@ -1,0 +1,36 @@
+{
+ "route": "/chat/completions",
+ "model": "muse-spark-1.3",
+ "prompt_text": [
+  "You are reading one photo of a room or a desk top for a small game.\nAn explorer will walk on ONE play surface (such as floor, desk, table, bed or counter).\nThings standing on that surface become walls the explorer walks around; one of them is\nthe exit, one to three are things to collect, and zero to two are things to avoid.\n\nReturn JSON only, in the given schema:\n- people_present: true if any person or part of a person is visible. If true, the\n  other fields may be empty.\n- surface.name: one noun phrase for the play surface that an image segmenter can find.\n  In a top-down picture of rooms (a floor plan, a photo from above) it is \"floor\".\n- view: how the camera sees it: eye_level (taken standing or sitting), top_down (straight\n  down, such as a floor plan) or angled (from high up, at a slant).\n- floor_seeds: points on bare, open play surface, on the 0 to 1000 grid: at least one in\n  every room or floor area you can see (more where furniture or walls split it), never on\n  a thing standing on it, a rug or a wall.\n- objects: 1 to 11 kinds of things you can see, one entry for each kind. For each:\n  - name: 1 to 3 words, one singular generic noun phrase an image segmenter finds every\n    one of (such as \"chair\", \"coffee table\", \"mug\", \"desk lamp\"): the plain word for the\n    kind, no brand, style, colour or material unless two kinds need telling apart. Give\n    two chairs one entry \"chair\", never \"wooden chair\" and \"armchair\" for the same kind.\n    No lists, no spatial words (left, top, behind ...), no people or body words.\n  - count: how many of this kind you can see (1 or more); put a seed on each one.\n  - role: exactly one of collect, avoid, exit, solid, flat. Propose exactly one exit,\n    1 to 3 collect and 0 to 2 avoid; the rest are solid (an obstacle) or flat (part of\n    the surface, such as a rug or paper).\n  - reason: why, in 80 characters or fewer, playful and plain.\n  - on_surface: true if it stands or lies on the play surface; false for scenery such\n    as a "
+ ],
+ "answer": {
+  "id": "chatcmpl-01a17dd5-ff90-7031-be00-0a028edd9b37",
+  "choices": [
+   {
+    "finish_reason": "stop",
+    "index": 0,
+    "message": {
+     "content": "{\"floor_seeds\": [{\"x\": 350, \"y\": 790}, {\"x\": 550, \"y\": 730}, {\"x\": 685, \"y\": 600}, {\"x\": 318, \"y\": 595}], \"objects\": [{\"count\": 1, \"name\": \"door\", \"on_surface\": true, \"reason\": \"Escape to the sunny backyard beyond!\", \"role\": \"exit\", \"seeds\": [{\"x\": 753, \"y\": 331}]}, {\"count\": 2, \"name\": \"mug\", \"on_surface\": false, \"reason\": \"Grab a warm sip for energy!\", \"role\": \"collect\", \"seeds\": [{\"x\": 544, \"y\": 484}, {\"x\": 557, \"y\": 480}]}, {\"count\": 1, \"name\": \"stove\", \"on_surface\": true, \"reason\": \"Hot and hissy, steer clear!\", \"role\": \"avoid\", \"seeds\": [{\"x\": 340, \"y\": 429}]}, {\"count\": 1, \"name\": \"kitchen island\", \"on_surface\": true, \"reason\": \"Big wooden block to walk around.\", \"role\": \"solid\", \"seeds\": [{\"x\": 572, \"y\": 583}]}, {\"count\": 1, \"name\": \"refrigerator\", \"on_surface\": true, \"reason\": \"Tall chilly giant humming away.\", \"role\": \"solid\", \"seeds\": [{\"x\": 668, \"y\": 343}]}, {\"count\": 7, \"name\": \"upper cabinet\", \"on_surface\": false, \"reason\": \"Wooden boxes watching from above.\", \"role\": \"solid\", \"seeds\": [{\"x\": 471, \"y\": 179}, {\"x\": 520, \"y\": 179}, {\"x\": 554, \"y\": 172}, {\"x\": 592, \"y\": 165}, {\"x\": 621, \"y\": 161}, {\"x\": 654, \"y\": 161}]}, {\"count\": 3, \"name\": \"window\", \"on_surface\": false, \"reason\": \"Sunny glass letting light pour in.\", \"role\": \"solid\", \"seeds\": [{\"x\": 219, \"y\": 230}, {\"x\": 340, \"y\": 192}, {\"x\": 469, \"y\": 218}]}, {\"count\": 2, \"name\": \"counter\", \"on_surface\": true, \"reason\": \"Sturdy ledge to sneak around.\", \"role\": \"solid\", \"seeds\": [{\"x\": 285, \"y\": 511}, {\"x\": 493, \"y\": 382}]}], \"people_present\": false, \"surface\": {\"name\": \"floor\"}, \"theme_line\": \"Tiptoe across the golden kitchen, grab cocoa and dash for the door!\", \"title\": \"Golden Kitchen Quest\", \"view\": \"eye_level\"}",
+     "refusal": null,
+     "role": "assistant"
+    },
+    "logprobs": null
+   }
+  ],
+  "created": 1793112539,
+  "model": "muse-spark-1.3",
+  "object": "chat.completion",
+  "usage": {
+   "completion_tokens": 1934,
+   "prompt_tokens": 1127,
+   "total_tokens": 3061,
+   "completion_tokens_details": {
+    "reasoning_tokens": 1284
+   },
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   }
+  }
+ }
+}

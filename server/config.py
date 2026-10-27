@@ -66,6 +66,8 @@ LABELS = {
     'mock': 'Sample room · MOCK · drawn by code; no model was called',
     'live': 'LIVE · Meta Model API · muse-spark-1.3 and sam-3.1',
     'rehearsal': 'REHEARSAL · local stand-in, not Meta',
+    # the sample kitchen photo's recorded answers, replayed (server/replay.py)
+    'replay': 'REPLAY · Meta’s recorded answer of Oct 27, 2026 · no model was called now',
 }
 
 OUTLINE_SOURCE = 'traced_in_box'

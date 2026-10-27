@@ -17,6 +17,10 @@
 // and Back from there comes straight home to it. A room made and played is
 // never passed by: Continue to the end keeps it on the road.
 //
+// Your own room may also be ours: the sample kitchen photo (Use ours). In
+// LIVE it is read as a photo is; elsewhere its recorded answer is replayed,
+// and the slot holds { kind: 'replay', id: 'kitchen' }.
+//
 // Your own room may also be marked by hand (src/marks.js): its slot then
 // holds { kind: 'marked', sha256, made }. Choosing to mark a photo puts it
 // on the road unmade, and Step 13 (named Your marks) is where the marks are
@@ -337,9 +341,12 @@ export function sanitizeRoad(o) {
     if (r.kind === 'photo' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)) return { kind: 'photo', sha256: r.sha256 };
     return null;
   };
-  // a marked room only in your own room's slot
-  const ownRef = (r) => (r && typeof r === 'object' && r.kind === 'marked' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)
-    ? { kind: 'marked', sha256: r.sha256, made: r.made === true } : ref(r));
+  // a marked room, or the sample kitchen's replay, only in your own room's slot
+  const ownRef = (r) => {
+    if (r && typeof r === 'object' && r.kind === 'marked' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)) return { kind: 'marked', sha256: r.sha256, made: r.made === true };
+    if (r && typeof r === 'object' && r.kind === 'replay' && r.id === 'kitchen') return { kind: 'replay', id: 'kitchen' };
+    return ref(r);
+  };
   const at = (list, k, f) => f(Array.isArray(list) ? list[k] : undefined);
   // where each slot of this road is found in the saved one, or -1
   const from = o.v === 2 ? [0, 1, -1, -1] : old ? [0, 1, -1, 2] : [0, 1, 2, 3];

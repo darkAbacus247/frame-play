@@ -78,7 +78,10 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // an answer, the page's canvases encode (an empty JPEG) and decode again, so
 // a send runs end to end.
 // prefs: other saved preferences, by name (as src/store.js keeps them).
-export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {} } = {}) {
+// server: in MOCK, a server answers (health says mock) rather than none.
+// replay(): the reply api/replay/kitchen gives (the server's replay of our
+// kitchen photo), or null when the server has no replay (an older one).
+export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null } = {}) {
   const doc = installFakeDocument();
   if (answer) {
     const make = doc.createElement;
@@ -114,10 +117,19 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
     fetch: async (url, opts = {}) => {
       requests.push([opts.method || 'GET', String(url)]);
       if (url === 'api/health') {
-        if (mode === 'mock') throw new Error('no server');
+        if (!server) throw new Error('no server');
         const h = { mode, reason: '', label: mode };
         if (mode === 'rehearsal') h.rehearsal = { stand_in_base: 'http://127.0.0.1:8192/v1', room };
+        if (replay) h.replay = { kitchen: { route: 'api/replay/kitchen', photo: 'rooms/kitchen.jpg', recorded: '2026-10-27' } };
         return { ok: true, json: async () => h };
+      }
+      if (url === 'api/replay/kitchen' && replay) {
+        const reply = replay();
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => reply };
+      }
+      if (url === 'rooms/kitchen.jpg') {
+        const bytes = readFileSync(new URL('../rooms/kitchen.jpg', import.meta.url));
+        return { ok: true, blob: async () => new Blob([bytes], { type: 'image/jpeg' }) };
       }
       if (url === 'api/room' && answer) {
         const reply = answer(opts.body);

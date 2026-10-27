@@ -8,13 +8,15 @@ import { navParams, buildNav, gridDistances, cellCenter, findPath } from './nav.
 import { exitDoorway } from './floor_mask.js';
 
 export const LEVEL_SCHEMA = 'frameplay.level/2';
-export const ORIGINS = ['mock', 'live', 'rehearsal', 'marked'];
+export const ORIGINS = ['mock', 'live', 'rehearsal', 'marked', 'replay'];
 export const LABELS = {
   mock: 'Sample room · MOCK · drawn by code; no model was called',
   live: 'LIVE · Meta Model API · muse-spark-1.3 and sam-3.1',
   rehearsal: 'REHEARSAL · local stand-in, not Meta',
   // your own room, marked by you (src/marks.js)
   marked: 'MARKED BY YOU · outlines traced by code; no model was called',
+  // the sample kitchen photo: Meta's recorded answer, replayed (server/replay.py)
+  replay: 'REPLAY · Meta’s recorded answer of Oct 27, 2026 · no model was called now',
 };
 export const ROLES = ['collect', 'avoid', 'exit', 'solid', 'flat'];
 // traced_at_points and points_box: a thing SAM did not find, traced around

@@ -1,0 +1,60 @@
+{
+ "route": "/responses",
+ "model": "sam-3.1",
+ "prompt_text": [
+  "counter"
+ ],
+ "answer": {
+  "metadata": {
+   "include_confidence": "true",
+   "mask_encoding": "one_bit"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "resp_6ae0b9dd56ad571f70024238",
+  "object": "response",
+  "status": "completed",
+  "created_at": 1793112541.0,
+  "completed_at": 1793112541.0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "msg_64dc8ba9-5a0c-4729-a2aa-85fad4d806f1",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=425;y1=136;x2=471;y2=146;w=1024;h=399;c=0.5460992455482483|><|mask;x=0;y=0;c=0.5460992455482483;data=11,47,!!!!!=I6JRNI]&B)RxLnVX{EKujc0Au*KZ_.|>,1<|box;x1=281;y1=146;x2=383;y2=165;w=1024;h=399;c=0.6289855241775513|><|mask;x=0;y=0;c=0.6289855241775513;data=20,103,!!!!!MD):]#XSXWTi2FbNnv/k34Mw#Diy'.YcRi)s/Cm#kV(30CaHrU|>,2<|box;x1=437;y1=151;x2=634;y2=306;w=1024;h=399;c=0.6559139490127563|><|mask;x=0;y=0;c=0.6559139490127563;data=156,198,!!!!#aB:K#ZSQH.N+^cq)1AhPSN2w3AgW9zj/5]q`if7/#OAmp4vA5E#HhdvA3zP#P/5:6.F6`O]mUHk$dq:19b_&tFhTUH.k2{oO+1`8*U&5!'x8V.LIgpt^:5]bTq[8Bq!{XbNY-aZ%oMnPHF1/bpeh&y+sZtT#fEB/{S%Cb+o?)#]D780]gYRC|>,3<|box;x1=436;y1=122;x2=596;y2=142;w=1024;h=399;c=0.6640419960021973|><|mask;x=0;y=0;c=0.6640419960021973;data=21,161,!!!!!KIbbG-NUbE#piiJ[I`r7W&Lel0j!q!6ktPCqtqqZbc'1'x!!|>,4<|box;x1=258;y1=121;x2=434;y2=240;w=1024;h=399;c=0.5151515007019043|><|mask;x=0;y=0;c=0.5151515007019043;data=120,177,!!!!#%A{Gv!hz)RUf-+$m8O/=L4eszfK1xA%.7(KhR4WB!D_ZFk/ik2]x^vAED+uKhoER88.l:Q4=5U`rsrc`p1wIrrd]Yy'kNl(`sJ2@cAn(!0Fi-03|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}

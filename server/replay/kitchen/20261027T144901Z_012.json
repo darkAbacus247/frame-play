@@ -1,0 +1,60 @@
+{
+ "route": "/responses",
+ "model": "sam-3.1",
+ "prompt_text": [
+  "refrigerator"
+ ],
+ "answer": {
+  "metadata": {
+   "mask_encoding": "one_bit",
+   "include_confidence": "true"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "resp_6ae0b9dd32c4037c41304dee",
+  "object": "response",
+  "status": "completed",
+  "created_at": 1793112541.0,
+  "completed_at": 1793112541.0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "msg_56c97820-65c6-4541-ad05-5be469d81623",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=598;y1=78;x2=678;y2=217;w=1024;h=399;c=0.9375000596046448|><|mask;x=0;y=0;c=0.9375000596046448;data=140,81,!!!!!kHO5!XHe3lv_+]d_u_p?H1x8!]GMfg%Qa&hEa_Ii:1rz%k4x?u?[eE7-//i*&X$N+QJq!P/$:H4NVM_$7!Ob[v|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}

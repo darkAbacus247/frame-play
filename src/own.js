@@ -1,6 +1,6 @@
-// Your own room: the third room on the road, made from a photo of the
-// player's own. What happens depends on the server's mode, and each mode
-// says plainly what it does:
+// Your own room: the fourth room on the road, made from a photo of the
+// player's own (or ours: the sample kitchen photo, below). What happens
+// depends on the server's mode, and each mode says plainly what it does:
 // - LIVE: the photo goes through the real pipeline (Muse Spark, then SAM
 //   3.1), and the room is built from what the models found in it.
 // - MOCK: no model can read it, so nothing is sent and no level is made
@@ -272,4 +272,43 @@ export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, sameAs = nu
   const entry = await levelFromReply(reply, photo.picture, photo.pixels, ref, yieldNow);
   if (entry.built.error) return refused(entry.built.error);
   return { kind: 'built', ref, entry };
+}
+
+// ---- ours: the sample kitchen photo ----
+// The author's own photo of a real kitchen (rooms/kitchen.jpg), released
+// with the repository, for a player who has no photo at hand. In LIVE it is
+// read fresh, exactly as a chosen photo is (the page hands it to
+// makeOwnRoom). Where no model may be called (MOCK, REHEARSAL, or the live
+// AI unavailable), the server replays Meta's real recorded answer for this
+// very photo, taken on 2026-10-27, through its own pipeline
+// (server/replay.py): the same reader, mask decoder and outlines, and no
+// model called now. Every screen says so.
+export const OURS = {
+  photo: 'rooms/kitchen.jpg', route: 'api/replay/kitchen', width: 1024, height: 399,
+  sha256: '2de87d6b4789bc08269eaba5f05bb61b391294a5672f334543bccb4063335d7c',
+};
+export const OURS_REF = { kind: 'replay', id: 'kitchen' };
+export const REPLAY_WORDS = 'Meta’s models read this photo on Oct 27, 2026; this copy replays their recorded answer; no model was called now.';
+export const OURS_NOT_SAME = 'The sample photo here is not the one Meta’s recorded answer is for, so the answer is not replayed.';
+export const OURS_REPLY_NOT_SAME = 'The replayed answer is for a different photo than the sample, so it is not used.';
+
+// The replay of ours. deps:
+//   photo() -> { bytes, picture, pixels }: the sample photo, fetched from
+//     this page's own server and decoded on the device
+//   sha256(bytes) -> its fingerprint
+//   send(onWords) -> the server's replay reply
+// Returns { kind: 'built', ref, entry } or { kind: 'refused', words }.
+export async function replayOurs({ deps, onWords = () => {}, yieldNow }) {
+  const photo = await deps.photo();
+  if (await deps.sha256(photo.bytes) !== OURS.sha256) return { kind: 'refused', words: OURS_NOT_SAME };
+  const reply = await deps.send(onWords);
+  const ok = acceptReply('replay', reply, OURS);
+  if (!ok.ok) return { kind: 'refused', words: ok.why };
+  const p = reply.provenance;
+  if (p.image_sha256 !== OURS.sha256 || p.replay.photo_sha256 !== OURS.sha256) return { kind: 'refused', words: OURS_REPLY_NOT_SAME };
+  onWords('Laying out the outlines');
+  const entry = await levelFromReply(reply, photo.picture, photo.pixels, OURS_REF, yieldNow);
+  if (entry.built.error) return { kind: 'refused', words: entry.built.error };
+  entry.summary.ours = true;
+  return { kind: 'built', ref: OURS_REF, entry };
 }

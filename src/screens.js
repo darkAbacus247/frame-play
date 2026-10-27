@@ -9,7 +9,7 @@ import { el } from './ui.js';
 import { OWN_STEP, OWN_SLOT, PICK_STEPS } from './road.js';
 import { objectWords } from './level.js';
 import { ROLE_WORDS } from './words.js';
-import { MOCK_WORDS } from './own.js';
+import { MOCK_WORDS, REPLAY_WORDS } from './own.js';
 import { MARK_ROLES, markedWords } from './marks.js';
 
 // A disclosure: its summary in view, its body one press away. Closed until
@@ -92,7 +92,7 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
 }
 
 // ---- picking a sample room (steps 2, 5 and 8) ----
-export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in', marked: 'MARKED · by you' };
+export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in', marked: 'MARKED · by you', replay: 'REPLAY · recorded answer' };
 
 // chosen: this card's room is the one on the road at this step
 export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, tour = true, chosen = false }) {
@@ -222,10 +222,12 @@ export function summaryLine(level, summary) {
   const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
   const masks = maskWords(level, who[1]);
   const outlines = masks ? `${masks}. Code then proved the room can be won.` : `Code ${tracedWords(level)}, then proved the room can be won.`;
+  // ours (the sample kitchen photo): replayed, or read fresh in LIVE
+  const lead = level.origin === 'replay' ? `${REPLAY_WORDS} ` : summary && summary.ours ? 'Our kitchen photo, read by Meta’s models now. ' : '';
   if (fromPoints(level)) {
-    return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
+    return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
   }
-  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
+  return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
 }
 
 // Where the play area came from, as the level says it (src/level.js and
@@ -408,11 +410,23 @@ export const OWN_NOTICE = {
 };
 const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo, or a copy edited enough for the check to see, is refused in words, nothing is sent, and no level is made from it; an edit of a few pixels can pass, and the stand-in answers with its sample’s own places. A refused photo can still become your room: you mark it yourself, and nothing more is sent.';
 
-// actions: { file(f), skip }; camera: offer the camera; sampleLink: the
-// REHEARSAL picture to save, or null; made: a room is already made here
-export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, actions }) {
+// "Don't have a photo? Use ours": the author's own kitchen photo, beside
+// Choose a photo. What it does, by the way it is read here.
+export const OURS_WORDS = {
+  fresh: 'No photo of your own? Use ours: the author’s own photo of a real kitchen, read fresh by Meta’s models, as a photo you choose is.',
+  replay: 'No photo of your own? Use ours: the author’s own photo of a real kitchen. Meta’s models read it on Oct 27, 2026; this copy replays their recorded answer, and no model is called now.',
+};
+export const OURS_LABEL = 'Don’t have a photo? Use ours';
+
+// actions: { file(f), skip, ours }; camera: offer the camera; sampleLink:
+// the REHEARSAL picture to save, or null; made: a room is already made here;
+// ours: { replay (its recorded answer is replayed; else it is read fresh),
+// off (why it cannot be used here, or null) }, or null
+export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, actions }) {
   const m = OWN_NOTICE[mode] ? mode : 'mock';
   const sends = m !== 'mock';
+  // in MOCK, ours is the one room a model's answer can make here: the primary
+  const oursFirst = !sends && !!ours && !ours.off;
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
   const shown = el('div', { class: 'own-result', hidden: true });
   const fileIn = photoInput(actions.file);
@@ -427,19 +441,26 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
     tip: sends ? 'Use the camera. The photo is shrunk on this device first' : 'Use the camera. The photo stays on this device',
   }) : null;
   const onward = el('button', {
-    type: 'button', class: sends ? 'btn' : 'btn primary', 'data-primary': sends ? null : 'true', 'data-tour': sends ? null : 'primary',
+    type: 'button', class: sends || oursFirst ? 'btn' : 'btn primary', 'data-primary': sends || oursFirst ? null : 'true', 'data-tour': sends || oursFirst ? null : 'primary',
     text: primaryLabel, tip: made ? 'Your own room stays as it is' : 'Go on without your own room', onclick: actions.skip,
   });
+  const oursBtn = ours ? el('button', {
+    type: 'button', class: oursFirst ? 'btn primary' : 'btn', 'data-primary': oursFirst ? 'true' : null, 'data-tour': oursFirst ? 'primary' : null,
+    text: OURS_LABEL, disabled: !!ours.off, onclick: actions.ours,
+    tip: ours.off || (ours.replay ? 'The author’s kitchen photo, with Meta’s recorded answer replayed; no model is called now' : 'The author’s kitchen photo, read by Meta’s models as your photo would be'),
+  }) : null;
+  const oursLine = ours ? el('p', { class: 'why ours-line', text: ours.off || OURS_WORDS[ours.replay ? 'replay' : 'fresh'] }) : null;
   const section = el('section', { class: 'screen own' }, [
     el('h1', { text: 'Your own room' }),
     el('p', { class: 'advice', text: 'A photo of your own room or desk top: clear edges on a plain floor or desk work best. No people.' }),
     el('p', { class: `notice ${m}`, text: OWN_NOTICE[m] }),
     m === 'rehearsal' ? more('More about this', [el('p', { text: REHEARSAL_MORE })]) : null,
-    el('div', { class: 'actions' }, [choose, cam, fileIn, camIn, sampleLink, onward]),
+    el('div', { class: 'actions' }, [choose, cam, oursBtn, fileIn, camIn, sampleLink, onward]),
+    oursLine,
     panel,
     shown,
   ]);
-  return { section, panel, shown, choose, onward };
+  return { section, panel, shown, choose, onward, ours: oursBtn };
 }
 
 // The way on from a photo no model can read here: the player marks it.
@@ -511,7 +532,8 @@ export function markView({ actions }) {
 // made or not in memory), `summaries` the live reads' summaries, `room`
 // the room the running stand-in answers for (REHEARSAL), or null, `kept`
 // the origin of each photo room's level kept on this device, or null.
-export function closingRooms({ road, levels, summaries = [], mode, room = null, kept = [] }) {
+// canReplay: this server can replay the sample kitchen photo's answer.
+export function closingRooms({ road, levels, summaries = [], mode, room = null, kept = [], canReplay = false }) {
   return [0, 1, 2, OWN_SLOT].map((slot) => {
     const level = levels[slot] || null;
     const ref = road.rooms[slot] || null;
@@ -528,11 +550,12 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
           : 'No room was made from a photo of your own, and nothing was invented.',
       };
     }
+    const ours = ref && ref.kind === 'replay';
     return {
       slot, heading, ref, playable: !!level,
-      title: ref && ref.kind === 'marked' ? 'marked by you' : level ? level.title : null,
+      title: ref && ref.kind === 'marked' ? 'marked by you' : ours ? 'our kitchen' : level ? level.title : null,
       result: resultLine(road, slot),
-      ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode, room, kept[slot] || null),
+      ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode, room, kept[slot] || null, canReplay),
     };
   });
 }
@@ -542,8 +565,10 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
 // stand-in room only by the stand-in started for that same room).
 // kept: the origin of the level kept on this device for a photo room, or
 // null; one from the other mode cannot load here.
-export function missingLine(slot, ref, mode, room = null, kept = null) {
+export function missingLine(slot, ref, mode, room = null, kept = null, canReplay = false) {
   const gone = 'Its level is not in memory on this visit';
+  // ours, replayed: any mode replays it again, where the server can
+  if (ref && ref.kind === 'replay') return canReplay ? `${gone}; replay it again on Step ${OWN_STEP} to see it.` : `${gone}, and this copy cannot replay it.`;
   // marked by hand: any mode makes it again from the marks on this device
   if (ref && ref.kind === 'marked') return `${gone}; choose the same photo again on Step ${OWN_STEP + 1} to load it from your marks on this device.`;
   const otherMode = kept && kept !== mode;
@@ -572,6 +597,11 @@ export function aiLine(level, summary) {
   const things = (k) => `${k} ${k === 1 ? 'thing' : 'things'}`;
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
   if (level.origin === 'marked') return `${markedWords(level)} Code proved the room can be won.`;
+  if (level.origin === 'replay') {
+    // kept short: four rooms share the closing screen
+    const masks = maskWords(level);
+    return `${REPLAY_WORDS} ${masks || `${foundWords(level)}; code ${tracedWords(level)}`}; code proved the room can be won.`;
+  }
   if (level.origin === 'rehearsal') {
     // its zero_matches drill places every thing by Muse Spark's points
     const found = fromPoints(level) ? `${foundWords(level, 'the stand-in for SAM 3.1')}; ` : '';
@@ -581,12 +611,14 @@ export function aiLine(level, summary) {
   }
   const named = summary ? summary.named : n;
   const masks = maskWords(level);
+  // ours, read fresh in LIVE, is not the player's photo
+  const photo = summary && summary.ours ? 'in our kitchen photo' : 'in your photo';
   if (masks) {
     const found = fromPoints(level) ? foundWords(level) : `SAM 3.1 found ${n} of them`;
-    return `Muse Spark named ${things(named)} in your photo and gave each a role; ${found}; ${masks}; and code proved the room can be won.`;
+    return `Muse Spark named ${things(named)} ${photo} and gave each a role; ${found}; ${masks}; and code proved the room can be won.`;
   }
-  if (fromPoints(level)) return `Muse Spark named ${things(named)} in your photo and gave each a role; ${foundWords(level)}; and code ${tracedWords(level)}, then proved the room can be won.`;
-  return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
+  if (fromPoints(level)) return `Muse Spark named ${things(named)} ${photo} and gave each a role; ${foundWords(level)}; and code ${tracedWords(level)}, then proved the room can be won.`;
+  return `Muse Spark named ${things(named)} ${photo} and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
 // actions: { freePlay, playAgain(ref, title), ownRoom, startOver }

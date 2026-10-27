@@ -1,0 +1,60 @@
+{
+ "route": "/responses",
+ "model": "sam-3.1",
+ "prompt_text": [
+  "kitchen island"
+ ],
+ "answer": {
+  "metadata": {
+   "include_confidence": "true",
+   "mask_encoding": "one_bit"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "resp_6ae0b9dc1f53d907aa724fc9",
+  "object": "response",
+  "status": "completed",
+  "created_at": 1793112540.0,
+  "completed_at": 1793112540.0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "msg_1c32478c-29b3-4873-ba73-82d57a64d893",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=437;y1=151;x2=634;y2=306;w=1024;h=399;c=0.9139785170555115|><|mask;x=0;y=0;c=0.9139785170555115;data=156,198,!!!!#_B=l:^7Cd%Sw4O7Sh[zKZrp`&z_HXP=ed{c[YmR_Lc5QLCNXYm_wb!?CifX3v^eW^L*#!dDCWyZ7d?&!GBMBN*LrnhiY(wQv1Dn0JBT.[+E&VkQg`g!6[:O/zTEHRznG8&i=Y#vLcKw`^1-0Fvx/o28K:Ok@uBn^[wag`Y2p4%0SxDvAYf|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}

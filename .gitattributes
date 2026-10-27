@@ -2,3 +2,5 @@
 *.png binary
 *.jpg binary
 *.webp binary
+# Meta's recorded answers for the sample kitchen photo, kept byte for byte
+server/replay/kitchen/*.json -text

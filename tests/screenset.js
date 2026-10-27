@@ -13,6 +13,8 @@ import { MOCK_WORDS } from '../src/own.js';
 import { markedReply } from '../src/marks.js';
 import { KEY_WORDS } from '../src/reply.js';
 import { header } from './layoutmodel.js';
+import { replayReply, KITCHEN_PIXELS } from './kitchen.js';
+import { floorFromReply } from '../src/trace_in_box.js';
 
 const doc = installFakeDocument();
 doc.body.append(el('div', { id: 'tips' }));
@@ -55,6 +57,18 @@ function card(id) {
 }
 
 const canvas = (w, h) => el('canvas', { width: String(w), height: String(h) });
+
+// our kitchen, replayed through the real pipeline, built as the page builds
+// it (src/own.js levelFromReply: SAM 3.1's mask rings as the outlines)
+let kitchen = null;
+export function kitchenLevel() {
+  if (!kitchen) {
+    const reply = replayReply();
+    const input = inputFromReply(reply, { kind: 'replay', id: 'kitchen' }, (o) => ({ source: 'sam_mask', rings: o.mask.rings }), '2026-10-27T15:00:00Z');
+    kitchen = { level: buildLevel({ ...input, ...floorFromReply(reply, KITCHEN_PIXELS) }).level, summary: { ...readSummary(reply), ours: true } };
+  }
+  return kitchen;
+}
 
 // your own room marked by hand: the desk's objects as boxes, made with box
 // outlines (the fit does not depend on how they were traced)
@@ -118,6 +132,7 @@ export function screens(mode) {
   out.push({ name: 'Your three rooms', step: R.THREE_STEP, section: cmp.section, pictures: { 'sum-pic': (w) => (w * 768) / 1024 }, road: { rooms: [...SAMPLE_REFS, null], finished: [true, true, true, false] } });
   const ownStates = [['as it opens', null]];
   if (mode === 'mock') {
+    ownStates.push(['as it opens, with no server to replay ours', null, false, { replay: true, off: 'Off here: the server did not answer, so Meta’s recorded answer for our kitchen photo cannot be replayed.' }]);
     ownStates.push(['with a landscape photo kept here', { kind: 'kept', picture: canvas(1024, 768), words: MOCK_WORDS }, true]);
     ownStates.push(['with a portrait photo kept here', { kind: 'kept', picture: canvas(768, 1024), words: MOCK_WORDS }, true]);
   } else {
@@ -126,14 +141,19 @@ export function screens(mode) {
     ownStates.push(['with the people refusal', { kind: 'refused', picture: null, words: 'This photo seems to show a person. Please use one with no people.' }, false]);
     ownStates.push(['with a refused key', { kind: 'refused', words: `${KEY_WORDS[mode]} You can mark the room yourself instead, try another photo, or continue to the end.` }, true]);
   }
-  for (const [what, result, markable] of ownStates) {
+  for (const [what, result, markable, ours = { replay: mode !== 'live', off: null }] of ownStates) {
     const v = V.ownView({
-      mode, primaryLabel: R.primaryLabel({ step: R.OWN_STEP }), camera: true,
+      mode, primaryLabel: R.primaryLabel({ step: R.OWN_STEP }), camera: true, ours,
       sampleLink: mode === 'rehearsal' ? el('a', { class: 'btn', href: '#', text: 'Save the sample picture' }) : null,
-      actions: { file: noop, skip: noop },
+      actions: { file: noop, skip: noop, ours: noop },
     });
     if (markable) demote(v.section);
-    if (result) { v.shown.replaceChildren(...V.ownResult(result, markable ? { mark: noop } : null).filter(Boolean)); v.shown.hidden = false; v.shown.removeAttribute('hidden'); }
+    if (result) {
+      v.shown.replaceChildren(...V.ownResult(result, markable ? { mark: noop } : null).filter(Boolean)); v.shown.hidden = false; v.shown.removeAttribute('hidden');
+      // the page's showOwnResult: what Use ours does gives way to the result
+      const line = v.section.querySelector('.ours-line');
+      if (line) { line.hidden = true; line.setAttribute('hidden', ''); }
+    }
     out.push({ name: `Your own room, ${what}`, step: R.OWN_STEP, section: v.section, road: markable ? { why: 'Mark your room, or continue to the end' } : undefined });
   }
   // your marks: as it opens, and with a dozen boxes; then the room made from them
@@ -145,6 +165,16 @@ export function screens(mode) {
     const level = markedLevel();
     const v = V.foundView({ level, summary: null, fromDevice: true, slot: R.OWN_SLOT, actions: { play: noop, describe: noop, walls: noop, remark: noop, leave: noop } });
     out.push({ name: 'Your room, from your marks', step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, true, false] }, reveal: { v, level } });
+  }
+  // our kitchen: replayed (MOCK, REHEARSAL), or read fresh (LIVE)
+  {
+    const { level, summary } = kitchenLevel();
+    const shown = mode === 'live' ? { ...level, origin: 'live', label: LABELS.live } : level;
+    const v = V.foundView({ level: shown, summary, fromDevice: false, slot: R.OWN_SLOT, actions: { play: noop, describe: noop, walls: noop, leave: noop } });
+    out.push({ name: `Our kitchen, ${mode === 'live' ? 'read fresh' : 'replayed'}`, step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'replay', id: 'kitchen' }), finished: [true, true, true, false] }, reveal: { v, level } });
+    const kRoad = { rooms: ownRooms({ kind: 'replay', id: 'kitchen' }), own: null, finished: [true, true, true, true], best: [1.24, null, 2.31, 1.1] };
+    const rows = V.closingRooms({ road: kRoad, mode, levels: [mockLevel('desk'), mockLevel('living'), mockLevel('apartment'), shown], summaries: [null, null, null, summary], canReplay: true });
+    out.push({ name: 'The end, our kitchen', step: R.LAST_STEP, section: V.closingView({ rooms: rows, mode, primaryLabel: 'Free play', actions: {} }), road: kRoad });
   }
   const own = mode !== 'mock';
   const road = { rooms: ownRooms(own ? { kind: 'photo', sha256: 'ab'.repeat(32) } : null), own: own ? null : 'skipped', finished: [true, true, true, own], best: [1.24, null, 2.31, own ? 1.6 : null] };

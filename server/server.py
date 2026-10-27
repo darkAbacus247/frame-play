@@ -1,9 +1,12 @@
 """FRAME//PLAY's server: Python standard library only.
 
-Routes: GET / and an allowlist of the page's own files (the rooms included),
-GET /api/health, POST /api/room. Everything else is 404. After an account or
-model problem, POST /api/room answers 503 live_unavailable, sending nothing,
-and health says live_state: unavailable.
+Routes: GET / and an allowlist of the page's own files (the rooms and the
+sample kitchen photo included), GET /api/health, POST /api/room and, in every
+mode, POST /api/replay/kitchen (the sample kitchen photo's recorded answers
+replayed through the same pipeline; nothing is sent: server/replay.py).
+Everything else is 404. After an account or model problem, POST /api/room
+answers 503 live_unavailable, sending nothing, and health says live_state:
+unavailable.
 
   python server/server.py                       # this machine only, port 8191
   python server/server.py --public              # every interface, at $PORT
@@ -41,11 +44,15 @@ TYPES = {
     '.css': 'text/css; charset=utf-8',
     '.svg': 'image/svg+xml',
     '.json': 'application/json; charset=utf-8',
+    '.jpg': 'image/jpeg',
 }
 
 FIXED_FILES = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js',
                '/styles.css': 'styles.css', '/favicon.svg': 'favicon.svg'}
-PATTERNS = (re.compile(r'/src/[a-z_]+\.js'), re.compile(r'/rooms/[a-z0-9_-]+\.json'))
+PATTERNS = (re.compile(r'/src/[a-z_]+\.js'), re.compile(r'/rooms/[a-z0-9_-]+\.json'), re.compile(r'/rooms/kitchen\.jpg'))
+REPLAY_ROUTE = '/api/replay/kitchen'
+# a replay carries no photo: its body, if any, is at most this long
+REPLAY_MAX_BODY = 64
 
 
 def static_file(path):
@@ -144,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, self.server.health(), head=head)
         if route == '/api/room':
             return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'}, head)
+        if route == REPLAY_ROUTE:
+            return self.send_json(405, error_body('method', f'Use POST for {REPLAY_ROUTE}.'), {'Allow': 'POST'}, head)
         f = static_file(route)
         if f is None:
             return self.send_json(404, error_body('not_found', 'There is nothing here.'), head=head)
@@ -154,8 +163,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = self.route
+        if route == REPLAY_ROUTE:
+            return self.post_replay()
         if route != '/api/room':
-            self.close_connection = True  # its body is never read
+            self.close_connection = True  # its body is never used
+            self.drain()
             if route == '/api/health' or static_file(route) is not None:
                 return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
             return self.send_json(404, error_body('not_found', 'There is nothing here.'))
@@ -164,24 +176,73 @@ class Handler(BaseHTTPRequestHandler):
     def other_method(self):
         route = self.route
         self.close_connection = True
-        if route == '/api/room':
-            return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'})
+        self.drain()
+        if route in ('/api/room', REPLAY_ROUTE):
+            return self.send_json(405, error_body('method', f'Use POST for {route}.'), {'Allow': 'POST'})
         if route == '/api/health' or static_file(route) is not None:
             return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
         return self.send_json(404, error_body('not_found', 'There is nothing here.'))
 
     do_PUT = do_DELETE = do_PATCH = do_OPTIONS = other_method
 
-    def post_room(self):
-        s = self.server.settings
+    def drain(self, cap=65536):
+        """Before a refusal that closes the connection: a small body is read
+        and dropped (briefly, never waiting long), so the refusal reaches the
+        page rather than being cut off by a reset. A large one is not read."""
+        try:
+            length = int(self.headers.get('Content-Length') or '0')
+        except ValueError:
+            return
+        if not 0 < length <= cap:
+            return
+        try:
+            self.connection.settimeout(2)
+            self.rfile.read(length)
+        except OSError:
+            pass
+
+    def page_only(self):
+        """The page's own requests only: True, or the refusal is sent."""
         if self.headers.get('X-FramePlay-Request') != '1':
             self.close_connection = True
-            return self.send_json(403, error_body('forbidden', 'This address only answers the FRAME//PLAY page. Please open the page itself.'))
+            self.drain()
+            self.send_json(403, error_body('forbidden', 'This address only answers the FRAME//PLAY page. Please open the page itself.'))
+            return False
         if (self.headers.get('Sec-Fetch-Site') or '').lower() == 'cross-site':
             self.close_connection = True
-            return self.send_json(403, error_body('forbidden', 'A request from another site is refused. Please open the FRAME//PLAY page itself.'))
+            self.drain()
+            self.send_json(403, error_body('forbidden', 'A request from another site is refused. Please open the FRAME//PLAY page itself.'))
+            return False
+        return True
+
+    def post_replay(self):
+        """The sample kitchen photo's recorded answers, replayed through the
+        pipeline in any mode. No photo comes in and nothing goes out."""
+        if not self.page_only():
+            return
+        try:
+            length = int(self.headers.get('Content-Length') or '0')
+        except ValueError:
+            length = -1
+        if length < 0 or length > REPLAY_MAX_BODY:
+            self.close_connection = True
+            self.drain()
+            return self.send_json(413, error_body('too_large', 'A replay carries no photo. Please try again from the page.'))
+        if length:
+            self.rfile.read(length)
+        replay = self.server.replay_pipeline()
+        if replay is None:
+            return self.send_json(503, error_body('replay_unavailable', 'The recorded answers are not on this server.'))
+        stream = 'application/x-ndjson' in (self.headers.get('Accept') or '')
+        replay.handle_kitchen(self, stream)
+
+    def post_room(self):
+        s = self.server.settings
+        if not self.page_only():
+            return
         if s.mode == 'mock':
             self.close_connection = True
+            self.drain()
             return self.send_json(409, error_body('live_off', 'This server is in MOCK mode, so it sends no photo anywhere. Play the sample rooms.'))
         transport = getattr(self.server.pipeline, 'transport', None)
         claim = getattr(transport, 'claim', None)
@@ -234,6 +295,20 @@ class FramePlayServer(ThreadingHTTPServer):
         self.log = log or Log(holder=settings.key)
         self.pipeline = pipeline
         self.limits = limits
+        self._replay = None
+        self._replay_lock = threading.Lock()
+
+    def replay_pipeline(self):
+        """The replay of the sample kitchen photo, made on first use, or None
+        when its recorded answers are not here."""
+        with self._replay_lock:
+            if self._replay is None:
+                try:
+                    from server.replay import ReplayPipeline
+                    self._replay = ReplayPipeline(log=self.log)
+                except (ImportError, OSError, ValueError, KeyError):
+                    return None
+            return self._replay
 
     def handle_error(self, request, client_address):
         # one line in words, never the address or a traceback with request data
@@ -270,6 +345,8 @@ class FramePlayServer(ThreadingHTTPServer):
             h['counters'] = self.limits.counters()
         if s.mode == 'rehearsal':
             h['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
+        # the sample kitchen photo's recorded answers, replayed in any mode
+        h['replay'] = {'kitchen': {'route': 'api/replay/kitchen', 'photo': 'rooms/kitchen.jpg', 'recorded': '2026-10-27'}}
         return h
 
     def live_state(self):

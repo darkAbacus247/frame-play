@@ -152,8 +152,10 @@ const isBox = (b, W, H) => Array.isArray(b) && b.length === 4 && b.every((v) => 
   && b[0] >= 0 && b[1] >= 0 && b[2] <= W && b[3] <= H && b[2] > b[0] && b[3] > b[1];
 
 // A reply is accepted only from a server that said it is in the same mode
-// (LIVE only from a live server, REHEARSAL only from a rehearsing one), for
-// the very copy that was sent. Returns { ok, why, dropped, words }.
+// (LIVE only from a live server, REHEARSAL only from a rehearsing one; a
+// replay of the sample kitchen photo's recorded answers only when a replay
+// was asked for), for the very copy that was sent. Returns { ok, why,
+// dropped, words }.
 // An object whose box is not usable (outside the picture, empty, not
 // numbers) is left out rather than sinking the whole reply, and so is an
 // unusable surface: the reply is cleaned in place (the page goes on with
@@ -165,10 +167,14 @@ export function acceptReply(healthMode, reply, copy) {
   const no = (why) => ({ ok: false, why });
   if (!reply || typeof reply !== 'object' || reply.schema !== REPLY_SCHEMA) return no('The server answered in a shape this page does not know.');
   const mode = reply.provenance && reply.provenance.mode;
-  if (mode !== 'live' && mode !== 'rehearsal') return no('The server did not say how it read the photo.');
-  if (mode !== healthMode) return no(`The server said it was ${String(healthMode).toUpperCase()} but answered as ${mode.toUpperCase()}.`);
+  if (mode !== 'live' && mode !== 'rehearsal' && mode !== 'replay') return no('The server did not say how it read the photo.');
+  if (mode !== healthMode) {
+    if (mode === 'replay' || healthMode === 'replay') return no(healthMode === 'replay' ? 'The server was asked to replay the recorded answer but answered as a fresh read.' : 'The server answered with a replay where a fresh read was asked for.');
+    return no(`The server said it was ${String(healthMode).toUpperCase()} but answered as ${mode.toUpperCase()}.`);
+  }
   if (reply.provenance.label !== LABELS[mode]) return no('The reply’s label does not match its mode.');
   if (mode === 'rehearsal' && (reply.provenance.models || []).length) return no('A rehearsal reply may not claim a model.');
+  if (mode === 'replay' && ((reply.provenance.models || []).length || !reply.provenance.replay)) return no('A replay may not claim a model called now, and must say what it replays.');
   if (reply.status !== 'ok') return no(refusalWords(reply));
   const r = reply.received || {};
   if (r.width !== copy.width || r.height !== copy.height) return no('The reply is for a picture of a different size, so it is not used.');

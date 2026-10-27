@@ -313,15 +313,18 @@ test('REHEARSAL: a photo the stand-in does not know is refused before sending, a
   assert.equal(app.posts(), 0);
 });
 
-test('in MOCK no page code can send: the only network call is fetch, and its only callers are the health check, the rooms and the live send', () => {
+test('in MOCK no page code can send: the only network call is fetch, and its only callers are the health check, the rooms, our kitchen photo and the send', () => {
   const files = ['app.js', ...readdirSync(new URL('../src/', import.meta.url)).map((f) => `src/${f}`)];
   for (const f of files) {
     const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
     assert.doesNotMatch(src, /XMLHttpRequest|sendBeacon|WebSocket|EventSource|new Image\b|navigator\.share|postMessage/, f);
     const calls = [...src.matchAll(/\bfetch\(/g)].length;
-    const expected = { 'app.js': 2, 'src/photo.js': 1 }[f] || 0;
+    const expected = { 'app.js': 3, 'src/photo.js': 1 }[f] || 0;
     assert.equal(calls, expected, `${f}: fetch calls`);
   }
+  // the third in app.js: a GET of this page's own sample photo, nothing sent
+  const page = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  assert.match(page, /async function oursBlob\(\) \{\n\s+const res = await fetch\(OURS\.photo\);/);
   const marking = ['src/marks.js', 'src/marker.js'].map((f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')).join('\n');
   assert.doesNotMatch(marking, /sendPhoto|fetch|readPhoto/);
   const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
