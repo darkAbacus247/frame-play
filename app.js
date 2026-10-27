@@ -20,10 +20,11 @@ import { mountMarker } from './src/marker.js';
 import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal, NOT_SAME_WORDS, OURS, replayOurs, REPLAY_WORDS } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
+  freeView, ownView, ownResult, closingRooms, closingView, doneView, doneLine, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
   oursCardView, OURS_TITLE, endRoundButton, END_CARD,
 } from './src/screens.js';
 import { Fx } from './src/fx.js';
+import { emit } from './src/events.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -539,7 +540,7 @@ async function render() {
   // off it (←, the browser's Back and Forward, the welcome-back card) ends it
   if (A.road.step !== R.FREE_PLAY) A.free = null;
   // each arrival on the closing screen celebrates once
-  if (A.road.step !== R.LAST_STEP) A.celebrated = false;
+  if (A.road.step !== R.LAST_STEP) { A.celebrated = false; A.done = null; }
   stopViews();
   hideTip();
   A.missingWhy = null;
@@ -559,6 +560,8 @@ async function render() {
     else if (kind === 'play') await screenPlay(main, slot, null, token);
     else if (kind === 'three') await screenThree(main, token);
     else if (kind === 'own') await screenOwn(main, token);
+    // drawn again after "I'm done" (a check of the server), the thank-you stays
+    else if (kind === 'end' && A.done) main.replaceChildren(doneView({ rooms: A.done.rooms, open: true, actions: A.done.actions }));
     else if (kind === 'end') await screenEnd(main, token);
     else await screenFree(main, token);
   } catch (e) {
@@ -1009,10 +1012,43 @@ async function screenEnd(main, token) {
       playAgain: (ref) => { A.free = ref; setRoad(R.startFreePlay(A.road)); },
       ownRoom: () => setRoad({ ...A.road, step: R.OWN_STEP }),
       startOver: confirmStartOver,
+      done: () => imDone(rooms),
     },
   });
   main.replaceChildren(section);
   celebrate(section);
+}
+
+// "I'm done" ends the visit: a short thank-you (the one line of what was
+// played and won, a soft fade, the music's closing sting once, which
+// src/audio.js plays only with Effects on), then the app window closes.
+// An ordinary tab stays open (the browser does not allow it): then the
+// screen says it can be closed and offers Free play and Start over.
+const DONE_CLOSE_MS = 1800;
+function imDone(rooms) {
+  stopViews();
+  stopTour();
+  const main = $('main');
+  const token = ++A.renderToken;
+  const actions = {
+    freePlay: () => setRoad(R.startFreePlay(A.road)),
+    startOver: confirmStartOver,
+  };
+  A.done = { rooms, actions };
+  main.replaceChildren(doneView({ rooms, actions }));
+  emit('closing');
+  say(`Thank you for playing. ${doneLine(rooms)}`);
+  setTimeout(() => {
+    if (token !== A.renderToken) return;
+    try { globalThis.close(); } catch { /* not allowed here */ }
+    // a closed window runs no more; a tab that stayed open says so
+    setTimeout(() => {
+      if (token !== A.renderToken || globalThis.closed) return;
+      main.replaceChildren(doneView({ rooms, open: true, actions }));
+      const p = main.querySelector('[data-primary]');
+      if (p) p.focus({ preventScroll: true });
+    }, 100);
+  }, reducedMotion() ? DONE_CLOSE_MS / 2 : DONE_CLOSE_MS);
 }
 
 // The closing screen celebrates once on each arrival: the music's sting

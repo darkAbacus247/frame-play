@@ -195,6 +195,8 @@ export function screens(mode) {
   const markedRoad = { ...road, own: null, rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, true, true], best: [1.24, null, 2.31, 1.1] };
   const markedRows = V.closingRooms({ road: markedRoad, mode, levels: [...samples, markedLevel()] });
   out.push({ name: 'The end, your own room marked', step: R.LAST_STEP, section: V.closingView({ rooms: markedRows, mode, primaryLabel: 'Free play', actions: {} }), road: markedRoad });
+  // after I'm done, in a tab the browser keeps open
+  out.push({ name: 'Thank you, the tab stays open', step: R.LAST_STEP, section: V.doneView({ rooms: closing, open: true, actions: {} }), road });
   const free = V.freeView();
   free.cards.append(card('desk'), card('living'), card('apartment'));
   if (own) free.cards.append(V.roomCardView({ title: 'A morning desk with a mug and three coins', origin: mode, onPick: noop }));

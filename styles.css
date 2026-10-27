@@ -484,6 +484,12 @@ dialog.card .label { color: var(--muted); }
   100% { box-shadow: 0 0 0 14px rgba(54, 211, 192, 0); }
 }
 
+/* "I'm done": the thank-you fades in softly (none with reduced motion) */
+.done { justify-items: center; text-align: center; animation: done-in 1.2s ease-out 1; }
+.done p { margin-inline: auto; }
+.done .actions { justify-content: center; }
+@keyframes done-in { from { opacity: 0; } to { opacity: 1; } }
+
 /* ---- high contrast and reduced motion ---- */
 .hc { --text: #ffffff; --muted: #e6e6e6; --line: #ffffff; --panel: #000000; --panel-2: #0b0b0b; --bg: #000000; }
 .hc .btn, .hc .chip, .hc .pad-btn, .hc .switch, .hc .room-card { border-width: 2px; }

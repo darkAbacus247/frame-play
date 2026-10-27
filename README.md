@@ -226,9 +226,13 @@ neither with Effects off), and one line of the rooms won ("You won two of
 your four rooms."). Then each of the four rooms (the three sample
 rooms, or our kitchen where it took one's place, then your own room: yours, ours, or not made) with whether you won
 and your best route, a line on what the AI did in it (for ours replayed,
-the replay's own words), and the ways on: Free play, Play again for any
+the replay's own words), and the ways on: Free play, I'm done, Play again for any
 room, Try your own room (a photo of yours, or ours), and Start over, which
-asks first and clears nothing unless you confirm. While a card or the settings are open, a round in play holds
+asks first and clears nothing unless you confirm. I'm done ends the visit
+with a short thank-you (one line of the rooms played and won, a soft fade,
+the music's closing sting once) and then closes the app window; an ordinary
+browser tab cannot be closed by the page, so there it says "You can close
+this tab now." and offers Free play and Start over. While a card or the settings are open, a round in play holds
 still, so no round ends under them. Free play always opens on the list of rooms (the three sample rooms, and
 your own room once made: our kitchen carries its REPLAY tag where it was
 replayed); a replay of a room there lasts only
