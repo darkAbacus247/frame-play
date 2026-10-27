@@ -9,7 +9,7 @@ from server import config
 from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
-from server.meta_api import Transport
+from server.meta_api import CallError, Transport
 from server.pipeline import Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims
 from server.samtext import compose
 from server.server import Log
@@ -232,6 +232,146 @@ class Reads(WithFake):
         mug = next(f for f in line['found'] if f['name'] == 'mug')
         self.assertEqual(mug, {'name': 'mug', 'matches': 0, 'kept': 0, 'points': 1, 'diagnostics': ['malformed_record']})
         self.assertNotIn('x1=', self.lines[-1])
+
+
+SEEDLESS = {**READ, 'objects': [{**o, 'seeds': []} for o in READ['objects']]}
+
+
+class Raising:
+    """A transport whose calls raise the given errors (route -> CallError),
+    and otherwise answer as the recorded desk does."""
+
+    def __init__(self, spark=None, sam=None):
+        self.spark, self.sam = spark, sam
+        self.inner = recorded.RecordedTransport()
+
+    def post(self, route, body, deadline, sleep=None, clock=None):
+        err = self.spark if route == '/chat/completions' else self.sam
+        if err is not None:
+            raise err
+        return self.inner.post(route, body, deadline, sleep, clock)
+
+
+def latched(code, status):
+    e = CallError(code, f'The Model API said {status}. The owner of this server must fix this; the sample rooms still work.', status, billed=False)
+    e.latched = True
+    return e
+
+
+class SamTrouble(WithFake):
+    """A1: SAM calls that failed are told apart from a true "found none"."""
+
+    def assertNotBlamingThePhoto(self, r):
+        self.assertNotIn('clearer edges', r['error']['message'])
+        self.assertFalse([w for w in r['warnings'] if w.startswith('not found')], r['warnings'])
+
+    def test_busy(self):
+        self.fake.on('/chat/completions', spark_answer(READ))
+        self.fake.always('/responses', ok_json({'error': {'code': 'rate_limited'}}, 429))
+        r = self.pipe.run(photo())
+        self.assertEqual((r['status'], r['error']['code']), ('error', 'sam_busy'))
+        self.assertEqual(r['error']['message'], 'SAM 3.1 is busy right now. Please try the same photo again in a minute.')
+        self.assertNotBlamingThePhoto(r)
+        self.assertEqual(r['objects'], [], 'no room from points alone while SAM was busy')
+        self.assertIn('not looked for: mug (The Model API is busy); code traces around Muse Spark’s points for it instead', r['warnings'])
+        self.assertIn('not looked for: coin (The Model API is busy)', r['warnings'])
+        self.assertIn('not looked for: desk (the play surface; The Model API is busy); the full width below the horizon is used', r['warnings'])
+
+    def test_unavailable(self):
+        self.fake.on('/chat/completions', spark_answer(SEEDLESS))
+        self.fake.always('/responses', ok_json({'error': {'code': 'down'}}, 503))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['error']['code'], 'sam_unavailable')
+        self.assertEqual(r['error']['message'], 'SAM 3.1 could not be reached just now. Please try the same photo again in a minute.')
+        self.assertNotBlamingThePhoto(r)
+
+    def test_unreadable(self):
+        self.fake.on('/chat/completions', spark_answer(SEEDLESS))
+        self.fake.always('/responses', sam_answer('garbage'))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['error']['code'], 'sam_unreadable')
+        self.assertEqual(r['error']['message'], "SAM 3.1 answered in a form this app could not read. This is the app's fault, not your photo's.")
+        self.assertNotIn('clearer edges', r['error']['message'])
+
+    def test_a_lasting_failure_says_its_own_words(self):
+        self.fake.on('/chat/completions', spark_answer(SEEDLESS))
+        self.fake.always('/responses', ok_json({'error': {'code': 'bad'}}, 400))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['error']['code'], 'sam_error')
+        self.assertEqual(r['error']['message'], 'The Model API could not accept this request. Please try another photo.')
+        self.assertNotBlamingThePhoto(r)
+
+    def test_a_lasting_failure_still_traces_around_the_points(self):
+        self.fake.on('/chat/completions', spark_answer(READ))
+        self.fake.always('/responses', ok_json({'error': {'code': 'bad'}}, 400))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok', 'trying again would not help, so the points make the room')
+        self.assertEqual([o['found_by'] for o in r['objects']], ['points'])
+
+    def test_one_failed_call_among_good_ones(self):
+        self.fake.on('/chat/completions', spark_answer(READ))
+
+        def answer(req, handler):
+            noun = req['body']['input'][0]['content'][0]['text']
+            return ok_json({'error': {'code': 'rate_limited'}}, 429) if noun == 'cactus' else sam_answer(ANSWERS[noun])
+        self.fake.always('/responses', answer)
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertIn('not looked for: cactus (The Model API is busy)', r['warnings'])
+        self.assertIn('not found: lamp', r['warnings'], 'a clean empty answer is still "not found"')
+        cactus = next(c for c in r['provenance']['calls'] if c.get('noun') == 'cactus')
+        self.assertEqual((cactus['status'], cactus['error']), (429, 'rate_limited'))
+
+    def test_a_clean_empty_answer_is_still_nothing_found(self):
+        self.fake.on('/chat/completions', spark_answer(SEEDLESS))
+        self.fake.always('/responses', sam_answer('<0f>\n'))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['error']['code'], 'nothing_found')
+
+    def test_an_account_problem_turns_the_picker_off(self):
+        for spark, sam in ((latched('bad_key', 401), None), (None, latched('model_not_found', 404))):
+            pipe = Pipeline(self.settings, Limits(), transport=Raising(spark, sam), sleep=lambda s: None)
+            r = pipe.run(photo())
+            self.assertEqual((r['status'], r['error']['code']), ('error', 'live_unavailable'))
+            self.assertEqual(r['error']['status'], (spark or sam).status)
+            self.assertTrue(r['error']['message'].endswith('the sample rooms still work.'))
+
+    def test_never_more_than_four_sam_calls_at_once(self):
+        import threading
+        import time as time_
+        self.fake.on('/chat/completions', spark_answer(READ))
+        lock, now, most = threading.Lock(), [0], [0]
+        order = []
+
+        def answer(req, handler):
+            noun = req['body']['input'][0]['content'][0]['text']
+            with lock:
+                order.append(noun)
+                now[0] += 1
+                most[0] = max(most[0], now[0])
+            time_.sleep(0.05)
+            with lock:
+                now[0] -= 1
+            return sam_answer(ANSWERS[noun])
+        self.fake.always('/responses', answer)
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(most[0], 4)
+        self.assertEqual(set(order[:4]), {'box', 'coin', 'desk', 'cactus'}, 'the exit and the things to collect first')
+
+    def test_what_was_found_is_kept_past_the_deadline(self):
+        # G23: every call kept to the photo's time; a slow last answer does
+        # not throw away the room
+        t = [0.0]
+
+        class Slow(recorded.RecordedTransport):
+            def post(self, route, body, deadline, sleep=None, clock=None):
+                out = super().post(route, body, deadline, sleep, clock)
+                t[0] += config.PHOTO_TIMEOUT_S
+                return out
+        pipe = Pipeline(self.settings, Limits(), transport=Slow(), clock=lambda: t[0], sleep=lambda s: None)
+        r = pipe.run(check_photo(images.jpeg(recorded.W, recorded.H), config.MAX_SIDE))
+        self.assertEqual(r['status'], 'ok')
 
 
 class RecordedDesk(unittest.TestCase):
@@ -457,7 +597,7 @@ class TheKeyNeverLeaks(unittest.TestCase):
                 run_.stop()
             self.assertEqual(status, 200)
             reply = json.loads(body)
-            self.assertEqual(reply['error']['code'], 'bad_key')
+            self.assertEqual(reply['error']['code'], 'live_unavailable', 'a refused key turns the picker off')
             self.assertEqual(reply['error']['status'], 401, 'the page tells a refused key by its status')
             self.assertEqual(reply['error']['message'],
                              "The Model API did not accept this server's key. The owner of this server must fix this; "

@@ -40,6 +40,9 @@ SAME_BOX = 0.5
 # than 10% apart are one thing.
 POINT_MARGIN = 0.05
 POINT_GROUP = 0.10
+# SAM calls at once for one photo, the exit and the things to collect first
+SAM_WORKERS = 4
+JOB_ORDER = {'exit': 0, 'collect': 1, 'surface': 2, 'avoid': 3, 'solid': 4, 'flat': 5}
 
 PROMPT = """You are reading one photo of a room or a desk top for a small game.
 An explorer will walk on ONE play surface (such as floor, desk, table, bed or counter).
@@ -359,6 +362,34 @@ DROP_WORDS = {
     'over_count': 'more matches than its role keeps',
 }
 
+SAM_BUSY_WORDS = 'SAM 3.1 is busy right now. Please try the same photo again in a minute.'
+SAM_UNAVAILABLE_WORDS = 'SAM 3.1 could not be reached just now. Please try the same photo again in a minute.'
+SAM_UNREADABLE_WORDS = "SAM 3.1 answered in a form this app could not read. This is the app's fault, not your photo's."
+NOTHING_FOUND_WORDS = ('SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace '
+                       'around instead. Try another photo with clearer edges.')
+
+
+def first_sentence(words):
+    """An error's words without its advice, for a warning's brackets."""
+    return re.split(r'(?<=[.!?])\s', str(words).strip(), maxsplit=1)[0].rstrip('.')
+
+
+def unreadable(parsed):
+    """An answer that came back but could not be read at all: no frame, only
+    broken records, or a picture of another size."""
+    return parsed is not None and ('size_mismatch' in parsed.errors or (
+        not parsed.records and ('no_frame' in parsed.errors or 'malformed_record' in parsed.errors)))
+
+
+def sam_failure(errs):
+    """The error for SAM calls that failed (never the photo's fault), or None
+    when one of them failed for good (not a passing fault)."""
+    if not errs or not all(getattr(e, 'transient', False) for e in errs):
+        return None
+    if all(getattr(e, 'status', None) == 429 for e in errs):
+        return {'code': 'sam_busy', 'message': SAM_BUSY_WORDS}
+    return {'code': 'sam_unavailable', 'message': SAM_UNAVAILABLE_WORDS}
+
 
 class Pipeline:
     def __init__(self, settings, limits, log=None, transport=None, clock=time.monotonic, sleep=time.sleep):
@@ -510,8 +541,10 @@ class Pipeline:
             if e.code == 'content_filter':
                 return reply('refused', {'code': 'content_filter', 'message': 'Muse Spark declined to read this photo. Please try another one.'})
             # the answer's HTTP status, so the page can tell a refused key
-            # (401) from other errors
-            return reply('error', {'code': e.code, 'message': e.message, **({'status': e.status} if isinstance(e.status, int) else {})})
+            # (401) from other errors; an account or model problem turns the
+            # picker off
+            code = 'live_unavailable' if getattr(e, 'latched', False) else e.code
+            return reply('error', {'code': code, 'message': e.message, **({'status': e.status} if isinstance(e.status, int) else {})})
         cost = spark_cost(tin, tout)
         self.limits.settle(res, cost)
         usage.update(calls=usage['calls'] + 1, spark_calls=1, tokens_in=tin, tokens_out=tout, reasoning_tokens=reasoning)
@@ -534,8 +567,12 @@ class Pipeline:
         # stage 3: find every object
         if progress:
             progress(*PROGRESS[1])
-        nouns = [o['name'] for o in on][:config.SAM_CALLS_PER_PHOTO - (1 if room['surface'] else 0)]
+        # over the call ceiling, the exit and the things to collect go first
+        ranked = sorted(on, key=lambda o: JOB_ORDER.get(o['role'], 9))
+        nouns = [o['name'] for o in ranked][:config.SAM_CALLS_PER_PHOTO - (1 if room['surface'] else 0)]
+        role_of = {o['name']: o['role'] for o in on}
         jobs = ([('surface', room['surface'])] if room['surface'] else []) + [('object', n) for n in nouns]
+        jobs.sort(key=lambda job: JOB_ORDER['surface'] if job[0] == 'surface' else JOB_ORDER.get(role_of[job[1]], 9))
         answers = {}
 
         def find(job):
@@ -573,7 +610,7 @@ class Pipeline:
                 usage['estimated_usd'] += SAM_COST
             return job, parsed, None
 
-        with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, min(SAM_WORKERS, len(jobs)))) as pool:
             results = list(pool.map(find, jobs))
         usage['sam_calls'] = sum(1 for c in calls if c['stage'] == 'find')
         usage['calls'] += usage['sam_calls']
@@ -591,7 +628,10 @@ class Pipeline:
                 best = choose(parsed.records, 'flat')
                 if best:
                     surface = {'name': room['surface'], 'box': best[0]['box'], 'confidence': best[0]['confidence']}
-            if surface is None:
+            if surface is None and err is not None:
+                warnings.append(f'not looked for: {room["surface"]} (the play surface; {first_sentence(err.message)}); '
+                                'the full width below the horizon is used')
+            elif surface is None:
                 warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
         # which matches are which object: each name's own choice, then no box
         # kept by two names
@@ -624,8 +664,10 @@ class Pipeline:
                 continue
             parsed, err = answers[('object', o['name'])]
             picked = []
+            # a call that failed never looked: the photo is not to blame
+            looked = err is None
             if err is not None:
-                why = err.message if isinstance(err, (CallError, Refusal)) else 'error'
+                why = first_sentence(err.message) if isinstance(err, (CallError, Refusal)) else 'an error'
             elif 'size_mismatch' in parsed.errors:
                 why = 'the answer was for a different picture size'
             else:
@@ -638,11 +680,13 @@ class Pipeline:
                 # SAM found nothing usable: Muse Spark's own points, when it
                 # gave any, still say where the thing is
                 regions = point_regions(o['seeds'], o['role'], W, H)
+                said = (f'not found: {o["name"]}' if looked else f'not looked for: {o["name"]}') + (f' ({why})' if why else '')
                 if not regions:
-                    warnings.append(f'not found: {o["name"]}' + (f' ({why})' if why else ''))
+                    warnings.append(said)
                     continue
-                warnings.append(f'not found by SAM 3.1: {o["name"]}' + (f' ({why})' if why else '')
-                                + '; code traces around Muse Spark’s points for it instead')
+                if looked:
+                    said = f'not found by SAM 3.1: {o["name"]}' + (f' ({why})' if why else '')
+                warnings.append(said + '; code traces around Muse Spark’s points for it instead')
                 for box, pts in regions:
                     if len(objects) >= MAX_OBJECTS:
                         break
@@ -674,17 +718,38 @@ class Pipeline:
                              'payload_chars': (m['mask'] or {}).get('payload_chars')},
                 })
         by_sam = sum(1 for o in objects if o['found_by'] == 'sam')
+        sent = [answers[('object', n)] for n in nouns]
+        errs = [e for _, e in sent if e is not None]
+        latched = next((e for _, e in answers.values() if getattr(e, 'latched', False)), None)
+        if latched is not None and not by_sam:
+            # an account or model problem: the page turns the picker off
+            stages['find'] = 'live_unavailable'
+            return reply('error', {'code': 'live_unavailable', 'message': latched.message,
+                                   **({'status': latched.status} if isinstance(latched.status, int) else {})}, scene=scene)
         if spend_stopped and not by_sam:
             return reply('refused', {'code': 'spend_stop', 'message': 'This server reached its spending stop while reading this photo.'}, scene=scene)
+        # every call failed for a passing reason: no room from Muse Spark's
+        # points alone (it would be kept on the device); the same photo again
+        # will be looked at
+        failure = sam_failure(errs)
+        if failure and (len(errs) == len(sent) or not objects):
+            stages['find'] = failure['code']
+            return reply('error', failure, scene=scene)
         if not objects:
+            if any(unreadable(p) for p, _ in sent):
+                stages['find'] = 'unreadable'
+                return reply('error', {'code': 'sam_unreadable', 'message': SAM_UNREADABLE_WORDS}, scene=scene)
+            if errs:
+                stages['find'] = 'sam_error'
+                return reply('error', {'code': 'sam_error', 'message': errs[0].message}, scene=scene)
             stages['find'] = 'nothing'
-            return reply('error', {'code': 'nothing_found', 'message': 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.'}, scene=scene, surface=surface)
+            return reply('error', {'code': 'nothing_found', 'message': NOTHING_FOUND_WORDS}, scene=scene, surface=surface)
         found['sam'] = by_sam
         found['points'] = len(objects) - by_sam
         if found['points']:
             stages['find'] = 'points' if not by_sam else 'some_points'
-        if self.clock() > deadline:
-            return reply('error', {'code': 'timeout', 'message': 'The photo ran out of time. Please try again.'}, scene=scene)
+        # no last check of the clock: every call kept to the photo's time,
+        # and what was found is kept
         return reply('ok', None, scene=scene, surface=surface, objects=objects)
 
     def _log_photo(self, r, stages):
