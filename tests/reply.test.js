@@ -31,7 +31,7 @@ function replyFor(id, mode = 'rehearsal') {
 test('a reply is accepted only from a server in the same mode, for the copy sent', () => {
   const r = replyFor('desk');
   const copy = { width: 1024, height: 768 };
-  assert.deepEqual(acceptReply('rehearsal', r, copy), { ok: true, why: '' });
+  assert.deepEqual(acceptReply('rehearsal', r, copy), { ok: true, why: '', dropped: 0, words: '' });
   assert.equal(acceptReply('live', r, copy).ok, false, 'a REHEARSAL reply is refused from a live server');
   const live = replyFor('desk', 'live');
   assert.equal(acceptReply('live', live, copy).ok, true);
@@ -41,12 +41,64 @@ test('a reply is accepted only from a server in the same mode, for the copy sent
   assert.equal(acceptReply('rehearsal', { ...r, provenance: { ...r.provenance, models: ['sam-3.1'] } }, copy).ok, false, 'a rehearsal claims no model');
   assert.equal(acceptReply('rehearsal', { ...r, provenance: { ...r.provenance, label: LABELS.live } }, copy).ok, false);
   assert.equal(acceptReply('rehearsal', { ...r, schema: 'other' }, copy).ok, false);
-  const bad = structuredClone(r);
-  bad.objects[0].box = [0, 0, 2000, 10];
-  assert.equal(acceptReply('rehearsal', bad, copy).ok, false);
   const people = { ...r, status: 'refused', error: { code: 'people_present', message: 'This photo seems to show a person. Please use one with no people.' } };
   assert.equal(acceptReply('rehearsal', people, copy).why, 'This photo seems to show a person. Please use one with no people.');
   assert.match(refusalWords({}), /could not be read/);
+});
+
+test('a bad box is left out and said, not the whole reply refused (D2)', () => {
+  const copy = { width: 1024, height: 768 };
+  const r = replyFor('desk', 'live');
+  const n = r.objects.length;
+  const [a, b, c] = r.objects.map((o) => o.name);
+  r.objects[0].box = [0, 0, 1025, 10]; // one past the right edge
+  r.objects[1].box = [100, 100, 100, 140]; // empty
+  r.objects[2].box = [10, NaN, 40, 60]; // not a number
+  const ok = acceptReply('live', r, copy);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.dropped, 3);
+  assert.equal(ok.words, '3 objects in the reply had a box outside the picture or an empty one, so they were left out.');
+  assert.equal(r.objects.length, n - 3, 'the reply is cleaned in place: the page goes on with the same object');
+  assert.deepEqual(r.dropped, { objects: 3, surface: false });
+  for (const name of [a, b, c]) assert.ok(r.warnings.includes(`not used: ${name} (its box lay outside the picture or was empty)`), name);
+  assert.equal(readSummary(r).found, n - 3, 'the reveal counts what is left');
+  // and what is left still builds
+  const built = buildLevel(inputFromReply(r, { kind: 'photo', sha256: 'ab'.repeat(32) }, undefined, '2026-10-27T10:00:00Z'));
+  assert.ok(!built.error, built.error);
+
+  // one good and one bad box: one object
+  const one = replyFor('desk', 'live');
+  one.objects = [one.objects[0], { ...one.objects[1], box: [0, 0, 1025, 10] }];
+  const o1 = acceptReply('live', one, copy);
+  assert.equal(o1.ok, true);
+  assert.equal(one.objects.length, 1);
+  assert.equal(o1.words, '1 object in the reply had a box outside the picture or an empty one, so it was left out.');
+
+  // a bad surface: dropped, the reply kept
+  const s = replyFor('desk', 'live');
+  s.surface.box = [0, 300, 1024, 900];
+  const os = acceptReply('live', s, copy);
+  assert.equal(os.ok, true);
+  assert.equal(os.dropped, 0);
+  assert.equal(s.surface, null);
+  assert.equal(os.words, 'The surface’s box was not usable, so it was left out.');
+  assert.ok(s.warnings.some((w) => /^not used: .*the play surface/.test(w)));
+  assert.equal(inputFromReply(s, { kind: 'photo', sha256: 'ab'.repeat(32) }).surface, null);
+
+  // a nameless object and a bad surface together
+  const t = replyFor('desk', 'live');
+  t.objects.push({ box: [1, 1, 5, 5] });
+  t.surface.box = 'nope';
+  assert.equal(acceptReply('live', t, copy).words, '1 object in the reply had a box outside the picture or an empty one, and the surface’s box was not usable, so they were left out.');
+  assert.ok(t.warnings.includes('not used: an unnamed object (its box lay outside the picture or was empty)'));
+
+  // refused only when nothing is left
+  const none = replyFor('desk', 'live');
+  for (const o of none.objects) o.box = [-5, 0, 10, 10];
+  const z = acceptReply('live', none, copy);
+  assert.equal(z.ok, false);
+  assert.match(z.why, /^No object in the reply has a usable box \(9 boxes lay outside the picture or were empty\)/);
+  assert.equal(none.objects.length, 9, 'a refused reply is left as it came');
 });
 
 test('box outlines from a rehearsal reply build winnable levels in both rooms', () => {
