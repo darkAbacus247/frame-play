@@ -71,9 +71,17 @@ area, every outline a decoded mask, walls and doorways.
   room; SAM 3.1 answers "floor" (or the desk, the table) with one match a
   room. **SAM 3.1's floor mask is the play area:** the server lays the
   masks of SAM's floor matches together, and that floor is where the
-  explorer may walk; its holes are the footprints of the things standing on
-  it, and their walls are their exact outlines, read even-odd (a mug's
-  handle stays open). Everything else is wall. Pieces of the mask that
+  explorer may walk, read even-odd (a mug's handle stays open), together
+  with **the floor you cannot see**: the floor hidden behind and under the
+  things standing on it, inferred from the floor that was seen. The mask's
+  holes are filled, and so are the slivers a mask leaves between a thing and
+  the floor around it (within 0.6% of the picture's long side of a thing);
+  then only each thing's footprint is taken out (seen at eye level, the band
+  at its base where it meets the floor, not its whole silhouette; from
+  above, its outline). So the explorer walks behind a kitchen island or a
+  sofa, hidden by it while it is there, as it would in the room. The
+  floor's outer boundary away from things, and the picture's edges, stay
+  walls, and seen from above a thing never opens a wall. Everything else is wall. Pieces of the mask that
   touch only at a corner or lie one or two squares of the explorer's grid
   apart (a seam in the mask, never a real wall) are joined, with a passage
   the explorer fits through, so no coin is cut off, and the words say how
@@ -150,7 +158,10 @@ no people), and it is released with this repository under its license.
   model was called now." The replay makes the room the live read made:
   Muse Spark named 8 things (5 on the floor, 3 as scenery), SAM 3.1's
   masks gave 5 exact outlines plus the floor, code made 2 changes, and the
-  room can be won.
+  room can be won. The floor behind the kitchen island, which the camera
+  never saw, is walked on: a path runs all the way around the island, and
+  the explorer walks it by the keys, the pad, a stick and taps (a tap on
+  the island's far part walks behind it).
 
 In MOCK, where a server answers, our kitchen's card is the one primary on
 your own room (it is the one room a model's answer can make there); with

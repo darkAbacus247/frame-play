@@ -240,7 +240,9 @@ export function inHazardHalo(level, rt, x, y) {
   return best;
 }
 
-export function walkToObject(state, level, rt, k) {
+// at: the point tapped on the thing, or null: the place within reach of it
+// nearest that point is walked to (else the one nearest along the way)
+export function walkToObject(state, level, rt, k, at = null) {
   if (state.status !== 'playing') return { ok: false, reason: 'The round is over' };
   const o = level.objects[k];
   if (o.role === 'avoid') return { ok: false, reason: `Too close to the ${objectWords(level, k)}` };
@@ -251,7 +253,12 @@ export function walkToObject(state, level, rt, k) {
   if (s < 0) return { ok: false, reason: 'Nowhere to walk from here' };
   const d = gridDistances(rt.nav, [[s, 0]]);
   let best = -1, bd = Infinity;
-  for (const c of ring) if (d[c] < bd) { bd = d[c]; best = c; }
+  for (const c of ring) {
+    if (d[c] === Infinity) continue;
+    const [cx, cy] = at ? cellCenter(rt.nav, c) : [0, 0];
+    const score = at ? Math.hypot(cx - at[0], cy - at[1]) : d[c];
+    if (score < bd) { bd = score; best = c; }
+  }
   if (best < 0) {
     if (walledOff(rt, k, rt.nav.comp[s])) return { ok: false, reason: `No doorway leads to the ${objectWords(level, k)}` };
     return { ok: false, reason: `Can't reach the ${objectWords(level, k)}` };
@@ -264,10 +271,12 @@ export function walkToObject(state, level, rt, k) {
 }
 
 // Tap or click on the picture: an object walks to it, a point walks there.
+// A solid thing is walked to on the side that was tapped: a tap on the far
+// part of an island walks behind it, on the floor it hides.
 export function walkToPoint(state, level, rt, x, y) {
   if (state.status !== 'playing') return { ok: false, reason: 'The round is over' };
   const k = objectAt(level, rt, x, y);
-  if (k >= 0 && level.objects[k].role !== 'flat') return walkToObject(state, level, rt, k);
+  if (k >= 0 && level.objects[k].role !== 'flat') return walkToObject(state, level, rt, k, level.objects[k].role === 'solid' ? [x, y] : null);
   const h = inHazardHalo(level, rt, x, y);
   if (h >= 0) return { ok: false, reason: `Too close to the ${objectWords(level, h)}` };
   // a point on the floor of a room no doorway leads to is not walked

@@ -766,7 +766,7 @@ export function floorFromReply(reply, pixels) {
     return {
       view,
       surface: { name, rings: exact.rings, source: 'sam_mask' },
-      floor: { source: 'sam_mask', words: `${Sam}’s mask of the ${name} is the play area${joined}; everything else is wall.` },
+      floor: { source: 'sam_mask', words: `${Sam}’s mask of the ${name} is the play area, with the ${name} the things on it hide${joined}; everything else is wall.` },
     };
   }
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -790,7 +790,7 @@ export function floorFromReply(reply, pixels) {
     surface: { name, rings: t.rings, source: 'traced_floor' },
     floor: {
       source: 'traced_floor',
-      words: `Code grew the ${name} from ${spark}’s ${n === 1 ? 'point' : `${n} points`} on it inside ${sam}’s ${boxes.length === 1 ? 'box' : `${boxes.length} boxes`} for it; everything else is wall.`,
+      words: `Code grew the ${name} from ${spark}’s ${n === 1 ? 'point' : `${n} points`} on it inside ${sam}’s ${boxes.length === 1 ? 'box' : `${boxes.length} boxes`} for it, with the ${name} the things on it hide; everything else is wall.`,
     },
   };
 }

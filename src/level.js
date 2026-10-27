@@ -5,7 +5,7 @@ import { fillRings, maskBounds, traceMaskInBounds, fillHoles, components } from 
 import { ringsInside, bounds } from './geom.js';
 import { edt } from './distance.js';
 import { navParams, buildNav, gridDistances, cellCenter, findPath } from './nav.js';
-import { exitDoorway } from './floor_mask.js';
+import { exitDoorway, hiddenFloor } from './floor_mask.js';
 
 export const LEVEL_SCHEMA = 'frameplay.level/2';
 export const ORIGINS = ['mock', 'live', 'rehearsal', 'marked', 'replay'];
@@ -119,20 +119,24 @@ export function prepare(level, opts = {}) {
   }
   horizon = topDown ? 0 : clamp(horizon, 0.12 * H, 0.75 * H);
 
-  const walk = surfaceMask ? surfaceMask.slice() : new Uint8Array(W * H).fill(1);
   // Things on the floor hide it; the explorer may stand where they are
-  // (behind them, or on a rug) unless their footprint blocks it. Seen from
-  // above, only where the floor surrounds them: a rug never opens a wall.
-  const within = surfaceMask && topDown ? fillHoles(surfaceMask, W, H) : null;
-  for (let k = 0; k < objs.length; k++) {
-    const t = objs[k];
-    if (!level.objects[k].on_surface || !t.b) continue;
-    for (let y = t.b.y0; y < t.b.y1; y++) {
-      for (let x = t.b.x0; x < t.b.x1; x++) {
-        const i = y * W + x;
-        if (t.mask[i] && (!within || within[i])) walk[i] = 1;
+  // (behind them, or on a rug) unless their footprint blocks it: the floor
+  // no camera saw is inferred from the floor that was seen (src/floor_mask.js
+  // hiddenFloor). Seen from above, only where the floor surrounds them: a
+  // rug never opens a wall.
+  let walk;
+  if (surfaceMask) {
+    const things = new Uint8Array(W * H);
+    for (let k = 0; k < objs.length; k++) {
+      const t = objs[k];
+      if (!level.objects[k].on_surface || !t.b) continue;
+      for (let y = t.b.y0; y < t.b.y1; y++) {
+        for (let x = t.b.x0; x < t.b.x1; x++) if (t.mask[y * W + x]) things[y * W + x] = 1;
       }
     }
+    walk = hiddenFloor(surfaceMask, things, W, H, topDown);
+  } else {
+    walk = new Uint8Array(W * H).fill(1);
   }
   for (let y = 0; y < H; y++) {
     if (y + 0.5 >= horizon) break;
@@ -664,8 +668,8 @@ function floorWords(surface, view) {
     const name = surface.name || 'floor';
     const words = {
       exact: `The play area is the ${name} as code drew it; everything else is wall.`,
-      sam_mask: `SAM 3.1’s mask of the ${name} is the play area; everything else is wall.`,
-      traced_floor: `Code traced the ${name}; everything else is wall.`,
+      sam_mask: `SAM 3.1’s mask of the ${name} is the play area, with the ${name} the things on it hide; everything else is wall.`,
+      traced_floor: `Code traced the ${name}, with the ${name} the things on it hide; everything else is wall.`,
     }[surface.source];
     return { source: surface.source, words };
   }

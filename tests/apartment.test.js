@@ -11,7 +11,9 @@ import { findPath, cellOf } from '../src/nav.js';
 import { sampleField } from '../src/distance.js';
 import { createRound, stepRound, walkToPoint } from '../src/play.js';
 import { drawPlan } from '../src/render.js';
-import { fillRings } from '../src/raster.js';
+import { fillRings, fillHoles } from '../src/raster.js';
+import { edt } from '../src/distance.js';
+import { HIDDEN_SEAL } from '../src/floor_mask.js';
 import { makeRng } from '../src/rng.js';
 import { GOLDEN, apartment, levelSummary, replayApartment } from './golden_apartment.js';
 
@@ -120,7 +122,7 @@ test('golden replay: the apartment through the stand-in, in SAM’s own grammar,
   assert.equal(reply.usage.sam_calls, 11, 'the floor and ten kinds of things: more than the old ceiling of 9');
   assert.equal(level.origin, 'rehearsal');
   assert.equal(level.surface.source, 'sam_mask', 'the stand-in’s floor mask is the play area');
-  assert.equal(level.provenance.floor.words, 'The stand-in for SAM 3.1’s mask of the floor is the play area; everything else is wall.');
+  assert.equal(level.provenance.floor.words, 'The stand-in for SAM 3.1’s mask of the floor is the play area, with the floor the things on it hide; everything else is wall.');
   assert.equal(level.surface.rooms, 4);
   assert.equal(level.surface.doorways.filter((d) => !d.exit).length, 3, 'three doorways between rooms');
   assert.equal(level.surface.doorways.filter((d) => d.exit).length, 1, 'and one where the floor meets the exit');
@@ -141,9 +143,16 @@ test('REHEARSAL: the apartment walks only on the stand-in’s floor mask, from r
   const floor = fillRings(reply.floor.mask.rings, W, H);
   const rug = fillRings(level.objects.find((o) => o.name === 'rug').outline.rings, W, H);
   // nowhere off the floor mask (the rug, flat on the floor, is walked over)
+  // but the floor hidden under the things on it: the mask's holes, and the
+  // slivers within HIDDEN_SEAL of a thing (src/floor_mask.js hiddenFloor)
+  const holes = fillHoles(floor, W, H);
+  const things = new Uint8Array(W * H);
+  for (const o of level.objects) fillRings(o.outline.rings, W, H).forEach((v, i) => { if (v) things[i] = 1; });
+  const near = edt(things, W, H);
+  const seal = Math.max(2, Math.round(HIDDEN_SEAL * Math.max(W, H)));
   let off = 0;
-  for (let i = 0; i < W * H; i++) if (rt.walk[i] && !floor[i] && !rug[i]) off++;
-  assert.equal(off, 0, 'no walkable pixel off the floor mask');
+  for (let i = 0; i < W * H; i++) if (rt.walk[i] && !floor[i] && !rug[i] && !holes[i] && near[i] > seal) off++;
+  assert.equal(off, 0, 'no walkable pixel off the floor mask, but the floor the things on it hide');
   // the walls between rooms are walls: the floor mask is empty there
   for (const [x, y] of [[527, 100], [527, 300], [600, 387], [900, 387], [100, 427], [400, 427]]) {
     assert.equal(floor[y * W + x], 0, `a wall at ${x}, ${y}`);

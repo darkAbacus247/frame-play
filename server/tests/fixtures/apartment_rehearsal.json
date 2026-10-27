@@ -2187,7 +2187,7 @@
   "view": "top_down",
   "floor": {
    "source": "sam_mask",
-   "words": "The stand-in for SAM 3.1’s mask of the floor is the play area; everything else is wall."
+   "words": "The stand-in for SAM 3.1’s mask of the floor is the play area, with the floor the things on it hide; everything else is wall."
   },
   "surface": {
    "name": "floor",

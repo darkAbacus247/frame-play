@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { levelFromReply } from '../src/own.js';
 import { loadRoom } from '../src/rooms.js';
 import { paintRoom } from '../src/painter.js';
-import { fillRings } from '../src/raster.js';
+import { fillRings, fillHoles } from '../src/raster.js';
+import { edt } from '../src/distance.js';
+import { HIDDEN_SEAL } from '../src/floor_mask.js';
 import { traceFloor, floorFromReply } from '../src/trace_in_box.js';
 import { buildLevel, floorRooms, validateLevel } from '../src/level.js';
 import { jpegLike } from './jpegsim.js';
@@ -114,7 +116,7 @@ test('a traced floor: the play area is the floor, the words say how it was found
   const f = floorFromReply(reply, pixels);
   assert.equal(f.view, 'top_down');
   assert.equal(f.surface.source, 'traced_floor');
-  assert.equal(f.floor.words, 'Code grew the floor from Muse Spark’s 3 points on it inside SAM 3.1’s 3 boxes for it; everything else is wall.');
+  assert.equal(f.floor.words, 'Code grew the floor from Muse Spark’s 3 points on it inside SAM 3.1’s 3 boxes for it, with the floor the things on it hide; everything else is wall.');
   const input = {
     origin: 'live', picture: { kind: 'photo', sha256: 'x', width: 640, height: 480 }, title: 'Plan',
     objects: reply.objects.map((o) => ({ ...o, outline: { source: 'box', rings: [[[o.box[0], o.box[1]], [o.box[2], o.box[1]], [o.box[2], o.box[3]], [o.box[0], o.box[3]]]] } })),
@@ -181,16 +183,23 @@ test('the recorded desk read: SAM 3.1’s own mask of the desk is the play area,
   assert.ok(level.proof.winnable);
   assert.equal(level.view, 'eye_level');
   // played back under a rehearsal's settings, so the words name the stand-in
-  assert.deepEqual(level.provenance.floor, { source: 'sam_mask', words: 'The stand-in for SAM 3.1’s mask of the desk is the play area; everything else is wall.' });
+  assert.deepEqual(level.provenance.floor, { source: 'sam_mask', words: 'The stand-in for SAM 3.1’s mask of the desk is the play area, with the desk the things on it hide; everything else is wall.' });
   assert.equal(level.surface.source, 'sam_mask');
   // the explorer stands only on the desk SAM drew, or behind a thing on it
   const desk = fillRings(reply.floor.mask.rings, W, H);
   // each thing filled on its own (two that overlap must not cancel out)
   const things = new Uint8Array(W * H);
   for (const o of level.objects) fillRings(o.outline.rings, W, H).forEach((v, i) => { if (v) things[i] = 1; });
+  // or on the desk a thing hides: a hole in the desk with the things on it,
+  // or a sliver within HIDDEN_SEAL of a thing (src/floor_mask.js hiddenFloor)
+  const seen = desk.slice();
+  things.forEach((v, i) => { if (v) seen[i] = 1; });
+  const holes = fillHoles(seen, W, H);
+  const near = edt(things, W, H);
+  const seal = Math.max(2, Math.round(HIDDEN_SEAL * Math.max(W, H)));
   let off = 0, on = 0;
-  for (let i = 0; i < W * H; i++) if (rt.walk[i]) { if (desk[i] || things[i]) on++; else off++; }
-  assert.equal(off, 0, 'no walkable pixel off the desk mask');
+  for (let i = 0; i < W * H; i++) if (rt.walk[i]) { if (desk[i] || things[i]) on++; else if (!holes[i] && near[i] > seal) off++; }
+  assert.equal(off, 0, 'no walkable pixel off the desk mask, but the desk the things on it hide');
   assert.ok(on > 0.2 * W * H);
   const [sx, sy] = level.start;
   assert.ok(desk[Math.floor(sy) * W + Math.floor(sx)], 'the start is on the desk');

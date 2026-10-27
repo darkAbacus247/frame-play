@@ -97,7 +97,7 @@ test('a coin across a crack in SAM’s floor can be reached, and the words say a
   const reply = crackedReply(6);
   const f = floorFromReply(reply, { width: W, height: H });
   assert.equal(f.surface.source, 'sam_mask');
-  assert.equal(f.floor.words, 'SAM 3.1’s mask of the floor is the play area; code joined one gap of one or two squares between its pieces; everything else is wall.');
+  assert.equal(f.floor.words, 'SAM 3.1’s mask of the floor is the play area, with the floor the things on it hide; code joined one gap of one or two squares between its pieces; everything else is wall.');
   const built = levelOn(reply);
   assert.equal(built.error, undefined, built.error);
   assert.ok(built.level.proof.winnable);

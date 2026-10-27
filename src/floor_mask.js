@@ -6,7 +6,8 @@
 // nav squares) are joined, so no coin sits on an island the explorer cannot
 // reach by a step a real floor would allow. Walls stay where they are: a gap
 // wider than two squares (a wall in a floor plan) is never joined.
-import { fillRings, components, traceMask } from './raster.js';
+import { fillRings, components, traceMask, fillHoles } from './raster.js';
+import { edt } from './distance.js';
 import { ringsInside, simplifyShape } from './geom.js';
 import { navParams } from './nav.js';
 
@@ -117,6 +118,33 @@ export function floorFromMask(floor, W, H) {
   if (!rings) return null;
   const { mask, joins } = joinFloor(fillRings(rings, W, H), W, H);
   return { rings: joins ? simplifyShape(traceMask(mask, W, H), 0.75) : rings, joins };
+}
+
+// The floor no camera saw: hidden behind and under the things standing on
+// it, inferred from the floor that was seen. The floor's holes are filled
+// (seen at eye level, together with the things' outlines: a thing hides the
+// floor behind it), and so are the slivers a mask leaves between a thing and
+// the floor around it, wherever the floor closes over them within
+// HIDDEN_SEAL of the long side and they lie that close to a thing. The
+// floor's outer boundary away from things, and the picture's edges, stay
+// walls: a gap far from any thing is never closed. Seen from above, a thing
+// opens no wall (a rug over a wall stays a wall). things: the outlines of
+// the things standing on the floor, as one mask. Returns the mask.
+export const HIDDEN_SEAL = 0.006;
+export function hiddenFloor(floor, things, W, H, topDown) {
+  const n = W * H;
+  const r = Math.max(2, Math.round(HIDDEN_SEAL * Math.max(W, H)));
+  const base = floor.slice();
+  if (!topDown) for (let i = 0; i < n; i++) if (things[i]) base[i] = 1;
+  const out = fillHoles(base, W, H);
+  // the closing of the floor by a disc of radius r, kept only near things
+  const near = edt(things, W, H);
+  const grown = edt(base, W, H);
+  const outside = new Uint8Array(n);
+  for (let i = 0; i < n; i++) outside[i] = grown[i] > r ? 1 : 0;
+  const shrunk = edt(outside, W, H);
+  for (let i = 0; i < n; i++) if (!out[i] && near[i] <= r && shrunk[i] > r) out[i] = 1;
+  return out;
 }
 
 // Where the walkable floor meets the exit's outline: the floor pixels that
