@@ -1,4 +1,5 @@
-"""Ceilings: 2 photos in flight, 40 an hour, the day's cap (200 by default),
+"""Ceilings: photos in flight at once and photos an hour (config.IN_FLIGHT and
+config.PER_HOUR), the day's cap (200 by default),
 and a hard stop at the day's estimated spend ($5 by default, never more).
 Each call reserves its worst-case cost under one lock before it is sent, so
 calls racing each other cannot pass the stop together. The counters live in
@@ -71,7 +72,7 @@ class Limits:
             if self.spent + self.reserved >= self.usd_stop:
                 raise Refusal('spend_stop', f'This server has reached its spending stop for today (${self.usd_stop:.2f} estimated). Please try again tomorrow, or play the sample rooms.', self._to_midnight(now))
             if self.in_flight >= self.max_in_flight:
-                raise Refusal('busy', 'Two photos are already being read. Please try again in a few seconds.', 5)
+                raise Refusal('busy', 'Every reader on this server is busy with other photos. Please try again in a few seconds.', 5)
             if len(self.hour) >= self.per_hour:
                 wait = int(3600 - (now - self.hour[0])) + 1
                 raise Refusal('hour_cap', f'This server has read {self.per_hour} photos in the last hour. Please try again later.', wait)

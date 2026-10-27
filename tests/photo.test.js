@@ -114,7 +114,7 @@ const padded = (bytes, size) => { const b = new Uint8Array(size); b.set(bytes); 
 
 const ndjson = (lines) => new Response(lines.map((l) => `${JSON.stringify(l)}\n`).join(''), { headers: { 'Content-Type': 'application/x-ndjson' } });
 const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
-const busy = (after) => json(429, { error: { code: 'busy', message: 'Two photos are already being read. Please try again in a few seconds.' } }, after == null ? {} : { 'Retry-After': String(after) });
+const busy = (after) => json(429, { error: { code: 'busy', message: 'Every reader on this server is busy with other photos. Please try again in a few seconds.' } }, after == null ? {} : { 'Retry-After': String(after) });
 const OK = () => ndjson([{ type: 'progress', words: 'Reading your room' }, { type: 'reply', reply: { ok: 1 } }]);
 
 // fetch answers from a list, one per call; records each call
@@ -168,21 +168,21 @@ test('D1: Retry-After is honored (5 s from the server, 5 s when none), with a li
 test('D1: three busy answers in a row give the busy words; never more than 30 s of waiting', async () => {
   const c = clock();
   await withFetch([busy(5)], async (calls) => {
-    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: c.sleep }), { message: 'Two photos are already being read. Please try again in a few seconds.' });
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: c.sleep }), { message: 'Every reader on this server is busy with other photos. Please try again in a few seconds.' });
     assert.equal(calls.length, 3);
   });
   assert.equal(c.slept.length, 10, 'two waits of 5 s');
   // a long Retry-After is cut to what is left of the 30 s
   const d = clock();
   await withFetch([busy(25)], async (calls) => {
-    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: d.sleep }), /already being read/);
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: d.sleep }), /busy with other photos/);
     assert.equal(calls.length, 3);
   });
   assert.equal(d.slept.reduce((s, ms) => s + ms, 0), BUSY_WAIT_MS);
   // past the 30 s, no third send
   const e = clock();
   await withFetch([busy(3600)], async (calls) => {
-    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: e.sleep }), /already being read/);
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: e.sleep }), /busy with other photos/);
     assert.equal(calls.length, 2);
   });
   assert.equal(e.slept.length, 30);

@@ -23,6 +23,8 @@ class Ceilings(unittest.TestCase):
             lim.admit()
         self.assertEqual(c.exception.code, 'busy')
         self.assertTrue(c.exception.retry_after)
+        # the busy words name no count (the ceiling is the server's to set)
+        self.assertNotRegex(c.exception.message, r'\d|\b(two|three|four)\b')
         lim.finish()
         lim.admit()
 

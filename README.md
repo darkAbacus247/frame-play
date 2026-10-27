@@ -25,7 +25,8 @@ so before you choose one.
   app's server to Meta's Model API for one read: one Muse Spark call, then
   one SAM 3.1 call for the surface and one for each kind of object on it,
   at most 10 calls in all, each carrying the photo (a failed call may be
-  sent one more time). This app does not store the photo. The room is
+  sent one more time, a busy answer twice; the room read is never sent
+  again after a timeout). This app does not store the photo. The room is
   built from what the models found in it: Muse Spark names the things and
   gives each a role and a few points on it; SAM 3.1 answers each name with
   its matches (boxes), and of several, the ones holding Muse Spark's points
@@ -95,6 +96,30 @@ end card says so). Your own room, when made, stays on the road: going
 back to its step and choosing Continue to the end keeps it, its result and
 its place in Free play.
 
+**Phone photos.** The browser's own decoder decides what a photo is, not
+the file's label, so a HEIC or HEIF photo is tried wherever the browser can
+open it, and one it cannot open is refused in words that say how to get a
+JPEG (a screenshot, or the camera's most compatible setting); a photo too
+large to open at full size is tried a second, leaner way. A photo taken in
+portrait is turned as its camera recorded, so it is shown and sent
+upright, and the copy that leaves the device is a fresh JPEG with every
+camera, place and time field stripped. While a photo is read, **Cancel**
+stops waiting at once and the send itself is aborted (a read also stops by
+itself after 120 seconds), and nothing from it is used or kept. When every
+reader on the server is busy, the page waits and sends the same copy again
+(at most 3 sends, 30 seconds of waiting in all), with a countdown under the
+progress lines.
+
+**Check again; Try this photo again.** The page asks the server for its
+mode up to 3 times (a slow or waking host gets 4, 6, then 8 seconds). If no
+answer comes, or the live AI is unavailable, the picker says so and a
+**Check again** button asks once more; your own room can still be marked by
+hand. When a read fails for a reason that may pass (a busy model, a time
+out, a read cut off, or Cancel), **Try this photo again** sends the same
+photo once more, with no new pick. A level read while some calls were
+failing is played but not kept on this device, so the same photo is read
+again next time.
+
 The photo itself is never stored, so on a return visit a photo room's level
 may not be in memory. That room's screen then makes it again right there,
 on the same step: pick the same photo (its level loads from this device
@@ -136,6 +161,12 @@ python server/server.py
 The page is at `http://127.0.0.1:8191/`. Without `MODEL_API_KEY` and
 `FRAMEPLAY_LIVE=yes` in the operator's own environment the server runs in
 MOCK mode: sample rooms drawn by code, labeled MOCK, and no model is called.
+
+In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
+day, and stops for the day at an estimated $5. If the Model API refuses the
+key, the account has no credit or quota, or a model is gone, the server
+stops sending photos, says so in health (live_state: unavailable), and lets
+one photo check again every 10 minutes.
 
 A rehearsal runs the live path against a local stand-in, never Meta, and
 holds no key:
