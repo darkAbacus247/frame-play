@@ -26,6 +26,14 @@ ROLES = ('collect', 'avoid', 'exit', 'solid', 'flat')
 PER_NOUN = {'collect': 3, 'solid': 2, 'avoid': 1, 'exit': 1, 'flat': 1}
 MAX_OBJECTS = 12
 MIN_CONFIDENCE = 0.35
+# Choosing among several matches for one name (choose_matches): a Muse Spark
+# point counts for a match up to 3% of the picture outside it (on the desk's
+# recorded answers its coin points fell 12 to 13 px beside the coins); with
+# no point in any match, matches under FLOOR are dropped; and two names may
+# not keep the same box (SAME_BOX: IoU of at least 0.5).
+SEED_REACH = 0.03
+FLOOR = 0.5
+SAME_BOX = 0.5
 
 PROMPT = """You are reading one photo of a room or a desk top for a small game.
 An explorer will walk on ONE play surface (such as floor, desk, table, bed or counter).
@@ -229,12 +237,89 @@ def sam_text(j):
     return None
 
 
+def _conf(r):
+    return r['confidence'] if r['confidence'] is not None else 0.0
+
+
+def _rank(r):
+    return (-_conf(r), -((r['box'][2] - r['box'][0]) * (r['box'][3] - r['box'][1])), r['id'])
+
+
 def choose(records, role):
     """Matches at or above 0.35, ranked by confidence then area, up to the
-    role's count."""
-    keep = [r for r in records if (r['confidence'] if r['confidence'] is not None else 0.0) >= MIN_CONFIDENCE]
-    keep.sort(key=lambda r: (-(r['confidence'] or 0.0), -((r['box'][2] - r['box'][0]) * (r['box'][3] - r['box'][1])), r['id']))
+    role's count (the surface's choice: no points to go by)."""
+    keep = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
     return keep[:PER_NOUN.get(role, 1)]
+
+
+def _reach(p, box, W, H):
+    """How far a point lies outside a half-open box, as a share of the
+    picture's width or height (the larger); 0 inside."""
+    x0, y0, x1, y1 = box
+    dx = max(x0 - p[0], p[0] - x1, 0.0)
+    dy = max(y0 - p[1], p[1] - y1, 0.0)
+    return max(dx / W, dy / H)
+
+
+def choose_matches(records, seeds, role, W, H):
+    """Which of SAM's matches for one name are this object. A match that
+    holds one of Muse Spark's points for it is kept (each point picks the
+    match it falls in, or the nearest within SEED_REACH of the picture, since
+    the points are rough); with no point in any match, the most confident
+    matches at or above FLOOR. Never more than the role keeps.
+    Returns (kept, dropped): kept as (record, seeded), dropped as (record, why)."""
+    cap = PER_NOUN.get(role, 1)
+    usable = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
+    dropped = [(r, 'low') for r in records if _conf(r) < MIN_CONFIDENCE]
+    picked = []
+    for p in seeds:
+        near = [(_reach(p, r['box'], W, H), k) for k, r in enumerate(usable)]
+        near = [x for x in near if x[0] <= SEED_REACH]
+        if near:
+            k = min(near)[1]
+            if k not in picked:
+                picked.append(k)
+    if picked:
+        kept = [(usable[k], True) for k in sorted(picked)]
+        dropped += [(r, 'no_point') for k, r in enumerate(usable) if k not in picked]
+    else:
+        kept = [(r, False) for r in usable if _conf(r) >= FLOOR]
+        dropped += [(r, 'below_floor') for r in usable if _conf(r) < FLOOR]
+    dropped += [(r, 'over_count') for r, _ in kept[cap:]]
+    return kept[:cap], dropped
+
+
+def iou(a, b):
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union else 0.0
+
+
+def settle_claims(picks):
+    """One box is never two objects: of matches of different names that
+    cover the same thing (IoU at least SAME_BOX), the one holding a Muse
+    Spark point wins, then the more confident, then the earlier name.
+    picks: [(order, name, record, seeded)]. Returns (kept, lost) where lost
+    holds (pick, the name that kept the box)."""
+    ranked = sorted(picks, key=lambda q: (not q[3], -_conf(q[2]), q[0], q[2]['id']))
+    kept, lost = [], []
+    for q in ranked:
+        rival = next((k for k in kept if k[1] != q[1] and iou(k[2]['box'], q[2]['box']) >= SAME_BOX), None)
+        if rival:
+            lost.append((q, rival[1]))
+        else:
+            kept.append(q)
+    return kept, lost
+
+
+DROP_WORDS = {
+    'low': 'its confidence was under 0.35',
+    'no_point': 'none of Muse Spark’s points for it fell in it',
+    'below_floor': 'its confidence was under 0.5',
+    'over_count': 'more matches than its role keeps',
+}
 
 
 class Pipeline:
@@ -460,9 +545,30 @@ class Pipeline:
                     surface = {'name': room['surface'], 'box': best[0]['box'], 'confidence': best[0]['confidence']}
             if surface is None:
                 warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
+        # which matches are which object: each name's own choice, then no box
+        # kept by two names
+        picks = []
+        dropped = {}
+        for k, o in enumerate(on):
+            if o['name'] not in nouns:
+                continue
+            parsed, err = answers[('object', o['name'])]
+            if err is not None or 'size_mismatch' in parsed.errors:
+                continue
+            kept, lost = choose_matches(parsed.records, o['seeds'], o['role'], W, H)
+            picks += [(k, o['name'], r, seeded) for r, seeded in kept]
+            dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost]
+        picks, lost = settle_claims(picks)
+        for (k, name, r, seeded), winner in lost:
+            dropped[name].append((r, f'the same box was kept for the {winner}', 'same_box'))
+        for c in calls:
+            if c['stage'] == 'find' and c.get('noun') in dropped:
+                c['kept'] = sum(1 for q in picks if q[1] == c['noun'])
+                if dropped[c['noun']]:
+                    c['dropped'] = sorted(why for _, _, why in dropped[c['noun']])
         objects = []
         counts = {}
-        for o in on:
+        for k, o in enumerate(on):
             if o['name'] not in nouns:
                 warnings.append(f'not sent: {o["name"]} (over the call ceiling)')
                 continue
@@ -473,7 +579,10 @@ class Pipeline:
             if 'size_mismatch' in parsed.errors:
                 warnings.append(f'not used: {o["name"]} (the answer was for a different picture size)')
                 continue
-            picked = choose(parsed.records, o['role'])
+            for r, words, _ in sorted(dropped[o['name']], key=lambda d: d[0]['id']):
+                if r['confidence'] is not None and r['confidence'] >= MIN_CONFIDENCE:
+                    warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
+            picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
             if not picked:
                 warnings.append(f'not found: {o["name"]}')
                 continue

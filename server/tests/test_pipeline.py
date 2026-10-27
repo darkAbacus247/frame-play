@@ -10,10 +10,10 @@ from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import Transport
-from server.pipeline import Pipeline, clean_read, name_problem
+from server.pipeline import Pipeline, choose_matches, clean_read, iou, name_problem, settle_claims
 from server.samtext import compose
 from server.server import Log
-from server.tests import images
+from server.tests import images, recorded
 from server.tests.fakemeta import FakeMeta, ok_json, sam_answer, spark_answer
 from server.tests.test_config import TEST_VALUE
 from server.tests.test_server import Running
@@ -196,6 +196,77 @@ class Reads(WithFake):
         self.assertEqual(line['sha256'], r['provenance']['image_sha256'])
         for word in ('Spiky', 'coin', 'You are reading', 'base64'):
             self.assertNotIn(word, self.lines[-1], 'no prompt, no answer, no photo in the log')
+
+
+class RecordedDesk(unittest.TestCase):
+    """The first live answers (10-27) for the desk sample picture, played
+    back through the whole pipeline by a test double: nothing is sent."""
+
+    def test_the_right_nine_objects(self):
+        r = recorded.run()
+        self.assertEqual(r['status'], 'ok', r.get('error'))
+        got = sorted((o['name'], o['role']) for o in r['objects'])
+        self.assertEqual(got, sorted([('gold coin', 'collect')] * 3 + [
+            ('blue notebook', 'collect'), ('coffee mug', 'solid'), ('desk lamp', 'solid'),
+            ('potted cactus', 'avoid'), ('book stack', 'solid'), ('cardboard box', 'exit')]))
+        boxes = {(o['name'], o['instance']): o['box'] for o in r['objects']}
+        self.assertEqual(boxes[('blue notebook', 1)], [293, 429, 477, 522], 'the notebook, not the book stack’s spine')
+        self.assertEqual(sorted(b for (n, _), b in boxes.items() if n == 'gold coin'),
+                         [[283, 444, 317, 465], [453, 332, 487, 353], [725, 552, 759, 573]])
+        self.assertEqual(r['surface']['box'], [0, 319, 1024, 687])
+        self.assertEqual([s['name'] for s in r['scene']['scenery']], ['picture frame'])
+
+    def test_what_was_dropped_is_said(self):
+        r = recorded.run()
+        self.assertEqual(r['warnings'], ['not used: a match for blue notebook at 59% (none of Muse Spark’s points for it fell in it)'])
+        calls = {c.get('noun'): c for c in r['provenance']['calls'] if c['stage'] == 'find'}
+        self.assertEqual((calls['blue notebook']['matches'], calls['blue notebook']['kept'], calls['blue notebook']['dropped']), (2, 1, ['no_point']))
+        self.assertEqual((calls['gold coin']['matches'], calls['gold coin']['kept']), (3, 3))
+        self.assertNotIn('diagnostics', calls['gold coin'], 'the real answers parse with no surprise')
+
+    def test_one_box_is_never_two_objects(self):
+        # SAM answers "coffee mug" with the lamp: the lamp holds Muse Spark's
+        # lamp points, so it stays the lamp, and the mug is not found
+        r = recorded.run({'coffee mug': recorded.FIXTURE['answers']['desk lamp']})
+        names = [o['name'] for o in r['objects']]
+        self.assertEqual(names.count('desk lamp'), 1)
+        self.assertNotIn('coffee mug', names)
+        self.assertIn('not used: a match for coffee mug at 82% (the same box was kept for the desk lamp)', r['warnings'])
+        self.assertIn('not found: coffee mug', r['warnings'])
+
+
+class Choosing(unittest.TestCase):
+    def rec(self, i, box, c):
+        return {'id': i, 'box': box, 'confidence': c, 'mask': None}
+
+    def test_points_pick_their_matches(self):
+        recs = [self.rec(0, [10, 10, 20, 20], 0.6), self.rec(1, [50, 50, 60, 60], 0.95), self.rec(2, [80, 10, 90, 20], 0.7)]
+        kept, dropped = choose_matches(recs, [[15, 15], [92, 15]], 'collect', 100, 100)
+        self.assertEqual([(r['id'], s) for r, s in kept], [(2, True), (0, True)], 'a point 2 px outside a box still counts; best first')
+        self.assertEqual([(r['id'], why) for r, why in dropped], [(1, 'no_point')], 'the most confident match holds no point')
+
+    def test_a_point_too_far_counts_for_nothing(self):
+        recs = [self.rec(0, [10, 10, 20, 20], 0.9), self.rec(1, [50, 50, 60, 60], 0.45)]
+        kept, dropped = choose_matches(recs, [[40, 40]], 'solid', 100, 100)
+        self.assertEqual([r['id'] for r, _ in kept], [0], 'no point in any match: the most confident above the floor')
+        self.assertEqual([(r['id'], why) for r, why in dropped], [(1, 'below_floor')])
+
+    def test_the_role_caps_and_the_minimum(self):
+        recs = [self.rec(k, [10 * k, 0, 10 * k + 5, 5], c) for k, c in enumerate((0.9, 0.8, 0.7, 0.6, 0.2))]
+        kept, dropped = choose_matches(recs, [], 'collect', 100, 100)
+        self.assertEqual([r['confidence'] for r, _ in kept], [0.9, 0.8, 0.7])
+        self.assertEqual(sorted(why for _, why in dropped), ['low', 'over_count'])
+        kept, _ = choose_matches(recs, [], 'exit', 100, 100)
+        self.assertEqual(len(kept), 1)
+
+    def test_settle_claims(self):
+        a = self.rec(0, [0, 0, 10, 10], 0.9)
+        b = self.rec(0, [1, 0, 11, 10], 0.95)
+        c = self.rec(1, [40, 40, 50, 50], 0.5)
+        kept, lost = settle_claims([(0, 'mug', a, True), (1, 'cup', b, False), (1, 'cup', c, False)])
+        self.assertEqual(sorted(q[1] for q in kept), ['cup', 'mug'], 'a point beats a higher confidence')
+        self.assertEqual([(q[1], q[2]['box'], w) for q, w in lost], [('cup', [1, 0, 11, 10], 'mug')])
+        self.assertAlmostEqual(iou([0, 0, 10, 10], [5, 0, 15, 10]), 1 / 3)
 
 
 class Names(unittest.TestCase):
