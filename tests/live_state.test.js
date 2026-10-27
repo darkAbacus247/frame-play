@@ -131,7 +131,7 @@ test('a health with no live_state (an older server) changes nothing: the picker 
   } finally { s.restore(); }
 });
 
-test('a 503 live_unavailable whose code the send does not pass on: its words show, one POST, and health (still ok) decides', async () => {
+test('a 503 live_unavailable sent as the server’s own status: sendPhoto passes its code on, so the picker is off at once, with its wait, one POST', async () => {
   const s = serve((url, opts) => {
     if (url === 'api/health') return json(200, LIVE);
     if (url === 'api/room') return json(503, { status: 'error', error: { code: 'live_unavailable', message: 'The live AI is unavailable on this server right now (an account or model problem the owner must fix). The sample rooms still work.' } }, { 'Retry-After': '600' });
@@ -142,17 +142,19 @@ test('a 503 live_unavailable whose code the send does not pass on: its words sho
     app.choose(photoFile(31));
     await app.settle(60);
     assert.equal(s.posts(), 1);
-    // the send's own error carries no code until sendPhoto passes it on;
-    // health, asked again, still says ok here, so the words of the failure stay
-    assert.match(app.main(), /The live AI is unavailable on this server right now/);
+    // health still says ok here: the refusal's own code decides
+    assert.equal(choose(app).disabled, true);
+    assert.match(why(app), /^Off: the live AI is unavailable on this server right now\./);
+    assert.match(why(app), /about 10 minutes: press Check again then\.$/);
+    assert.ok(app.button('Check again'));
   } finally { s.restore(); }
 });
 
-test('after a failed send, health asked again: live_state unavailable turns the picker off', async () => {
+test('after a send failed with no code, health asked again: live_state unavailable turns the picker off', async () => {
   let h = LIVE;
   const s = serve((url) => {
     if (url === 'api/health') return json(200, h);
-    if (url === 'api/room') { h = DOWN; return json(503, { status: 'error', error: { code: 'live_unavailable', message: 'The live AI is unavailable on this server right now.' } }); }
+    if (url === 'api/room') { h = DOWN; return json(502, { status: 'error' }); }
     return undefined;
   });
   try {

@@ -1378,17 +1378,18 @@ function ownMode() {
   return liveOff() ? 'mock' : A.mode;
 }
 
-// After a failed live read: a live_unavailable answer turns the picker off
-// at once; a send that failed without a reply (e: no e.reply) asks health
-// again, quietly, in case the server's latch closed (its 503 may not reach
-// the page with its code). In REHEARSAL a refused key (the stand-in's 401
-// drill) turns the picker off the same way.
+// After a failed live read: a live_unavailable answer, in a reply or as the
+// server's own 503 (src/photo.js passes its code on, with its Retry-After),
+// turns the picker off at once; a send that failed otherwise without a
+// reply (e: no e.reply) asks health again, quietly, in case the server's
+// latch closed. In REHEARSAL a refused key (the stand-in's 401 drill) turns
+// the picker off the same way.
 const DRILL_KEY_REASON = 'The local stand-in refused this server’s key, as a rehearsal of a refused key.';
 function liveFailed(e, f) {
   if (A.mode !== 'live' && A.mode !== 'rehearsal') return;
   const keyDrill = A.mode === 'rehearsal' && f.keyRefused;
   if (f.code === 'live_unavailable' || keyDrill) {
-    A.liveDown = { reason: keyDrill ? DRILL_KEY_REASON : '', wait: 0 };
+    A.liveDown = { reason: keyDrill ? DRILL_KEY_REASON : '', wait: (!keyDrill && e && e.retryAfter) || 0 };
     offNow();
     return;
   }
