@@ -5,6 +5,8 @@ ones (fixtures/desk_1027.json); `answers` may replace some of them.
 
   python -B -m server.tests.recorded            prints the pipeline's reply
   python -B -m server.tests.recorded --sam none  every SAM answer is no match
+  python -B -m server.tests.recorded --spoil-mask "coffee mug"
+      that noun's masks no longer decode (the payloads keep their alphabet)
 """
 import argparse
 import json
@@ -43,6 +45,19 @@ class RecordedTransport:
         return json.loads(sam_answer(self.answers.get(noun, '<0f>\n'))[2]), 1, 5
 
 
+def spoilt(text):
+    """The same answer with every mask payload spoilt: its last three
+    characters changed, so it keeps its alphabet and length and no longer
+    decodes."""
+    parts = text.split('data=')
+    out = [parts[0]]
+    for part in parts[1:]:
+        rows, cols, rest = part.split(',', 2)
+        payload, tail = rest.split('|>', 1)
+        out.append(f'{rows},{cols},{payload[:-3]}abc|>{tail}')
+    return 'data='.join(out)
+
+
 def run(answers=None, log=None):
     pipe = Pipeline(settings_from({}, 'http://127.0.0.1:9/v1', 'desk'), Limits(), log=log,
                     transport=RecordedTransport(answers), sleep=lambda s: None)
@@ -53,9 +68,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='the recorded desk answers through the pipeline (nothing is sent)')
     ap.add_argument('--sam', choices=('recorded', 'none'), default='recorded')
     ap.add_argument('--none-for', default='', help='comma-separated nouns whose SAM answer becomes no match')
+    ap.add_argument('--spoil-mask', default='', help='comma-separated nouns whose masks no longer decode')
     args = ap.parse_args(argv)
     nouns = list(FIXTURE['answers']) if args.sam == 'none' else [n for n in args.none_for.split(',') if n]
-    print(json.dumps(run({n: '<0f>\n' for n in nouns})))
+    answers = {n: spoilt(FIXTURE['answers'][n]) for n in args.spoil_mask.split(',') if n}
+    answers.update({n: '<0f>\n' for n in nouns})
+    print(json.dumps(run(answers)))
     return 0
 
 

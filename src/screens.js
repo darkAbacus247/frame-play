@@ -143,7 +143,7 @@ export function pickView({ slot, off, onFile, rehearse = null }) {
 // ---- what the AI found ----
 export const SOURCE_WORDS = {
   exact: 'exact outline, drawn by code',
-  sam_mask: 'SAM’s own mask',
+  sam_mask: 'exact outline from SAM’s own mask',
   traced_in_box: 'traced by code inside SAM’s box',
   box: 'SAM’s box (the trace was not tight enough)',
   traced_at_points: 'SAM did not find it: traced by code around Muse Spark’s points',
@@ -173,6 +173,17 @@ export function tracedWords(level) {
   return `traced ${plural(c.traced_in_box || 0, 'outline', 'outlines')} inside SAM’s boxes and kept ${plural(c.box || 0, 'as a box', 'as boxes')}`;
 }
 
+// The same, when SAM's masks gave outlines: "SAM 3.1’s masks gave 9 exact
+// outlines; code traced 0", and where a mask did not decode, "code traced 1
+// inside SAM’s box" (and kept any box). '' when no mask gave an outline.
+export function maskWords(level, sam = 'SAM 3.1') {
+  const c = level.provenance.outline_sources || {};
+  if (!c.sam_mask) return '';
+  const t = c.traced_in_box || 0, b = c.box || 0;
+  const traced = t ? `code traced ${t} inside SAM’s ${t === 1 ? 'box' : 'boxes'}` : 'code traced 0';
+  return `${sam}’s masks gave ${plural(c.sam_mask, 'exact outline', 'exact outlines')}; ${traced}${b ? ` and kept ${plural(b, 'as a box', 'as boxes')}` : ''}`;
+}
+
 // What SAM found, and what code traced around Muse Spark's points instead:
 // "SAM 3.1 found 5; for 4 more, code traced around Muse Spark’s points".
 export function foundWords(level, sam = 'SAM 3.1') {
@@ -191,10 +202,12 @@ export function summaryLine(level, summary) {
   const n = level.objects.length;
   const named = summary ? summary.named : n;
   const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
+  const masks = maskWords(level, who[1]);
+  const outlines = masks ? `${masks}. Code then proved the room can be won.` : `Code ${tracedWords(level)}, then proved the room can be won.`;
   if (fromPoints(level)) {
-    return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. Code ${tracedWords(level)}, then proved the room can be won.`;
+    return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
   }
-  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code ${tracedWords(level)}, then proved the room can be won.`;
+  return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
 }
 
 // Where the play area came from, as the level says it (src/level.js and
@@ -544,9 +557,16 @@ export function aiLine(level, summary) {
   if (level.origin === 'rehearsal') {
     // its zero_matches drill places every thing by Muse Spark's points
     const found = fromPoints(level) ? `${foundWords(level, 'the stand-in for SAM 3.1')}; ` : '';
+    const masks = maskWords(level, 'the stand-in for SAM 3.1');
+    if (masks) return `The local stand-in (not Meta) answered for its sample picture; ${found}${masks}; and code proved the room can be won.`;
     return `The local stand-in (not Meta) answered for its sample picture; ${found}code ${tracedWords(level)}, and proved the room can be won.`;
   }
   const named = summary ? summary.named : n;
+  const masks = maskWords(level);
+  if (masks) {
+    const found = fromPoints(level) ? foundWords(level) : `SAM 3.1 found ${n} of them`;
+    return `Muse Spark named ${things(named)} in your photo and gave each a role; ${found}; ${masks}; and code proved the room can be won.`;
+  }
   if (fromPoints(level)) return `Muse Spark named ${things(named)} in your photo and gave each a role; ${foundWords(level)}; and code ${tracedWords(level)}, then proved the room can be won.`;
   return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
 }

@@ -101,8 +101,11 @@ class Reads(WithFake):
         mug = r['objects'][0]
         self.assertEqual(mug['box'], [5, 20, 15, 31], 'half-open boxes')
         self.assertEqual(mug['seeds'], [[12.8, 24.0]], 'seeds in pixels, inside the box')
+        rings = mug['mask'].pop('rings')
         self.assertEqual(mug['mask'], {'height': 11, 'width': 10, 'encoding': 'one_bit', 'decoded': True,
-                                       'payload_chars': len(payload_for((5, 20, 14, 30)))})
+                                       'payload_chars': len(payload_for((5, 20, 14, 30))), 'area': 86, 'bounds': [5, 20, 15, 31]})
+        self.assertEqual(len(rings), 1, 'the ellipse SAM drew, as one ring')
+        self.assertEqual(mug['outline_source'], 'sam_mask')
         self.assertIn('not found: lamp', r['warnings'])
         self.assertTrue(any('left hand' in w for w in r['warnings']), 'a body word is dropped')
         self.assertEqual(r['usage']['spark_calls'], 1)
@@ -167,7 +170,7 @@ class Reads(WithFake):
         self.assertEqual([(o['name'], o['found_by'], o['confidence']) for o in r['objects']], [('mug', 'points', None)],
                          'only the mug came with a point')
         self.assertEqual(r['objects'][0]['seeds'], [[12.8, 24.0]])
-        self.assertEqual(r['provenance']['found'], {'sam': 0, 'points': 1, 'words': 'The stand-in for SAM 3.1 found 0; for 1 more, code traces around Muse Spark’s points.'})
+        self.assertEqual(r['provenance']['found'], {'sam': 0, 'masks': 0, 'points': 1, 'words': 'The stand-in for SAM 3.1 found 0; for 1 more, code traces around Muse Spark’s points.'})
         self.assertIn('not found by SAM 3.1: mug; code traces around Muse Spark’s points for it instead', r['warnings'])
         self.assertIn('not found: coin', r['warnings'], 'no point, no region')
 
@@ -534,7 +537,8 @@ class RecordedDesk(unittest.TestCase):
     def test_what_was_dropped_is_said(self):
         r = recorded.run()
         self.assertEqual(r['warnings'], ['not used: a match for blue notebook at 59% (none of Muse Spark’s points for it fell in it)'])
-        self.assertEqual(r['provenance']['found'], {'sam': 9, 'points': 0, 'words': 'The stand-in for SAM 3.1 found 9.'})
+        self.assertEqual(r['provenance']['found'], {'sam': 9, 'masks': 9, 'points': 0,
+                                                    'words': 'The stand-in for SAM 3.1 found 9; its masks give 9 exact outlines.'})
         self.assertTrue(all(o['found_by'] == 'sam' for o in r['objects']))
         calls = {c.get('noun'): c for c in r['provenance']['calls'] if c['stage'] == 'find'}
         self.assertEqual((calls['blue notebook']['matches'], calls['blue notebook']['kept'], calls['blue notebook']['dropped']), (2, 1, ['no_point']))

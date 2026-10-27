@@ -285,7 +285,7 @@ test('REHEARSAL builds from the stand-in’s own picture, and never from an answ
   assert.equal(level.origin, 'rehearsal');
   assert.equal(level.label, LABELS.rehearsal);
   assert.ok(level.proof.winnable);
-  assert.deepEqual(words, ['Tracing the outlines']);
+  assert.deepEqual(words, ['Laying out the outlines']);
   const wrong = deps(replyFor('desk', 'rehearsal', { room: 'living' }));
   const w = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(sent('desk')), deps: wrong.deps, yieldNow: quick });
   assert.equal(w.kind, 'refused');

@@ -42,8 +42,14 @@ floor grown on the picture, walls and doorways.
   again after a timeout). This app does not store the photo. The room is
   built from what the models found in it: Muse Spark names the things and
   gives each a role and a few points on it; SAM 3.1 answers each name with
-  its matches (boxes), and of several, the ones holding Muse Spark's points
-  are kept. Code traces each outline inside SAM's box. Muse Spark also says
+  its matches (a box and a mask each), and of several, the ones holding
+  Muse Spark's points are kept (a point on a match's mask pixels counts
+  before one only inside its box). **SAM 3.1's masks are the outlines:**
+  the server decodes each kept match's mask into its exact outline, holes
+  kept (a mug's handle stays open), with its area and bounds, and the page
+  uses it as it is; only where a mask does not decode does code trace the
+  outline inside SAM's box instead, and the reveal counts each way ("SAM
+  3.1's masks gave 9 exact outlines; code traced 0"). Muse Spark also says
   how the camera sees the room (at eye level, from above as in a floor
   plan, or at a slant) and gives points on the open floor, one or more a
   room; SAM 3.1 answers "floor" with one match a room. Code grows the floor
@@ -283,7 +289,8 @@ picture through them.
   for the matches kept, while the photo has time left; the reply says of
   each mask whether it decoded, and a call whose mask did not decode
   carries the diagnostic `mask_undecodable` (`mask_time` when the photo
-  ran out of time). Outlines are still traced by code inside SAM's boxes.
+  ran out of time); that match's outline is then traced by code inside its
+  box, and the reveal counts it as traced.
   The desk surface's mask, 1024 x 368, the largest recorded, decodes and
   is outlined in about 0.5 s in pure Python.
 - Muse Spark names each kind of thing once, with the plain word SAM finds
@@ -304,10 +311,13 @@ picture through them.
   for 4 more, code traced around Muse Spark's points"). A point that falls
   on the thing next to the right one (a coin lying on a notebook) traces
   that thing instead.
-- Live outlines are traced by code inside SAM's boxes; an object whose trace
-  is not tight is traced again on a finer and a coarser grid, and if it is
-  still not tight it falls back to its box, and the reveal says so. Small, low
-  contrast objects are the hardest to trace.
+- Live outlines are SAM 3.1's own masks, simplified by at most 0.75 px. Where
+  a mask does not decode, the outline is traced by code inside SAM's box; an
+  object whose trace is not tight is traced again on a finer and a coarser
+  grid, and if it is still not tight it falls back to its box, and the
+  reveal says so. Small, low contrast objects are the hardest to trace. On
+  the recorded desk answers the masks' outlines lie on the painter's exact
+  silhouettes at IoU 0.958 (the coins, 34 x 21 px) to 0.994.
 - The floor is grown by colour: a floor much like its walls (white boards
   under white walls) can run past its edge, up to 2% of the picture beyond
   SAM's floor boxes, and a thing much like the floor that SAM did not find

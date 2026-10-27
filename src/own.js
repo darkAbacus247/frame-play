@@ -19,6 +19,7 @@
 import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from './reply.js';
 import { buildLevel } from './level.js';
 import { traceInBox, traceAroundPoints, floorFromReply } from './trace_in_box.js';
+import { ringsInside } from './geom.js';
 
 export const MOCK_WORDS = 'MOCK: no model reads photos in this copy. Your photo stays on this device, and you mark its objects yourself; code traces their outlines. Nothing is sent.';
 
@@ -152,14 +153,32 @@ export function keptLevel(kept, photo, mode) {
   return kept.level;
 }
 
-// Each object's outline: traced inside SAM's exact box, or the box itself
-// when the trace is not tight enough; for a thing SAM did not find, traced
-// around Muse Spark's points, or the region around them. Yields between
-// objects, so the page's progress words stay live.
+// A mask's exact outline from the reply, if it is usable: rings of three
+// or more points, all numbers, all on the picture.
+export function maskRings(o, W, H) {
+  const m = o && o.mask;
+  if (!m || m.decoded !== true || !Array.isArray(m.rings) || !m.rings.length) return null;
+  const ok = m.rings.every((ring) => Array.isArray(ring) && ring.length >= 3
+    && ring.every((p) => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])));
+  return ok && ringsInside(m.rings, W, H) ? m.rings : null;
+}
+
+// Each object's outline: SAM 3.1's own mask, decoded by the server (rings
+// with holes, read even-odd), used as it is; where a mask did not decode,
+// traced inside SAM's exact box, or the box itself when the trace is not
+// tight enough; for a thing SAM did not find, traced around Muse Spark's
+// points, or the region around them. Yields between objects, so the page's
+// progress words stay live.
 export async function outlinesFor(reply, pixels, yieldNow = () => new Promise((r) => setTimeout(r, 0))) {
   const out = [];
+  const size = reply.received || pixels || {};
   for (const o of reply.objects) {
     const points = o.found_by === 'points';
+    const exact = points ? null : maskRings(o, size.width, size.height);
+    if (exact) {
+      out.push({ source: 'sam_mask', rings: exact });
+      continue;
+    }
     try {
       const t = points ? traceAroundPoints(pixels, o.box, o.seeds || []) : traceInBox(pixels, o.box, o.seeds || []);
       out.push({ source: t.source, rings: t.rings });
@@ -249,7 +268,7 @@ export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, sameAs = nu
   if (!ok.ok) return refused(ok.why, !sameAs && markableReply(reply));
   const other = mode === 'rehearsal' ? standInReplyRefusal(reply, matched) : null;
   if (other) return refused(other);
-  onWords('Tracing the outlines');
+  onWords('Laying out the outlines');
   const entry = await levelFromReply(reply, photo.picture, photo.pixels, ref, yieldNow);
   if (entry.built.error) return refused(entry.built.error);
   return { kind: 'built', ref, entry };

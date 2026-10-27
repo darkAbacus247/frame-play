@@ -47,12 +47,13 @@ test('REHEARSAL: a room of 5 SAM matches and 4 regions around Muse Spark’s poi
   const FOUND = /The stand-in for SAM 3\.1 found 5; for 4 more, code traced around Muse Spark’s points/;
   const summary = textOf(app.$('main').querySelector('.summary'));
   assert.match(summary, FOUND);
-  // the counts on the reveal are the level's own: 5 inside SAM's boxes, 4 from the points
+  // the counts on the reveal are the level's own: 5 from SAM's masks, 4 from the points
   const level = app.levels()[0].level;
   const c = level.provenance.outline_sources;
-  assert.equal(c.traced_in_box + c.box, 5);
+  assert.equal(c.sam_mask, 5, 'the 5 SAM found are outlined by their own masks');
+  assert.equal(c.traced_in_box + c.box, 0);
   assert.equal(c.traced_at_points + c.points_box, 4);
-  assert.match(summary, new RegExp(`Code traced ${c.traced_in_box} outlines? inside SAM’s boxes and kept ${c.box} as (a box|boxes)`));
+  assert.match(summary, /The stand-in for SAM 3\.1’s masks gave 5 exact outlines; code traced 0\. Code then proved the room can be won\./);
   assert.equal((app.main().match(/SAM did not find it/g) || []).length, 8, 'each of the 4 says so, in its source and its confidence');
   assert.doesNotMatch(app.main(), /marked by you|You marked/, 'a read room is never said to be marked');
   assert.equal(app.button('Mark your room'), null);
@@ -67,7 +68,7 @@ test('REHEARSAL: a room of 5 SAM matches and 4 regions around Muse Spark’s poi
   assert.equal(app.step(), 12);
   const row = textOf(app.$('main').querySelectorAll('.closing-rooms li')[2]);
   assert.match(row, /the stand-in for SAM 3\.1 found 5; for 4 more, code traced around Muse Spark’s points/, 'the closing row');
-  assert.match(row, new RegExp(`code traced ${c.traced_in_box} outlines? inside SAM’s boxes and kept ${c.box} as`));
+  assert.match(row, /the stand-in for SAM 3\.1’s masks gave 5 exact outlines; code traced 0; and code proved the room can be won/);
 
   // reopened on a return visit: the level kept on this device, by the same
   // photo, with the same words and nothing sent

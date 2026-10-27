@@ -169,8 +169,9 @@
    },
    "found": {
     "sam": 13,
+    "masks": 0,
     "points": 0,
-    "words": "The stand-in for SAM 3.1 found 13."
+    "words": "The stand-in for SAM 3.1 found 13; its masks give 0 exact outlines, and code traces 13 inside their boxes."
    }
   },
   "received": {
@@ -273,7 +274,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 495
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o2",
@@ -302,7 +304,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 283
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o3",
@@ -331,7 +334,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 135
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o4",
@@ -360,7 +364,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 16
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o5",
@@ -389,7 +394,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 16
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o6",
@@ -418,7 +424,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 16
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o7",
@@ -447,7 +454,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 225
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o8",
@@ -476,7 +484,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 25
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o9",
@@ -505,7 +514,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 25
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o10",
@@ -534,7 +544,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 32
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o11",
@@ -563,7 +574,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 580
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o12",
@@ -592,7 +604,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 28
-    }
+    },
+    "outline_source": "traced_in_box"
    },
    {
     "id": "o13",
@@ -621,7 +634,8 @@
      "encoding": "unknown",
      "decoded": false,
      "payload_chars": 78
-    }
+    },
+    "outline_source": "traced_in_box"
    }
   ],
   "usage": {

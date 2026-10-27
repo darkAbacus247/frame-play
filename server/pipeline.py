@@ -1,8 +1,10 @@
 """The live path: one muse-spark-1.3 call reads the room, then one sam-3.1
 call per on-surface noun (and one for the surface), in parallel, finds every
-match with an exact box and a confidence. The reply (schema
-frameplay.room.reply/2) goes back to the page, which traces the outlines and
-builds the level. The server keeps nothing.
+match with an exact box, a confidence and a mask. Each kept match's mask is
+decoded here (server/sam_mask.py) into its exact outline: rings with holes,
+its area and bounds. The reply (schema frameplay.room.reply/2) goes back to
+the page, which uses those outlines as they are (tracing inside a box only
+where a mask did not decode) and builds the level. The server keeps nothing.
 
 Rehearsal runs the same code against a loopback stand-in; it claims no
 model: its calls read "REHEARSAL stand-in for ..." and its models list is
@@ -395,11 +397,22 @@ def role_cap(role, count=None):
     return min(MAX_PER_NOUN.get(role, 1), max(cap, count)) if count else cap
 
 
-def choose_matches(records, seeds, role, W, H, count=None):
+def on_mask(shape, p):
+    """Whether point p (picture pixels) falls on one of a decoded mask's pixels."""
+    raster = shape and shape.get('raster')
+    if not raster:
+        return False
+    c, r = math.floor(p[0]) - raster['left'], math.floor(p[1]) - raster['top']
+    return 0 <= c < raster['width'] and 0 <= r < raster['height'] and raster['data'][r * raster['width'] + c] == 1
+
+
+def choose_matches(records, seeds, role, W, H, count=None, holds=None):
     """Which of SAM's matches for one name are this object. A match that
     holds one of Muse Spark's points for it is kept (each point picks the
-    match it falls in, or the nearest within SEED_REACH of the picture, since
-    the points are rough); when Muse Spark counted more of them than its
+    match whose mask it falls on, else the match whose box it falls in, or
+    the nearest within SEED_REACH of the picture, since the points are
+    rough; holds(record, point) says whether the point is on the record's
+    mask pixels, and is asked only of matches in reach); when Muse Spark counted more of them than its
     points found ("chair x2" with a point on one chair), the most confident
     other matches at or above FLOOR (and RELATIVE of the best) make up the
     count; with no point in any match, the most confident matches at or
@@ -412,6 +425,9 @@ def choose_matches(records, seeds, role, W, H, count=None):
     for p in seeds:
         near = [(_reach(p, r['box'], W, H), k) for k, r in enumerate(usable)]
         near = [x for x in near if x[0] <= SEED_REACH]
+        if near and holds is not None and len(near) > 1:
+            on = [x for x in near if holds(usable[x[1]], p)]
+            near = on or near
         if near:
             k = min(near)[1]
             if k not in picked:
@@ -757,8 +773,13 @@ class Pipeline:
                 r['provenance']['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
             if found:
                 who = 'The stand-in for SAM 3.1' if s.mode == 'rehearsal' else 'SAM 3.1'
+                masks = ''
+                if found['sam']:
+                    traced = found['sam'] - found['masks']
+                    masks = (f'; its masks give {found["masks"]} exact outline{"" if found["masks"] == 1 else "s"}'
+                             + (f', and code traces {traced} inside {"its box" if traced == 1 else "their boxes"}' if traced else ''))
                 more = f'; for {found["points"]} more, code traces around Muse Spark’s points' if found['points'] else ''
-                r['provenance']['found'] = {**found, 'words': f'{who} found {found["sam"]}{more}.'}
+                r['provenance']['found'] = {**found, 'words': f'{who} found {found["sam"]}{masks}{more}.'}
             self._log_photo(r, stages)
             return r
 
@@ -907,7 +928,8 @@ class Pipeline:
             if err is not None or 'size_mismatch' in parsed.errors:
                 continue
             records, emptied = held_records(parsed.records, W, H)
-            kept, lost = choose_matches(records, o['seeds'], o['role'], W, H, o.get('count'))
+            kept, lost = choose_matches(records, o['seeds'], o['role'], W, H, o.get('count'),
+                                        holds=lambda r, pt, name=o['name']: on_mask(shape_of(r, name), pt))
             picks += [(k, o['name'], r, seeded) for r, seeded in kept]
             dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost + [(r, 'empty_box') for r in emptied]]
         picks, lost = settle_claims(picks)
@@ -995,6 +1017,7 @@ class Pipeline:
                         'id': f'o{len(objects) + 1}', 'name': o['name'], 'instance': counts[o['name']],
                         'role': o['role'], 'reason': o['reason'], 'on_surface': True,
                         'found_by': 'points', 'box': box, 'confidence': None, 'seeds': pts, 'mask': None,
+                        'outline_source': 'traced_at_points',
                     })
                 continue
             for m in picked:
@@ -1005,6 +1028,9 @@ class Pipeline:
                 seeds = [p for p in o['seeds'] if x0 <= p[0] < x1 and y0 <= p[1] < y1]
                 shape = shape_of(m, o['name'])
                 mask = m['mask'] or {}
+                # the mask's exact outline (holes kept), its area and bounds;
+                # without one the page traces inside the box
+                exact = {'rings': shape['rings'], 'area': shape['area'], 'bounds': shape['bounds']} if shape else {}
                 objects.append({
                     'id': f'o{len(objects) + 1}',
                     'name': o['name'],
@@ -1018,7 +1044,8 @@ class Pipeline:
                     'seeds': seeds,
                     'mask': {'height': mask.get('rows', y1 - y0), 'width': mask.get('cols', x1 - x0),
                              'encoding': mask.get('encoding'), 'decoded': shape is not None,
-                             'payload_chars': mask.get('payload_chars')},
+                             'payload_chars': mask.get('payload_chars'), **exact},
+                    'outline_source': 'sam_mask' if shape else 'traced_in_box',
                 })
         for c in calls:
             if c['stage'] == 'find' and c.get('noun') in mask_notes and not c.get('surface'):
@@ -1051,6 +1078,7 @@ class Pipeline:
             stages['find'] = 'nothing'
             return reply('error', {'code': 'nothing_found', 'message': NOTHING_FOUND_WORDS}, scene=scene, surface=surface)
         found['sam'] = by_sam
+        found['masks'] = sum(1 for o in objects if o['outline_source'] == 'sam_mask')
         found['points'] = len(objects) - by_sam
         if found['points']:
             stages['find'] = 'points' if not by_sam else 'some_points'

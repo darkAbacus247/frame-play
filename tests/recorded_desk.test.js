@@ -1,8 +1,10 @@
 // The first live answers (10-27) for the desk sample picture, end to end:
 // the recorded Muse Spark read and sam-3.1 answers are played back through
 // the server's real pipeline by a test double (server/tests/recorded.py;
-// nothing is sent anywhere), and the page's own code traces the outlines on
-// the desk picture and builds the level. It must be the right room, and
+// nothing is sent anywhere), the server decodes SAM 3.1's masks into exact
+// outlines, and the page builds the level from them on the desk picture. It
+// must be the right room, every outline SAM's own mask lying on the
+// painter's silhouette (IoU 0.95 or more for each thing nothing covers), and
 // winnable.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +16,7 @@ import { paintRoom } from '../src/painter.js';
 import { fillRings } from '../src/raster.js';
 import { acceptReply } from '../src/reply.js';
 import { levelFromReply } from '../src/own.js';
-import { foundWords, fromPoints, summaryLine } from '../src/screens.js';
+import { foundWords, fromPoints, maskWords, summaryLine } from '../src/screens.js';
 import { jpegLike } from './jpegsim.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -27,7 +29,8 @@ export function recordedReply(args = []) {
 
 const room = loadRoom(JSON.parse(readFileSync(new URL('../rooms/desk.json', import.meta.url), 'utf8')));
 const W = room.width, H = room.height;
-export const deskPixels = { width: W, height: H, data: jpegLike(paintRoom(room).rgba, W, H, 90) };
+const painted = paintRoom(room);
+export const deskPixels = { width: W, height: H, data: jpegLike(painted.rgba, W, H, 90) };
 
 const iou = (a, b) => {
   let i = 0, u = 0;
@@ -35,7 +38,33 @@ const iou = (a, b) => {
   return u ? i / u : 1;
 };
 
-test('the recorded desk answers become the right nine objects and a winnable room', { timeout: 120000 }, async () => {
+// Each painted object as the picture shows it (the painter's owner map:
+// what stands in front of it is not it), and how much of it is covered.
+const seen = room.objects.map((o, i) => {
+  const own = fillRings(o.rings, W, H);
+  const vis = new Uint8Array(W * H);
+  let n = 0, v = 0;
+  for (let k = 0; k < W * H; k++) {
+    if (painted.owner[k] === i) { vis[k] = 1; v++; }
+    if (own[k]) n++;
+  }
+  return { id: o.id, vis, hidden: 1 - v / n };
+});
+const HIDDEN = 0.05;
+export const GOLDEN_IOU = 0.95;
+
+// The golden replay's table: for each object, the painted thing it lies on,
+// how much of that is covered, and the IoU of the outline with what the
+// picture shows of it.
+export function iouTable(level) {
+  return level.objects.map((o) => {
+    const got = fillRings(o.outline.rings, W, H);
+    const best = seen.map((p) => ({ p, v: iou(got, p.vis) })).sort((a, b) => b.v - a.v)[0];
+    return { object: `${o.name} ${o.instance}`, painted: best.p.id, source: o.outline.source, hidden: best.p.hidden, iou: best.v };
+  });
+}
+
+test('the recorded desk answers become the right nine objects, outlined by SAM 3.1’s own masks, and a winnable room', { timeout: 120000 }, async () => {
   const reply = recordedReply();
   assert.equal(reply.status, 'ok', reply.error && reply.error.message);
   assert.ok(acceptReply(reply.provenance.mode, reply, { width: W, height: H }).ok);
@@ -51,18 +80,48 @@ test('the recorded desk answers become the right nine objects and a winnable roo
   assert.deepEqual(level.rules.collect.map((id) => byId[id].name).sort(), ['blue notebook', 'gold coin', 'gold coin', 'gold coin']);
   assert.deepEqual(level.rules.avoid.map((id) => byId[id].name), ['potted cactus']);
   assert.deepEqual(level.changes_by_code, [], 'the room could be won as read');
-  assert.equal(level.provenance.outline_sources.traced_in_box, 9, 'every outline traced inside SAM’s box');
-  // every outline sits on one painted object, and no two on the same one
-  const painted = room.objects.filter((o) => o.on_surface).map((o) => ({ id: o.id, mask: fillRings(o.rings, W, H) }));
+  assert.equal(level.provenance.outline_sources.sam_mask, 9, 'every outline is SAM 3.1’s own mask');
+  assert.equal(level.provenance.outline_sources.traced_in_box, 0, 'code traced none');
+  // every outline sits on one painted object, no two on the same one, and
+  // each thing nothing covers is outlined exactly
+  const rows = iouTable(level);
+  console.log(['', 'Golden replay: the recorded desk, outlines from SAM 3.1’s masks vs the painter',
+    `${'object'.padEnd(16)} ${'painted'.padEnd(9)} ${'hidden'.padStart(7)} ${'IoU'.padStart(6)}  bar`,
+    ...rows.map((r) => `${r.object.padEnd(16)} ${r.painted.padEnd(9)} ${(r.hidden * 100).toFixed(1).padStart(6)}% ${r.iou.toFixed(3).padStart(6)}  ${r.hidden > HIDDEN ? 'n/a (covered)' : r.iou >= GOLDEN_IOU ? 'ok' : 'FAIL'}`)].join('\n'));
   const used = new Set();
-  for (const o of level.objects) {
-    const got = fillRings(o.outline.rings, W, H);
-    const best = painted.map((p) => ({ id: p.id, v: iou(got, p.mask) })).sort((a, b) => b.v - a.v)[0];
-    assert.ok(best.v >= 0.85, `${o.name} ${o.instance}: IoU ${best.v.toFixed(3)} (${o.outline.source})`);
-    assert.ok(!used.has(best.id), `${o.name} ${o.instance} sits on ${best.id} twice`);
-    used.add(best.id);
+  for (const r of rows) {
+    assert.equal(r.source, 'sam_mask', r.object);
+    assert.ok(r.iou >= 0.85, `${r.object}: IoU ${r.iou.toFixed(3)}`);
+    if (r.hidden <= HIDDEN) assert.ok(r.iou >= GOLDEN_IOU, `${r.object}: IoU ${r.iou.toFixed(3)} with what the picture shows of ${r.painted}`);
+    assert.ok(!used.has(r.painted), `${r.object} sits on ${r.painted} twice`);
+    used.add(r.painted);
   }
+  assert.ok(rows.filter((r) => r.hidden <= HIDDEN).length >= 8, 'most things are uncovered, and held to the bar');
+  // the mug's handle is open: a hole in its outline
+  const mug = level.objects.find((o) => o.name === 'coffee mug');
+  assert.equal(mug.outline.rings.length, 2, 'the mug and the hole in its handle');
   assert.equal(foundWords(level), 'SAM 3.1 found 9');
+  assert.equal(maskWords(level), 'SAM 3.1’s masks gave 9 exact outlines; code traced 0');
+  assert.match(summaryLine(level, entry.summary), /The stand-in for SAM 3\.1 found 9 of them\. The stand-in for SAM 3\.1’s masks gave 9 exact outlines; code traced 0\. Code then proved the room can be won\.$/);
+  assert.equal(reply.provenance.found.words, 'The stand-in for SAM 3.1 found 9; its masks give 9 exact outlines.');
+});
+
+test('a mask that does not decode: that one thing is traced inside its box, and the words say so', { timeout: 120000 }, async () => {
+  const reply = recordedReply(['--spoil-mask', 'coffee mug']);
+  assert.equal(reply.status, 'ok');
+  const mug = reply.objects.find((o) => o.name === 'coffee mug');
+  assert.equal(mug.mask.decoded, false);
+  assert.equal(mug.mask.rings, undefined, 'no outline is made up for it');
+  const call = reply.provenance.calls.find((c) => c.noun === 'coffee mug');
+  assert.deepEqual(call.diagnostics, ['mask_undecodable']);
+  const entry = await levelFromReply(reply, { width: W, height: H }, deskPixels, { kind: 'photo', sha256: 'recorded' }, () => Promise.resolve());
+  const { level } = entry.built;
+  assert.ok(level.proof.winnable);
+  const got = level.objects.find((o) => o.name === 'coffee mug');
+  assert.ok(['traced_in_box', 'box'].includes(got.outline.source), got.outline.source);
+  assert.equal(level.provenance.outline_sources.sam_mask, 8);
+  assert.match(maskWords(level), /^SAM 3\.1’s masks gave 8 exact outlines; code traced 1 inside SAM’s box|^SAM 3\.1’s masks gave 8 exact outlines; code traced 0 and kept 1 as a box/);
+  assert.equal(reply.provenance.found.words, 'The stand-in for SAM 3.1 found 9; its masks give 8 exact outlines, and code traces 1 inside its box.');
 });
 
 // Where SAM finds nothing for a thing, code traces around Muse Spark's own
@@ -90,12 +149,12 @@ async function levelWithout(args) {
 
 test('SAM finds some: the rest are traced around Muse Spark’s points, and the reveal says so', { timeout: 120000 }, async () => {
   const { reply, level, entry } = await levelWithout(['--none-for', 'coffee mug,gold coin']);
-  assert.deepEqual(reply.provenance.found, { sam: 5, points: 4, words: 'The stand-in for SAM 3.1 found 5; for 4 more, code traces around Muse Spark’s points.' });
+  assert.deepEqual(reply.provenance.found, { sam: 5, masks: 5, points: 4, words: 'The stand-in for SAM 3.1 found 5; its masks give 5 exact outlines; for 4 more, code traces around Muse Spark’s points.' });
   assert.equal(level.objects.length, 9);
   assert.equal(fromPoints(level), 4);
-  assert.equal(level.provenance.outline_sources.traced_in_box, 5);
+  assert.equal(level.provenance.outline_sources.sam_mask, 5);
   assert.deepEqual(level.objects.filter((o) => /points/.test(o.outline.source)).map((o) => o.name).sort(), ['coffee mug', 'gold coin', 'gold coin', 'gold coin']);
-  assert.match(summaryLine(level, entry.summary), /The stand-in for SAM 3\.1 found 5; for 4 more, code traced around Muse Spark’s points/);
+  assert.match(summaryLine(level, entry.summary), /The stand-in for SAM 3\.1 found 5; for 4 more, code traced around Muse Spark’s points\. The stand-in for SAM 3\.1’s masks gave 5 exact outlines; code traced 0\./);
   assert.ok(entry.summary.warnings.includes('not found by SAM 3.1: coffee mug; code traces around Muse Spark’s points for it instead'));
 });
 

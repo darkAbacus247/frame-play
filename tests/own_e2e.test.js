@@ -95,7 +95,7 @@ test('REHEARSAL end to end: the desk’s own picture, uploaded as a file, become
     const words = [];
     const r = await makeOwnRoom({ mode: health.mode, rehearsalRoom: health.rehearsal.room, file, deps, onWords: (w) => words.push(w), yieldNow: () => Promise.resolve() });
     assert.equal(r.kind, 'built', r.words);
-    assert.deepEqual(words, ['Reading your room', 'Finding every object', 'Tracing the outlines'], 'the three progress lines, in order');
+    assert.deepEqual(words, ['Reading your room', 'Finding every object', 'Laying out the outlines'], 'the three progress lines, in order');
     const sha = (await import('node:crypto')).createHash('sha256').update(png).digest('hex');
     assert.deepEqual(r.ref, { kind: 'photo', sha256: sha }, 'keyed by the picked file’s own bytes');
     const { level } = r.entry.built;

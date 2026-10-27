@@ -210,7 +210,7 @@ function retryButton(again) {
 }
 
 const FREE_WORDS = 'Rounds in Free play do not change your road.';
-const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
+const LIVE_LINES = ['Reading your room', 'Finding every object', 'Laying out the outlines'];
 
 // A read's words on its panel, for Steps 2 and 5 and your own room alike:
 // its three steps, and while every reader on the server is busy (stage
@@ -326,7 +326,7 @@ async function readThroughServer(blob, copy, picture, pictureRef, onWords, stand
   if (!ok.ok) throw Object.assign(new Error(ok.why), { reply });
   const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
   if (other) throw new Error(other);
-  onWords('Tracing the outlines');
+  onWords('Laying out the outlines');
   await new Promise((r) => setTimeout(r, 0)); // let the words show
   const entry = await levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
   entry.degraded = degradedReply(reply);

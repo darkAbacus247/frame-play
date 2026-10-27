@@ -9,24 +9,13 @@ from server import config, samtext
 from server.config import settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
-from server.pipeline import Pipeline
-from server.sam_mask import decode_data, mask_shape
+from server.pipeline import Pipeline, choose_matches, on_mask
+from server.sam_mask import _signed_area, decode_data, encode_one_bit, mask_shape
 from server.tests import images, recorded
 
 
 def call_for(r, noun):
     return next(c for c in r['provenance']['calls'] if c.get('noun') == noun and not c.get('surface'))
-
-
-def broken(text):
-    """The same answer with every mask payload spoilt (still in the alphabet)."""
-    parts = text.split('data=')
-    out = [parts[0]]
-    for part in parts[1:]:
-        rows, cols, rest = part.split(',', 2)
-        payload, tail = rest.split('|>', 1)
-        out.append(f'{rows},{cols},{payload[:-3]}abc|>{tail}')
-    return 'data='.join(out)
 
 
 class LateClock:
@@ -64,7 +53,7 @@ class Decoding(unittest.TestCase):
             self.assertNotIn('diagnostics', c, c.get('noun'))
 
     def test_a_mask_that_does_not_decode_falls_back_and_says_so(self):
-        r = recorded.run({'coffee mug': broken(recorded.FIXTURE['answers']['coffee mug'])})
+        r = recorded.run({'coffee mug': recorded.spoilt(recorded.FIXTURE['answers']['coffee mug'])})
         self.assertEqual(r['status'], 'ok')
         mug = next(o for o in r['objects'] if o['name'] == 'coffee mug')
         self.assertEqual(mug['found_by'], 'sam', 'the match is still SAM 3.1\'s box')
@@ -115,6 +104,55 @@ class Decoding(unittest.TestCase):
             samtext.sam_mask.decode_mask = real
         self.assertEqual(len(seen), len(set(seen)), 'no payload decoded twice')
         self.assertGreater(len(seen), 0)
+
+
+
+def ring_raster(w, h):
+    """A frame: the box's edge two pixels deep, open in the middle."""
+    return bytes(int(x < 2 or y < 2 or x >= w - 2 or y >= h - 2) for y in range(h) for x in range(w))
+
+
+class Shapes(unittest.TestCase):
+    def test_the_reply_carries_each_mask_outline_with_its_holes(self):
+        r = recorded.run()
+        mug = next(o for o in r['objects'] if o['name'] == 'coffee mug')
+        self.assertEqual(mug['outline_source'], 'sam_mask')
+        m = mug['mask']
+        self.assertEqual(len(m['rings']), 2, 'the mug, and the hole in its handle')
+        self.assertEqual(sorted(_signed_area(ring) > 0 for ring in m['rings']), [False, True])
+        self.assertEqual(m['bounds'], [560, 383, 670, 482])
+        self.assertGreater(m['area'], 0.5 * 110 * 99)
+        self.assertNotIn('payload', m, 'the payload stays on the server')
+        self.assertNotIn('raster', m)
+        coins = [o for o in r['objects'] if o['name'] == 'gold coin']
+        for c in coins:
+            x0, y0, x1, y1 = c['box']
+            self.assertTrue(all(x0 <= x <= x1 and y0 <= y <= y1 for ring in c['mask']['rings'] for x, y in ring))
+
+    def test_points_pick_the_match_whose_mask_they_fall_on(self):
+        # two matches for one name, the point inside both boxes: in the
+        # middle of a frame (the more confident match, not on its pixels)
+        # and on a small solid square (the other)
+        frame = encode_one_bit(ring_raster(40, 40), 40, 40)
+        square = encode_one_bit(bytes([1]) * 121, 11, 11)
+        text = samtext.compose([{'box': [0, 0, 39, 39], 'confidence': 0.95, 'payload': frame},
+                                {'box': [15, 15, 25, 25], 'confidence': 0.9, 'payload': square}], 100, 100)
+        records = samtext.parse(text, 100, 100).records
+        seeds = [[20.0, 20.0]]
+        by_box, _ = choose_matches(records, seeds, 'exit', 100, 100)
+        self.assertEqual(by_box[0][0]['box'], [0, 0, 40, 40], 'by boxes alone, the more confident')
+        holds = lambda r, p: on_mask(samtext.mask_shape(r, (100, 100)), p)
+        by_mask, _ = choose_matches(records, seeds, 'exit', 100, 100, holds=holds)
+        self.assertEqual(by_mask[0][0]['box'], [15, 15, 26, 26], 'the one the point is on')
+        self.assertTrue(by_mask[0][1], 'kept as seeded')
+
+    def test_on_mask(self):
+        text = samtext.compose([{'box': [10, 10, 49, 49], 'confidence': 0.9, 'payload': encode_one_bit(ring_raster(40, 40), 40, 40)}], 100, 100)
+        shape = samtext.mask_shape(samtext.parse(text, 100, 100).records[0], (100, 100))
+        self.assertTrue(on_mask(shape, (10.2, 10.9)))
+        self.assertFalse(on_mask(shape, (30, 30)))
+        self.assertFalse(on_mask(shape, (5, 5)))
+        self.assertFalse(on_mask(None, (10, 10)))
 
 
 if __name__ == '__main__':
