@@ -11,7 +11,7 @@ from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import CallError, Transport
 from server.pipeline import (Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims,
-                             held, inside, reply_error, surface_from, surface_like)
+                             held, inside, normalize_name, reply_error, surface_from, surface_like)
 from server.samtext import compose
 from server.server import Log
 from server.tests import images, recorded
@@ -747,8 +747,36 @@ class Names(unittest.TestCase):
     def test_the_rules(self):
         self.assertIsNone(name_problem('desk lamp'))
         self.assertIsNone(name_problem("children's book".replace("children's", 'picture')))
-        for bad in ('mug and coin', 'left mug', 'person', 'a very big red mug', 'mug, coin', 'hand', '', 'mug2'):
+        for bad in ('mug and coin', 'left mug', 'person', 'a very big red mug', 'mug, coin', 'hand', '', 'mug_2', 'mug!'):
             self.assertIsNotNone(name_problem(bad), bad)
+
+    def test_common_nouns_pass(self):
+        # A6: G12's names, wrongly dropped before
+        for good in ('side table', 'front door', 'top hat', 'back pack', 'corner shelf', 'arm chair', 'hand towel',
+                     'baby crib', '3d printer', 'café table', 'mug2', "dog's bed", 'x-ray film', 'crème brûlée'):
+            self.assertIsNone(name_problem(normalize_name(good)), good)
+        self.assertIsNone(name_problem(normalize_name('CAFÉ Table')), 'accents decomposed are composed first')
+        self.assertEqual(normalize_name('Dog’s  Bed'), "dog's bed")
+        self.assertEqual(normalize_name('CAFÉ Table'), 'café table', 'a decomposed accent is composed first')
+
+    def test_relations_people_and_lists_still_go(self):
+        for bad, why in (('left mug', 'a spatial word'), ('mug on desk', 'a spatial word'), ('cup under lamp', 'a spatial word'),
+                         ('person', 'a people or body word'), ('hand', 'a people or body word'),
+                         ('chair leg', 'a people or body word'), ('mug and plate', 'a list'), ('3', 'not a plain noun phrase'),
+                         ("'mug", 'not a plain noun phrase'), ('mug  -', 'not a plain noun phrase')):
+            self.assertEqual(name_problem(bad), why, bad)
+
+    def test_when_every_name_is_dropped_the_photo_is_not_blamed(self):
+        fake = FakeMeta()
+        try:
+            read = {**READ, 'objects': [{**o, 'name': 'left ' + o['name'].split()[-1]} for o in READ['objects']]}
+            fake.on('/chat/completions', spark_answer(read))
+            r = Pipeline(settings_from({}, fake.base, 'desk'), Limits(), sleep=lambda s: None).run(photo())
+        finally:
+            fake.stop()
+        self.assertEqual(r['error'], {'code': 'names_unusable', 'retry_same': True, 'message':
+                                      "Muse Spark's names for the things in this photo could not be used. Please try the same photo again."})
+        self.assertEqual(fake.count('/responses'), 0)
         warnings = []
         room = clean_read({**READ, 'title': 'x' * 90, 'objects': READ['objects'] + [READ['objects'][0]]}, 100, 100, warnings)
         self.assertEqual(len(room['title']), 60)

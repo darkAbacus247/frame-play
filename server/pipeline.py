@@ -15,6 +15,7 @@ import math
 import re
 import threading
 import time
+import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
@@ -138,15 +139,23 @@ def reply_error(error):
     retry = error.get('retry_same')
     return {**error, 'message': sentence(error.get('message', '')),
             'retry_same': bool(error.get('code') in RETRY_SAME if retry is None else retry)}
+NAMES_WORDS = f"Muse Spark's names for the things in this photo could not be used. {AGAIN}"
 CUT_OFF_WORDS = ('The room read was cut off before it finished. Please try the same photo again; '
                  'a photo with fewer things in it reads faster.')
 
-SPATIAL = {'left', 'right', 'top', 'bottom', 'behind', 'front', 'near', 'far', 'under', 'above', 'below', 'beside',
-           'next', 'middle', 'center', 'centre', 'corner', 'on', 'in', 'at', 'back', 'side', 'upper', 'lower'}
+# Words of relation only: "side table", "front door", "top hat" and
+# "corner shelf" are things.
+SPATIAL = {'left', 'right', 'behind', 'under', 'above', 'below', 'beside', 'near', 'next', 'on', 'in', 'at',
+           'between', 'inside', 'underneath', 'beneath', 'atop', 'against'}
+# A people or body word is the thing only when it is the whole name or its
+# last word: "hand" and "chair leg" go, "hand towel", "arm chair" and
+# "baby crib" stay.
 PEOPLE = {'person', 'people', 'man', 'men', 'woman', 'women', 'child', 'children', 'kid', 'kids', 'boy', 'girl', 'baby',
           'human', 'face', 'head', 'hand', 'hands', 'arm', 'arms', 'leg', 'legs', 'foot', 'feet', 'finger', 'fingers',
           'body', 'hair', 'eye', 'eyes', 'mouth', 'selfie', 'someone', 'me', 'you', 'him', 'her', 'them'}
 LIST_WORDS = {'and', 'or', 'with', 'plus'}
+# Words of letters (accents too) and digits, joined inside by ' or -.
+WORD = r"[^\W_]+(?:['-][^\W_]+)*"
 
 
 def name_problem(name):
@@ -154,19 +163,20 @@ def name_problem(name):
     words = name.split()
     if not 1 <= len(words) <= 3:
         return 'not 1 to 3 words'
-    if not re.fullmatch(r"[a-z][a-z' -]*[a-z]|[a-z]", name):
-        return 'not a plain noun phrase'
-    if any(w in LIST_WORDS for w in words) or ',' in name or '/' in name:
+    if any(w in LIST_WORDS for w in words) or ',' in name or '/' in name or '&' in name:
         return 'a list'
+    if not re.fullmatch(f'{WORD}(?: {WORD})*', name) or not any(ch.isalpha() for ch in name):
+        return 'not a plain noun phrase'
     if any(w in SPATIAL for w in words):
         return 'a spatial word'
-    if any(w in PEOPLE for w in words):
+    if words[-1] in PEOPLE:
         return 'a people or body word'
     return None
 
 
 def normalize_name(raw):
-    return re.sub(r'\s+', ' ', str(raw).strip().lower())
+    text = unicodedata.normalize('NFC', str(raw)).replace('’', "'")
+    return re.sub(r'\s+', ' ', text.strip().lower())
 
 
 def clip(text, n):
@@ -246,6 +256,7 @@ def clean_read(read, W, H, warnings):
     reasons of 80 characters, seeds in pixels. Merges repeated names."""
     objs = []
     by_name = {}
+    unusable = 0  # things on the surface whose names were dropped
     raw = read.get('objects') if isinstance(read.get('objects'), list) else []
     for o in raw[:8]:
         if not isinstance(o, dict):
@@ -254,6 +265,7 @@ def clean_read(read, W, H, warnings):
         why = name_problem(name)
         if why:
             warnings.append(f'dropped the name "{clip(name, 40)}": {why}')
+            unusable += o.get('on_surface') is not False
             continue
         role = o.get('role') if o.get('role') in ROLES else 'solid'
         seeds = []
@@ -277,6 +289,7 @@ def clean_read(read, W, H, warnings):
         'theme_line': clip(read.get('theme_line', ''), 120),
         'surface': surface,
         'objects': objs,
+        'unusable': unusable,
     }
 
 
@@ -715,6 +728,11 @@ class Pipeline:
         scene = {'title': room['title'], 'theme_line': room['theme_line'], 'people_present': False,
                  'scenery': [{'name': o['name'], 'reason': o['reason']} for o in room['objects'] if not o['on_surface']]}
         on = [o for o in room['objects'] if o['on_surface']]
+        if not on and room['unusable']:
+            # Muse Spark saw things, but named none of them in a way SAM can
+            # look for: not the photo's fault
+            stages['read'] = 'names'
+            return reply('error', {'code': 'names_unusable', 'message': NAMES_WORDS}, scene=scene)
         if not on:
             stages['read'] = 'nothing'
             return reply('error', {'code': 'nothing_found', 'message': 'Muse Spark found nothing standing on a surface in this photo. Try another photo.'}, scene=scene)
