@@ -308,18 +308,68 @@ function areaOf(rt, k) {
   return n;
 }
 
-// The reachable solid object farthest from the start (by walking distance).
-function farthestSolid(level, rt, start) {
+// The reachable object of one role farthest from the start (by walking distance).
+function farthestOf(level, rt, start, role) {
   if (start < 0) return -1;
   const d = gridDistances(rt.nav, [[start, 0]]);
   let best = -1, bd = -1;
   level.objects.forEach((o, k) => {
-    if (o.role !== 'solid' || !rt.objs[k].footprint) return;
+    if (o.role !== role || !rt.objs[k].footprint) return;
     let m = Infinity;
     for (const c of rt.rings[k]) if (d[c] < m) m = d[c];
     if (m < Infinity && m > bd) { bd = m; best = k; }
   });
   return best;
+}
+
+// The room as it would be with no hazards: whether a hazard itself can be
+// reached is judged without its own halo.
+function hazardFree(level) {
+  const rt = prepare(level, { ignoreHazards: true });
+  return { rt, start: chooseStart(level, rt) };
+}
+
+// Who can become the exit: a solid object, else a collectible (only when
+// another one stays to be collected), else a hazard; the farthest reachable.
+function exitCandidate(level, rt, start) {
+  let k = farthestOf(level, rt, start, 'solid');
+  if (k < 0 && roleIndexes(level, 'collect').length >= 2) k = farthestOf(level, rt, start, 'collect');
+  if (k < 0 && roleIndexes(level, 'avoid').length) {
+    const free = hazardFree(level);
+    k = farthestOf(level, free.rt, free.start, 'avoid');
+  }
+  return k;
+}
+
+const nameList = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+// Why no level could be made, in words a person understands, naming what was
+// found and what is missing.
+function noLevelWords(level, rt, start, proof) {
+  const surface = (level.surface && level.surface.name) || 'floor';
+  const the = (k) => `the ${objectWords(level, k)}`;
+  const standing = [], elsewhere = [];
+  level.objects.forEach((o, k) => (rt.objs[k].footprint ? standing : elsewhere).push(k));
+  const also = elsewhere.length ? ` Also found, but not standing on it: ${nameList(elsewhere.map(the))}.` : '';
+  const advice = 'A game needs an exit and at least one thing to collect, so try a photo with three or more separate objects on a floor or desk.';
+  const roomier = `Try a photo with more open ${surface} around the objects.`;
+  const comp = start >= 0 ? rt.nav.comp[start] : 0;
+  const cut = standing.filter((k) => level.objects[k].role !== 'avoid' && !ringReachable(rt, k, comp));
+  const rest = standing.filter((k) => !cut.includes(k));
+  let why;
+  if (!standing.length) {
+    why = `Nothing was found standing on the ${surface}.${also} ${advice}`;
+  } else if (standing.length === 1) {
+    why = `Only one thing was found standing on the ${surface} (${the(standing[0])}).${also} ${advice}`;
+  } else if (start < 0) {
+    why = `There is no open ${surface} to start on: the things found cover it. ${roomier}`;
+  } else if (cut.length) {
+    const alone = rest.length === 1 ? `, and ${the(rest[0])} alone cannot be both the exit and a thing to collect` : '';
+    why = `The explorer cannot walk to ${nameList(cut.map(the))} on the ${surface}${alone}. ${roomier}`;
+  } else {
+    why = `${proof.why}.`;
+  }
+  return `No level from this picture: ${why}`;
 }
 
 // Build a level from the read of a room (sample or live): footprints, the
@@ -345,12 +395,19 @@ export function buildLevel(input) {
     if (!rt.objs[k].footprint) { level.objects[k].role = 'solid'; say(`The ${objectWords(level, k)} is not a collectible`, 'It does not stand on the play surface'); }
   }
 
+  // a hazard given another role changes the hazard mask: prepare again
+  const takeRole = (k, role) => {
+    const wasHazard = level.objects[k].role === 'avoid';
+    level.objects[k].role = role;
+    if (wasHazard) rt = prepare(level);
+  };
+
   // 1. no exit: the reachable object farthest along the way becomes the exit
   let start = chooseStart(level, rt);
   if (!exits.length) {
-    const k = farthestSolid(level, rt, start);
+    const k = exitCandidate(level, rt, start);
     if (k >= 0) {
-      level.objects[k].role = 'exit';
+      takeRole(k, 'exit');
       say(`The ${objectWords(level, k)} became the exit`, 'No exit was found');
       start = chooseStart(level, rt);
     }
@@ -381,10 +438,10 @@ export function buildLevel(input) {
   // 2. the exit cannot be reached: the farthest reachable object takes over
   const exitK = roleIndexes(level, 'exit')[0];
   if (exitK !== undefined && !ringReachable(rt, exitK, start >= 0 ? rt.nav.comp[start] : 0)) {
-    const k = farthestSolid(level, rt, start);
+    const k = exitCandidate(level, rt, start);
     if (k >= 0) {
       level.objects[exitK].role = 'solid';
-      level.objects[k].role = 'exit';
+      takeRole(k, 'exit');
       say(`The ${objectWords(level, k)} became the exit`, `The ${objectWords(level, exitK)} cannot be reached`);
       start = chooseStart(level, rt);
     }
@@ -400,23 +457,25 @@ export function buildLevel(input) {
   }
   start = chooseStart(level, rt);
 
-  // 4. nothing to collect: the two smallest reachable solid objects
+  // 4. nothing to collect: the two smallest reachable solid objects, else
+  // the smallest reachable hazards
   if (!roleIndexes(level, 'collect').length) {
-    const cands = roleIndexes(level, 'solid')
-      .filter((k) => rt.objs[k].footprint && ringReachable(rt, k, comp()))
-      .sort((a, b) => areaOf(rt, a) - areaOf(rt, b) || a - b)
-      .slice(0, 2);
-    for (const k of cands) {
-      level.objects[k].role = 'collect';
+    const smallest = (ks) => ks.sort((a, b) => areaOf(rt, a) - areaOf(rt, b) || a - b);
+    const cands = smallest(roleIndexes(level, 'solid').filter((k) => rt.objs[k].footprint && ringReachable(rt, k, comp())));
+    if (cands.length < 2 && roleIndexes(level, 'avoid').length) {
+      const free = hazardFree(level);
+      const fc = free.start >= 0 ? free.rt.nav.comp[free.start] : 0;
+      cands.push(...smallest(roleIndexes(level, 'avoid').filter((k) => rt.objs[k].footprint && ringReachable(free.rt, k, fc))));
+    }
+    for (const k of cands.slice(0, 2)) {
+      takeRole(k, 'collect');
       say(`The ${objectWords(level, k)} became a collectible`, 'Nothing else could be collected');
     }
     start = chooseStart(level, rt);
   }
 
   const proof = proveLevel(level, rt, start);
-  if (!proof.winnable) {
-    return { error: `No level from this picture: ${proof.why}. Try a sample room or another photo.` };
-  }
+  if (!proof.winnable) return { error: noLevelWords(level, rt, start, proof) };
   finishLevel(level, rt, start, proof);
   return { level, rt };
 }

@@ -23,6 +23,21 @@ function input(objects, surface) {
   };
 }
 
+// A live-shaped room: boxes on a 1024 x 768 picture, the surface a box too.
+const box = ([x0, y0, x1, y1]) => rect(x0, y0, x1 - x0, y1 - y0);
+function liveInput(objects, surfaceBox = [0, 300, 1024, 768]) {
+  return {
+    origin: 'live',
+    picture: { kind: 'photo', width: 1024, height: 768 },
+    title: 'A photo',
+    surface: surfaceBox ? { name: 'floor', rings: box(surfaceBox), source: 'box' } : null,
+    objects: objects.map(([name, role, b], k) => ({
+      id: `obj${k + 1}`, name, role, reason: 'test', box: b, outline: { source: 'box', rings: box(b) }, on_surface: true,
+    })),
+    provenance: { created: CREATED },
+  };
+}
+
 function deskLevel() {
   const room = loadRoom(JSON.parse(readFileSync(new URL('../rooms/desk.json', import.meta.url), 'utf8')));
   return { room, built: buildLevel(inputFromRoom(room, CREATED)) };
@@ -176,7 +191,71 @@ test('repair 6: a room that cannot be won gives no level, in words', () => {
     ['door', 'exit', rect(100, 10, 20, 30)],
   ]));
   assert.ok(res.error);
-  assert.match(res.error, /^No level from this picture/);
+  assert.match(res.error, /^No level from this picture: The explorer cannot walk to the kite and the door on the floor\./);
+  const half = buildLevel(input([
+    ['kite', 'collect', rect(30, 10, 10, 10)],
+    ['door', 'exit', rect(100, 100, 20, 30)],
+  ]));
+  assert.match(half.error, /cannot walk to the kite on the floor, and the door alone cannot be both the exit and a thing to collect/);
+});
+
+test('a sparse room: coins and no exit, so the farthest coin becomes the exit', () => {
+  const res = buildLevel(liveInput([
+    ['coin', 'collect', [480, 640, 520, 680]],
+    ['coin', 'collect', [200, 500, 240, 540]],
+    ['coin', 'collect', [800, 380, 840, 420]],
+  ]));
+  assert.ok(!res.error, res.error);
+  const { level } = res;
+  assert.equal(level.proof.winnable, true);
+  assert.equal(level.rules.collect.length, 2);
+  assert.equal(level.changes_by_code.length, 1);
+  assert.match(level.changes_by_code[0].what, /^The coin \d became the exit$/);
+  assert.equal(level.changes_by_code[0].why, 'No exit was found');
+  assert.ok(validateLevel(JSON.parse(JSON.stringify(level))).ok);
+});
+
+test('a sparse room: two coins make an exit and one collectible', () => {
+  const res = buildLevel(liveInput([['coin', 'collect', [480, 600, 520, 640]], ['coin', 'collect', [200, 400, 240, 440]]]));
+  assert.ok(!res.error, res.error);
+  assert.equal(res.level.rules.collect.length, 1);
+});
+
+test('a sparse room: an exit and a hazard, so the hazard becomes the collectible', () => {
+  const res = buildLevel(liveInput([
+    ['door', 'exit', [100, 320, 180, 480]],
+    ['cactus', 'avoid', [600, 550, 660, 640]],
+  ]));
+  assert.ok(!res.error, res.error);
+  const { level, rt } = res;
+  assert.equal(level.proof.winnable, true);
+  assert.deepEqual(level.rules.collect, ['obj2']);
+  assert.deepEqual(level.rules.avoid, []);
+  assert.equal(rt.hazard, null, 'the hazard mask was made again');
+  assert.ok(level.changes_by_code.some((c) => c.what === 'The cactus became a collectible'));
+  assert.ok(validateLevel(JSON.parse(JSON.stringify(level))).ok);
+});
+
+test('a sparse room: a hazard can also become the exit', () => {
+  const res = buildLevel(liveInput([
+    ['coin', 'collect', [480, 640, 520, 680]],
+    ['cactus', 'avoid', [600, 400, 660, 480]],
+  ]));
+  assert.ok(!res.error, res.error);
+  assert.equal(res.level.rules.exit, 'obj2');
+  assert.equal(res.rt.hazard, null);
+});
+
+test('a room that truly cannot be made says what was found and what is missing', () => {
+  const one = buildLevel(liveInput([['mug', 'collect', [480, 500, 540, 580]]]));
+  assert.match(one.error, /^No level from this picture: /);
+  assert.match(one.error, /Only one thing was found standing on the floor \(the mug\)/);
+  assert.match(one.error, /three or more/);
+  assert.doesNotMatch(one.error, /exactly one exit/);
+  const exitOnly = buildLevel(liveInput([['door', 'exit', [100, 320, 180, 480]]]));
+  assert.match(exitOnly.error, /\(the door\).*three or more/);
+  const none = buildLevel(liveInput([['rug', 'flat', [100, 500, 400, 600]]]));
+  assert.match(none.error, /Nothing was found standing on the floor\. Also found, but not standing on it: the rug\./);
 });
 
 test('validation refuses a foreign origin, a ring outside, two exits and no collectible', () => {
