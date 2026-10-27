@@ -25,8 +25,9 @@ for (const [name, answer] of [['an answer', () => replyFor('desk', 'rehearsal')]
     app.button('Rehearse the live path').click();
     const panel = app.$('main').querySelector('.progress');
     assert.ok(panel && !panel.hidden);
-    assert.deepEqual(tags(panel), ['OL'], 'while reading: the lines only');
+    assert.deepEqual(tags(panel), ['OL', 'DIV'], 'while reading: the lines and Cancel');
     assert.equal(panel.querySelectorAll('li').length, 3);
+    assert.deepEqual(panel.querySelectorAll('button').map(textOf), ['Cancel']);
     assert.doesNotMatch(textOf(panel), /\bnull\b|\bundefined\b/);
     await app.settle(60);
     if (answer) {
@@ -39,7 +40,7 @@ for (const [name, answer] of [['an answer', () => replyFor('desk', 'rehearsal')]
   });
 }
 
-// ---- LIVE: whole sentences, Try this photo again ----
+// ---- LIVE: whole sentences, Try this photo again, Cancel ----
 // The test answers api/room through the fetch the app host installs (kept
 // through the setter); everything else goes to the app host's own.
 const AT9 = {
@@ -111,5 +112,54 @@ test('LIVE, Step 9: retry_same puts Try this photo again first, Mark your room b
     app.button('Try this photo again').click();
     await app.settle(60);
     assert.equal(s.posts.length, 2);
+  } finally { s.restore(); }
+});
+
+test('LIVE: Cancel stays pressable while reading, stops the wait at once, says so, and a late answer is neither used nor kept', async () => {
+  let late = null;
+  const { app, s } = await live(road, (url, opts) => {
+    if (url !== 'api/room') return undefined;
+    return new Promise((resolve, reject) => {
+      late = () => resolve(json(200, replyFor('desk', 'live')));
+      if (opts.signal) opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
+  });
+  try {
+    app.choose(photoFile(44));
+    for (let i = 0; i < 200 && !late; i++) await app.settle(2);
+    const cancel = app.button('Cancel');
+    assert.ok(cancel && !cancel.disabled, 'Cancel is pressable');
+    assert.equal(app.button('Choose a photo').disabled, true, 'every other button waits');
+    cancel.click();
+    await app.settle();
+    const panel = app.$('main').querySelector('.progress');
+    assert.match(textOf(panel.querySelector('.error')), /^Cancelled: this page stopped waiting for the read, and nothing from it is used\. You can also pick another photo/);
+    assert.equal(app.button('Cancel'), null);
+    assert.equal(app.button('Choose a photo').disabled, false, 'no longer busy');
+    assert.ok(app.button('Try this photo again'));
+    // where sendPhoto hands the signal to fetch, the send itself is aborted
+    if (s.posts[0].signal) assert.equal(s.posts[0].signal.aborted, true);
+    late();
+    await app.settle(60);
+    assert.equal(app.step(), 2, 'the late answer is not used');
+    assert.deepEqual(app.levels(), [], 'nor kept');
+  } finally { s.restore(); }
+});
+
+test('LIVE, Step 9: Cancel works on your own room too', async () => {
+  let started = false;
+  const { app, s } = await live(AT9, (url) => {
+    if (url !== 'api/room') return undefined;
+    started = true;
+    return new Promise(() => {});
+  });
+  try {
+    app.choose(photoFile(45));
+    for (let i = 0; i < 200 && !started; i++) await app.settle(2);
+    app.button('Cancel').click();
+    await app.settle();
+    assert.match(app.main(), /Cancelled: this page stopped waiting for the read/);
+    assert.equal(app.step(), 9);
+    assert.equal(app.button('Choose a photo').disabled, false);
   } finally { s.restore(); }
 });

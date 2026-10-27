@@ -158,6 +158,7 @@ function setBusy(on) {
   A.busy = on;
   if (on) A.busyFocus = document.activeElement;
   for (const b of document.querySelectorAll('#main button, #road button')) {
+    if (b.hasAttribute('data-busy-ok')) continue; // Cancel: the one way out of a read
     if (on) { b.dataset.wasDisabled = b.disabled ? '1' : ''; b.disabled = true; } else if (b.dataset.wasDisabled === '') b.disabled = false;
   }
   const f = A.busyFocus;
@@ -165,9 +166,10 @@ function setBusy(on) {
   if (!on) A.busyFocus = null;
 }
 
-// After a failure, again: the read once more.
-// error: the words; again: { retry, tip } or null
-function progressPanel(panel, lines, current, error, { again = null } = {}) {
+// While reading, the panel's Cancel stays pressable (setBusy passes over a
+// button marked data-busy-ok). After a failure, again: the read once more.
+// error: the words; cancel(): stop the read; again: { retry, tip } or null
+function progressPanel(panel, lines, current, error, { cancel = null, again = null } = {}) {
   panel.hidden = false;
   // never a null child: the page's own replaceChildren would write 'null'
   const kids = [el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
@@ -175,6 +177,11 @@ function progressPanel(panel, lines, current, error, { again = null } = {}) {
     text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
   })))];
   if (error) kids.push(el('p', { class: 'error', role: 'alert', text: error }));
+  if (!error && cancel) {
+    kids.push(el('div', { class: 'actions' }, [el('button', {
+      type: 'button', class: 'btn', 'data-busy-ok': 'true', text: 'Cancel', tip: 'Stops waiting for this read', onclick: cancel,
+    })]));
+  }
   if (error && again) {
     demotePrimaries();
     kids.push(el('div', { class: 'actions' }, [retryButton(again)]));
@@ -219,6 +226,29 @@ function failureOf(e, reply = null) {
   };
 }
 
+// A read stopped with Cancel: the page stops waiting at once (and the send
+// is aborted where sendPhoto takes the signal); nothing from it is used.
+const CANCEL_WORDS = 'Cancelled: this page stopped waiting for the read, and nothing from it is used.';
+function cancelled() {
+  const e = new Error(CANCEL_WORDS);
+  e.cancelled = true;
+  e.retrySame = true;
+  return e;
+}
+
+// Runs a read that Cancel can stop: make(signal) races the press. A read
+// that finishes after Cancel is dropped (the race is already over).
+function cancellable(make) {
+  const ctl = new AbortController();
+  A.cancelRead = ctl;
+  const stopped = new Promise((_, reject) => ctl.signal.addEventListener('abort', () => reject(cancelled()), { once: true }));
+  return Promise.race([make(ctl.signal), stopped]).finally(() => { if (A.cancelRead === ctl) A.cancelRead = null; });
+}
+
+function cancelRead() {
+  if (A.cancelRead && !A.cancelRead.signal.aborted) A.cancelRead.abort();
+}
+
 // inPlace: the room is already on the road (its level was not in memory):
 // it is made again on the same step, never by moving the counter back.
 // again: reads the same photo once more, offered when a failure says so.
@@ -226,12 +256,13 @@ async function runLivePath(slot, panel, make, { inPlace = false, again = null } 
   if (A.busy) return;
   setBusy(true);
   let step = 0;
-  progressPanel(panel, LIVE_LINES, step);
+  const lines = (error, more) => progressPanel(panel, LIVE_LINES, step, error, more);
+  lines(null, { cancel: cancelRead });
   try {
-    const { ref, entry } = await make((words) => {
+    const { ref, entry } = await cancellable((signal) => make((words) => {
       const i = LIVE_LINES.indexOf(words);
-      if (i >= 0) { step = i; progressPanel(panel, LIVE_LINES, step); say(words); }
-    });
+      if (i >= 0 && !signal.aborted) { step = i; lines(null, { cancel: cancelRead }); say(words); }
+    }, signal));
     if (entry.built.error) throw new Error(entry.built.error);
     A.live.set(refKey(ref), entry);
     setBusy(false);
@@ -242,16 +273,17 @@ async function runLivePath(slot, panel, make, { inPlace = false, again = null } 
     const f = failureOf(e, e.reply);
     const retry = again && f.retrySame;
     const ways = inPlace ? null : retry ? 'You can also pick another photo, or play a sample room below.' : 'You can try another photo, or play a sample room below.';
-    progressPanel(panel, LIVE_LINES, step, sentences(e.message, ways), { again: retry ? { retry: again, tip: 'Sends the same photo again; no need to pick it' } : null });
+    lines(sentences(e.message, ways), { again: retry ? { retry: again, tip: 'Sends the same photo again; no need to pick it' } : null });
     say(e.message);
-    liveFailed(e, f);
+    if (!e.cancelled) liveFailed(e, f);
   }
 }
 
 // standInRoom: in REHEARSAL, the room the answer must be for. A refused
 // reply rides on the error (e.reply), so its code and retry_same can be read.
-async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null) {
-  const reply = await sendPhoto(blob, (m) => onWords(m.words));
+// signal: Cancel's, for sendPhoto.
+async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null, signal = null) {
+  const reply = await sendPhoto(blob, (m) => onWords(m.words), undefined, { signal });
   const ok = acceptReply(A.mode, reply, copy);
   if (!ok.ok) throw Object.assign(new Error(ok.why), { reply });
   const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
@@ -268,7 +300,7 @@ async function readThroughServer(blob, copy, picture, pictureRef, onWords, stand
 function choosePhoto(slot, file, panel, opts) {
   if (A.mode !== 'live') return null;
   const want = opts && opts.inPlace ? A.road.rooms[slot] : null;
-  return runLivePath(slot, panel, async (onWords) => {
+  return runLivePath(slot, panel, async (onWords, signal) => {
     const photo = await readPhoto(file);
     if (want && photo.sha256 !== want.sha256) throw new Error(`${NOT_SAME_WORDS} Pick the same photo, or use ← to go back to Step ${R.PICK_STEPS[slot]} for another room.`);
     const ref = { kind: 'photo', sha256: photo.sha256 };
@@ -277,8 +309,9 @@ function choosePhoto(slot, file, panel, opts) {
       say('This photo’s level was on this device: no model was called.');
       return { ref, entry: kept };
     }
-    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords);
-    if (!entry.built.error) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
+    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal);
+    // a cancelled read is not used, so not kept either
+    if (!entry.built.error && !signal.aborted) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
     return { ref, entry };
   }, { ...opts, again: () => choosePhoto(slot, file, panel, opts) });
 }
@@ -288,7 +321,7 @@ function choosePhoto(slot, file, panel, opts) {
 // room the running stand-in answers for is sent, and only its answer for
 // that room is used.
 function rehearseRoom(slot, id, panel, opts) {
-  return runLivePath(slot, panel, async (onWords) => {
+  return runLivePath(slot, panel, async (onWords, signal) => {
     const room = rehearsalRoom();
     if (id !== room) {
       throw new Error(`The local stand-in was started for ${await sampleTitle(room)}, not ${await sampleTitle(id)}, so it would answer for the wrong room. Nothing was sent.`);
@@ -296,7 +329,7 @@ function rehearseRoom(slot, id, panel, opts) {
     const s = await sample(id);
     const blob = await canvasJpeg(s.picture);
     const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
-    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room);
+    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room, signal);
     return { ref: { kind: 'rehearsal', id }, entry };
   }, { ...opts, again: () => rehearseRoom(slot, id, panel, opts) });
 }
@@ -797,14 +830,14 @@ async function screenEnd(main, token) {
 // sample picture; LIVE sends it to Meta's models.
 const coarsePointer = mq('(pointer: coarse)');
 
-// seen.reply: the server's reply, once one came (its error's code and
-// retry_same)
-function ownDeps(seen = {}) {
+// signal: Cancel's; seen.reply: the server's reply, once one came (its
+// error's code and retry_same)
+function ownDeps(signal = null, seen = {}) {
   return {
     preview: previewPhoto,
     readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
     send: async (blob, onWords) => {
-      seen.reply = await sendPhoto(blob, (m) => onWords(m.words));
+      seen.reply = await sendPhoto(blob, (m) => onWords(m.words), undefined, { signal });
       return seen.reply;
     },
     samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
@@ -879,7 +912,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   const sends = mode === 'live' || mode === 'rehearsal';
   let step = 0;
   shown.hidden = true;
-  if (sends) progressPanel(panel, LIVE_LINES, step);
+  if (sends) progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead });
   // the photo can be marked by hand instead (never in place: that is a
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
@@ -889,14 +922,14 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     // the samples' fingerprints, for a rehearsal's check (a return visit
     // may reach this without any sample room drawn yet)
     for (const s of SAMPLES) await sample(s.id);
-    const r = await makeOwnRoom({
-      mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(seen),
+    const r = await cancellable((signal) => makeOwnRoom({
+      mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(signal, seen),
       sameAs: inPlace ? A.road.rooms[2].sha256 : null,
       onWords: (words) => {
         const i = LIVE_LINES.indexOf(words);
-        if (i >= 0) { step = i; progressPanel(panel, LIVE_LINES, step); say(words); }
+        if (i >= 0 && !signal.aborted) { step = i; progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead }); say(words); }
       },
-    });
+    }));
     setBusy(false);
     if (r.notSame) r.words = sentences(r.words, IN_PLACE_WAYS);
     if (r.kind === 'built') {
@@ -933,7 +966,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
       showOwnResult(shown, { kind: 'refused', words }, onMark, f.retrySame ? again : null);
     }
     say(e.message);
-    if (sends) liveFailed(e, f);
+    if (!e.cancelled && sends) liveFailed(e, f);
   }
 }
 
