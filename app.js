@@ -179,6 +179,20 @@ function progressPanel(panel, lines, current, error) {
 const FREE_WORDS = 'Rounds in Free play do not change your road.';
 const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
 
+// Words joined as whole sentences: the first one ends as a sentence ends
+// (the server's own words may not), so the next one reads on.
+function sentences(...parts) {
+  return parts.filter(Boolean).map((p) => String(p).trim()).filter(Boolean)
+    .map((p, i, all) => (i < all.length - 1 && !/[.!?]$/.test(p) ? `${p}.` : p)).join(' ');
+}
+
+// What a failed read says about itself, from the reply's error or from what
+// the send's error carries (absent-safe: a server or a send that says
+// nothing of it gives { code: null }).
+function failureOf(e, reply = null) {
+  const er = (reply && reply.error) || (e && (e.error || (e.reply && e.reply.error))) || {};
+  return { code: er.code || (e && e.code) || null };
+}
 
 // inPlace: the room is already on the road (its level was not in memory):
 // it is made again on the same step, never by moving the counter back.
@@ -201,14 +215,16 @@ async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
     setBusy(false);
     progressPanel(panel, LIVE_LINES, step, inPlace ? e.message : `${e.message} You can try another photo, or play a sample room below.`);
     say(e.message);
+    liveFailed(e, failureOf(e, e.reply));
   }
 }
 
-// standInRoom: in REHEARSAL, the room the answer must be for
+// standInRoom: in REHEARSAL, the room the answer must be for. A refused
+// reply rides on the error (e.reply), so its error code can be read.
 async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null) {
   const reply = await sendPhoto(blob, (m) => onWords(m.words));
   const ok = acceptReply(A.mode, reply, copy);
-  if (!ok.ok) throw new Error(ok.why);
+  if (!ok.ok) throw Object.assign(new Error(ok.why), { reply });
   const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
   if (other) throw new Error(other);
   onWords('Tracing the outlines');
@@ -435,7 +451,7 @@ function screenWelcome(main) {
 }
 
 function photoOffWords() {
-  if (A.mode === 'live') return null;
+  if (A.mode === 'live') return liveOff();
   if (A.mode === 'rehearsal') return OFF_WORDS.rehearsal;
   if (!A.health) return `Off: ${A.modeWhy}`;
   return OFF_WORDS.mock;
@@ -463,6 +479,8 @@ async function screenRoom(main, slot, token) {
       onClick: () => rehearseRoom(slot, rehearsal, view.panel),
     } : null,
   });
+  const check = checkAgainButton();
+  if (check) view.section.querySelector('.actions').append(check);
   main.replaceChildren(view.section);
   const other = slot === 1 ? A.road.rooms[0] : null;
   for (const s of SAMPLES) {
@@ -750,11 +768,15 @@ async function screenEnd(main, token) {
 // sample picture; LIVE sends it to Meta's models.
 const coarsePointer = mq('(pointer: coarse)');
 
-function ownDeps() {
+// seen.reply: the server's reply, once one came (its error's code)
+function ownDeps(seen = {}) {
   return {
     preview: previewPhoto,
     readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
-    send: (blob, onWords) => sendPhoto(blob, (m) => onWords(m.words)),
+    send: async (blob, onWords) => {
+      seen.reply = await sendPhoto(blob, (m) => onWords(m.words));
+      return seen.reply;
+    },
     samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
     stored: storedEntry,
     // the photo of your own room marked by hand: made again from the marks
@@ -793,11 +815,18 @@ async function screenOwn(main, token) {
   for (const s of SAMPLES) await sample(s.id);
   if (token !== A.renderToken) return;
   const room = rehearsalRoom();
+  const off = liveOff();
   const view = ownView({
-    mode: A.mode, primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
+    mode: ownMode(), primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
     sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road),
     actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.passOwnRoom(A.road)) },
   });
+  // the live AI unavailable: said in place of MOCK's notice; a photo is
+  // shown here and can be marked, and nothing is sent
+  const notice = view.section.querySelector('.notice');
+  if (off && notice) notice.textContent = sentences('LIVE, but the live AI is unavailable on this server right now', A.liveDown.reason, 'A photo you choose stays on this device and you can mark your room yourself; nothing is sent. The sample rooms still work.');
+  const check = checkAgainButton();
+  if (check) view.section.querySelector('.actions').append(check);
   main.replaceChildren(view.section);
   if (A.busy) setBusy(true);
 }
@@ -811,19 +840,23 @@ const MARK_WAYS = 'You can mark the room yourself instead, try another photo, or
 async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   if (A.busy) return;
   setBusy(true);
-  const sends = A.mode === 'live' || A.mode === 'rehearsal';
+  // with the live AI unavailable, a photo is shown here and can be marked,
+  // as in MOCK: nothing is sent
+  const mode = ownMode();
+  const sends = mode === 'live' || mode === 'rehearsal';
   let step = 0;
   shown.hidden = true;
   if (sends) progressPanel(panel, LIVE_LINES, step);
   // the photo can be marked by hand instead (never in place: that is a
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
+  const seen = { reply: null };
   try {
     // the samples' fingerprints, for a rehearsal's check (a return visit
     // may reach this without any sample room drawn yet)
     for (const s of SAMPLES) await sample(s.id);
     const r = await makeOwnRoom({
-      mode: A.mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(),
+      mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(seen),
       sameAs: inPlace ? A.road.rooms[2].sha256 : null,
       onWords: (words) => {
         const i = LIVE_LINES.indexOf(words);
@@ -846,6 +879,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     if (onMark && r.kind === 'refused') r.words = `${r.words} ${MARK_WAYS}`;
     showOwnResult(shown, r, onMark);
     say(r.kind === 'kept' ? 'Your photo is shown here and stays on this device. Nothing was sent. You can mark your room.' : r.words);
+    if (r.kind === 'refused' && seen.reply) liveFailed(null, failureOf(null, seen.reply));
   } catch (e) {
     setBusy(false);
     // a read that failed after the photo was read here (src/own.js): it
@@ -862,6 +896,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
       showOwnResult(shown, { kind: 'refused', words }, onMark);
     }
     say(e.message);
+    if (sends) liveFailed(e, failureOf(e, e.reply));
   }
 }
 
@@ -1132,25 +1167,122 @@ addEventListener('popstate', (e) => {
 });
 
 // ---- mode ----
-async function detectMode() {
+// The server's health, tried up to 3 times (a slow or waking host gets
+// 4 s, then 6 s, then 8 s), and again with Check again.
+const HEALTH_WAITS = [4000, 6000, 8000];
+const NO_SERVER_WORDS = 'The server did not answer, so this page shows sample rooms only.';
+async function healthOnce(ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
   try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 2500);
     const res = await fetch('api/health', { signal: ctl.signal, headers: { 'X-FramePlay-Request': '1' } });
-    clearTimeout(t);
     if (!res.ok) throw new Error('no health');
     const h = await res.json();
-    if (h && ['mock', 'live', 'rehearsal'].includes(h.mode)) {
+    if (h && ['mock', 'live', 'rehearsal'].includes(h.mode)) return h;
+    throw new Error('unknown health');
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function detectMode() {
+  for (const ms of HEALTH_WAITS) {
+    try {
+      const h = await healthOnce(ms);
       A.mode = h.mode;
       A.modeWhy = h.reason || '';
       A.health = h;
-      return;
-    }
-    throw new Error('unknown health');
-  } catch {
-    A.mode = 'mock';
-    A.modeWhy = 'No server answered, so this page runs MOCK only: the sample rooms drawn by code.';
+      // a send's live_unavailable holds until health says otherwise
+      A.liveDown = h.live_state === 'unavailable' ? { reason: h.live_reason || '', wait: h.live_check_again_s || 0 } : null;
+      return true;
+    } catch { /* tried again, up to 3 times */ }
   }
+  A.mode = 'mock';
+  A.health = null;
+  A.liveDown = null;
+  A.modeWhy = NO_SERVER_WORDS;
+  return false;
+}
+
+// LIVE, but the live AI is unavailable (an account or model problem the
+// owner must fix): the words for an off picker, or null. Health says so
+// (live_state), or a send was answered live_unavailable.
+function liveOff() {
+  if (A.mode !== 'live' || !A.liveDown) return null;
+  const { reason, wait } = A.liveDown;
+  const mins = wait > 0 ? Math.max(1, Math.round(wait / 60)) : 0;
+  return sentences(
+    'Off: the live AI is unavailable on this server right now',
+    reason,
+    'The sample rooms still work, and on Step 9 you can mark your own room by hand; nothing is sent',
+    mins ? `The server tries again in about ${mins} minute${mins === 1 ? '' : 's'}: press Check again then.` : 'Press Check again to ask the server once more.',
+  );
+}
+
+// Your own room's mode: with the live AI unavailable, a photo is shown on
+// this device and can be marked, as in MOCK.
+function ownMode() {
+  return liveOff() ? 'mock' : A.mode;
+}
+
+// After a failed live read: a live_unavailable answer turns the picker off
+// at once; a send that failed without a reply (e: no e.reply) asks health
+// again, quietly, in case the server's latch closed (its 503 may not reach
+// the page with its code).
+function liveFailed(e, f) {
+  if (A.mode !== 'live') return;
+  if (f.code === 'live_unavailable') {
+    A.liveDown = { reason: '', wait: 0 };
+    render();
+    return;
+  }
+  if (!e || e.reply) return;
+  const step = A.road.step;
+  healthOnce(HEALTH_WAITS[0]).then((h) => {
+    if (h.mode !== 'live' || h.live_state !== 'unavailable' || A.liveDown) return;
+    A.health = h;
+    A.liveDown = { reason: h.live_reason || '', wait: h.live_check_again_s || 0 };
+    if (!A.busy && A.road.step === step) render();
+  }).catch(() => { /* the failure's own words stay */ });
+}
+
+// Check again: health asked once more (3 tries); the screen drawn again
+// in the mode it gives.
+async function checkAgain(button) {
+  if (A.busy || A.checking) return;
+  A.checking = true;
+  if (button) { button.disabled = true; button.textContent = 'Checking…'; }
+  say('Checking the server again');
+  const was = A.mode;
+  try {
+    await detectMode();
+  } finally {
+    A.checking = false;
+  }
+  rehearsalBand();
+  await render();
+  say(A.mode === 'live' && !liveOff() ? 'The live AI is on: you can choose a photo.'
+    : A.mode === 'live' ? 'The live AI is still unavailable.'
+      : A.mode !== was ? `This page now runs in ${A.mode.toUpperCase()}.` : A.health ? 'The server answered: no change.' : 'The server still did not answer.');
+}
+
+// LIVE off (no server answered, or the live AI unavailable): a way to ask
+// again, on the screens that offer a photo
+function checkAgainButton() {
+  if (A.health && !liveOff()) return null;
+  const b = el('button', {
+    type: 'button', class: 'btn', text: 'Check again', tip: 'Asks the server again whether the live AI is on',
+    onclick: () => checkAgain(b),
+  });
+  return b;
+}
+
+function rehearsalBand() {
+  const band = $('top').querySelector('.band');
+  if (A.mode === 'rehearsal' && !band) {
+    // a band on every screen: nothing in a rehearsal comes from Meta
+    $('top').append(el('p', { class: 'band', text: 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.' }));
+  } else if (A.mode !== 'rehearsal' && band) band.remove();
 }
 
 // ---- boot ----
@@ -1161,10 +1293,7 @@ async function boot() {
   A.tour.on = readPref('tour', false) === true;
   applyClasses();
   await detectMode();
-  if (A.mode === 'rehearsal') {
-    // a band on every screen: nothing in a rehearsal comes from Meta
-    $('top').append(el('p', { class: 'band', text: 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.' }));
-  }
+  rehearsalBand();
   const saved = R.sanitizeRoad(readPref('road', null));
   if (saved && saved.step > 1) {
     A.road = R.newRoad();
