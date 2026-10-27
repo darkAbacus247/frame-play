@@ -22,6 +22,8 @@ from server import config, samtext
 from server.limits import SAM_COST, SPARK_WORST, Refusal, spark_cost
 from server.meta_api import CallError, Transport, excerpt
 
+AGAIN = 'Please try the same photo again.'
+
 REPLY_SCHEMA = 'frameplay.room.reply/2'
 ROLES = ('collect', 'avoid', 'exit', 'solid', 'flat')
 PER_NOUN = {'collect': 3, 'solid': 2, 'avoid': 1, 'exit': 1, 'flat': 1}
@@ -102,7 +104,26 @@ SCHEMA = {
 }
 
 PROGRESS = (('read', 'Reading your room'), ('find', 'Finding every object'))
-PEOPLE_WORDS = 'This photo seems to show a person. Please use one with no people.'
+PEOPLE_WORDS = ('This photo seems to show a person (people in posters, screens, framed photos and mirrors count too). '
+                'Please use one with no people.')
+# Errors after which the same photo, sent again, may well be read: passing
+# faults on the way, and answers that came out wrong this time. The reply
+# says so in error.retry_same.
+RETRY_SAME = {'busy', 'sam_busy', 'sam_unavailable', 'cut_off', 'malformed', 'server_error', 'names_unusable'}
+
+
+def sentence(words):
+    """Words that end as a sentence ends, so the page's own words read on."""
+    words = str(words).strip()
+    return words if not words or words[-1] in '.!?' else words + '.'
+
+
+def reply_error(error):
+    """An error for a reply: whole sentences, and whether the same photo,
+    sent again, could be read (by its code, unless the error says)."""
+    retry = error.get('retry_same')
+    return {**error, 'message': sentence(error.get('message', '')),
+            'retry_same': bool(error.get('code') in RETRY_SAME if retry is None else retry)}
 CUT_OFF_WORDS = ('The room read was cut off before it finished. Please try the same photo again; '
                  'a photo with fewer things in it reads faster.')
 
@@ -179,7 +200,7 @@ def read_spark(j, holder=None):
         message = choice['message']
         content = message.get('content')
     except (KeyError, IndexError, TypeError, AttributeError):
-        raise CallError('malformed', 'The room read came back in an unexpected shape.', excerpt=excerpt(json.dumps(j)[:600], holder)) from None
+        raise CallError('malformed', f'The room read came back in an unexpected shape. {AGAIN}', excerpt=excerpt(json.dumps(j)[:600], holder)) from None
     refusal = message.get('refusal')
     if finish == 'content_filter' or (isinstance(refusal, str) and refusal.strip()):
         raise CallError('content_filter', 'Muse Spark declined to read this photo.', billed=True,
@@ -191,13 +212,13 @@ def read_spark(j, holder=None):
     if isinstance(content, list):
         content = ''.join(p.get('text', '') for p in content if isinstance(p, dict))
     if content is None or (isinstance(content, str) and not content.strip()):
-        raise CallError('malformed', 'The room read came back empty.')
+        raise CallError('malformed', f'The room read came back empty. {AGAIN}')
     try:
         read = json.loads(content)
     except (TypeError, ValueError):
-        raise CallError('malformed', 'The room read was not valid JSON.', excerpt=excerpt(content, holder)) from None
+        raise CallError('malformed', f'The room read was not valid JSON. {AGAIN}', excerpt=excerpt(content, holder)) from None
     if not isinstance(read, dict) or not isinstance(read.get('people_present'), bool):
-        raise CallError('malformed', 'The room read is missing its fields.', excerpt=excerpt(content, holder))
+        raise CallError('malformed', f'The room read is missing its fields. {AGAIN}', excerpt=excerpt(content, holder))
     usage = j.get('usage') or {}
     tin = int(usage.get('prompt_tokens') or 0)
     tout = int(usage.get('completion_tokens') or 0)
@@ -429,7 +450,8 @@ class Pipeline:
             self.limits.admit()
         except Refusal as e:
             extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
-            return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused', 'error': {'code': e.code, 'message': e.message}}, extra)
+            return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused',
+                                           'error': reply_error({'code': e.code, 'message': e.message})}, extra)
         done = []
 
         def finish():
@@ -486,7 +508,7 @@ class Pipeline:
             prov['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
         return {'schema': REPLY_SCHEMA, 'request_id': uuid.uuid4().hex, 'status': 'error', 'provenance': prov,
                 'objects': [], 'warnings': [],
-                'error': {'code': 'server_error', 'message': 'The server could not finish reading this photo. Please try again.'}}
+                'error': reply_error({'code': 'server_error', 'message': 'The server could not finish reading this photo. Please try again.'})}
 
     # ---- the pipeline ----
     def model_words(self, model):
@@ -531,7 +553,7 @@ class Pipeline:
                 'objects': objects or [],
                 'usage': {**usage, 'estimated_usd': round(usage['estimated_usd'], 5)},
                 'warnings': warnings,
-                'error': error,
+                'error': reply_error(error) if error is not None else None,
             }
             if s.mode == 'rehearsal':
                 r['provenance']['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
@@ -576,8 +598,13 @@ class Pipeline:
             # the answer's HTTP status, so the page can tell a refused key
             # (401) from other errors; an account or model problem turns the
             # picker off
-            code = 'live_unavailable' if getattr(e, 'latched', False) else e.code
-            return reply('error', {'code': code, 'message': e.message, **({'status': e.status} if isinstance(e.status, int) else {})})
+            # the same photo again may well be read after a passing fault or
+            # an answer that came out wrong this time
+            latched = getattr(e, 'latched', False)
+            code = 'live_unavailable' if latched else e.code
+            retry = not latched and (getattr(e, 'transient', False) or e.code in RETRY_SAME)
+            return reply('error', {'code': code, 'message': e.message, 'retry_same': retry,
+                                   **({'status': e.status} if isinstance(e.status, int) else {})})
         cost = spark_cost(tin, tout)
         self.limits.settle(res, cost)
         usage.update(calls=usage['calls'] + 1, spark_calls=1, tokens_in=tin, tokens_out=tout, reasoning_tokens=reasoning)

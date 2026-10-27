@@ -11,7 +11,7 @@ from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import CallError, Transport
 from server.pipeline import (Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims,
-                             surface_from)
+                             reply_error, surface_from)
 from server.samtext import compose
 from server.server import Log
 from server.tests import images, recorded
@@ -146,7 +146,8 @@ class Reads(WithFake):
         r = self.pipe.run(photo())
         self.assertEqual(r['status'], 'refused')
         self.assertEqual(r['error']['code'], 'people_present')
-        self.assertEqual(r['error']['message'], 'This photo seems to show a person. Please use one with no people.')
+        self.assertEqual(r['error']['message'], 'This photo seems to show a person (people in posters, screens, framed photos '
+                                                'and mirrors count too). Please use one with no people.')
         self.assertEqual(self.fake.count('/responses'), 0)
 
     def test_content_filter_is_a_refusal_not_retried(self):
@@ -201,7 +202,7 @@ class Reads(WithFake):
     def test_an_empty_read_is_not_called_invalid_json(self):
         self.fake.on('/chat/completions', self.completion('stop', content=None, refusal=None))
         r = self.pipe.run(photo())
-        self.assertEqual((r['error']['code'], r['error']['message']), ('malformed', 'The room read came back empty.'))
+        self.assertEqual((r['error']['code'], r['error']['message']), ('malformed', 'The room read came back empty. Please try the same photo again.'))
 
     def test_a_malformed_read_keeps_a_short_redacted_excerpt(self):
         bad = ok_json({'choices': [{'finish_reason': 'stop', 'message': {'content': 'Sure! ' + TEST_VALUE + ' ' + 'z' * 800}}]})
@@ -399,6 +400,59 @@ class SamTrouble(WithFake):
         pipe = Pipeline(self.settings, Limits(), transport=Slow(), clock=lambda: t[0], sleep=lambda s: None)
         r = pipe.run(check_photo(images.jpeg(recorded.W, recorded.H), config.MAX_SIDE))
         self.assertEqual(r['status'], 'ok')
+
+
+class SameAgain(WithFake):
+    """A4: every error says in whole sentences what happened, and whether
+    the same photo, sent again, could be read (error.retry_same)."""
+
+    def check(self, spark, sam, code, retry_same):
+        fake = FakeMeta()
+        try:
+            fake.always('/chat/completions', spark)  # retried answers stay the same
+            fake.always('/responses', sam)
+            pipe = Pipeline(settings_from({}, fake.base, 'desk'), Limits(), sleep=lambda s: None)
+            r = pipe.run(photo())
+        finally:
+            fake.stop()
+        e = r['error']
+        self.assertEqual(e['code'], code)
+        self.assertIs(e['retry_same'], retry_same, code)
+        self.assertRegex(e['message'], r'^[A-Z].*[.!?]$', code)
+        plain = re.sub(r'Model API|Muse Spark|SAM 3\.1|JSON', 'it', e['message'])
+        self.assertNotRegex(plain, r'[a-z0-9)] [A-Z]', 'no sentence runs into the next: ' + e['message'])
+        return r
+
+    def test_each_error(self):
+        empty = sam_answer('<0f>\n')
+        cut = ok_json({'choices': [{'finish_reason': 'length', 'message': {'content': '{"objects": ['}}]})
+        for spark, sam, code, again in (
+                (ok_json({'error': {'code': 'slow_down'}}, 429), empty, 'slow_down', True),
+                (ok_json({'error': {'code': 'oops'}}, 500), empty, 'oops', True),
+                (ok_json({'error': {'code': 'bad'}}, 400), empty, 'bad', False),
+                (cut, empty, 'cut_off', True),
+                (ok_json({'choices': [{'finish_reason': 'stop', 'message': {'content': 'not json'}}]}), empty, 'malformed', True),
+                (spark_answer(READ, finish='content_filter'), empty, 'content_filter', False),
+                (spark_answer({**READ, 'people_present': True}), empty, 'people_present', False),
+                (spark_answer(SEEDLESS), ok_json({'error': {'code': 'rate_limited'}}, 429), 'sam_busy', True),
+                (spark_answer(SEEDLESS), ok_json({'error': {'code': 'down'}}, 502), 'sam_unavailable', True),
+                (spark_answer(SEEDLESS), sam_answer('garbage'), 'sam_unreadable', False),
+                (spark_answer(SEEDLESS), empty, 'nothing_found', False)):
+            self.check(spark, sam, code, again)
+
+    def test_the_people_words_say_what_counts(self):
+        r = self.check(spark_answer({**READ, 'people_present': True}), sam_answer('<0f>\n'), 'people_present', False)
+        self.assertIn('posters, screens, framed photos and mirrors', r['error']['message'])
+
+    def test_an_ok_reply_has_no_error(self):
+        self.fake.on('/chat/completions', spark_answer(READ))
+        self.assertIsNone(self.pipe.run(photo())['error'])
+
+    def test_busy_over_http_and_a_broken_read(self):
+        self.assertTrue(Pipeline.failed_reply(self.pipe)['error']['retry_same'])
+        self.assertEqual(reply_error({'code': 'busy', 'message': 'Wait a moment'}),
+                         {'code': 'busy', 'message': 'Wait a moment.', 'retry_same': True})
+        self.assertIs(reply_error({'code': 'hour_cap', 'message': 'Later.'})['retry_same'], False)
 
 
 class RecordedDesk(unittest.TestCase):
