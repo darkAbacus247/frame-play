@@ -3,7 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sendPhoto, retryAfterSeconds, WAITING_WORDS, BUSY_WAIT_MS, readPhoto, previewPhoto, READ_LIMIT_MS, TOO_LONG_WORDS, CANCELED_WORDS } from '../src/photo.js';
-import { photoRefusal, undecodableWords, photoKind, HEIC_WORDS, TOO_LARGE_WORDS, NOT_PICTURE_WORDS } from '../src/reply.js';
+import { photoRefusal, undecodableWords, photoKind, HEIC_WORDS, TOO_LARGE_WORDS, NOT_PICTURE_WORDS, jpegFacts, stripJpegMetadata, orientationToApply } from '../src/reply.js';
+import { copyCanvas } from '../src/photo.js';
 import { photoInput } from '../src/screens.js';
 import { installFakeDocument } from './fakedom.js';
 
@@ -339,4 +340,116 @@ test('D3: Cancel stops a read at once, before, during the request, while waiting
     assert.deepEqual(await sendPhoto(new Blob(['x']), () => {}, 'u', { signal: ctl.signal }), { ok: 1 });
     ctl.abort();
   });
+});
+
+// ---- D4: EXIF orientation honored, camera data stripped ----
+
+// Where each stored pixel shows, by EXIF orientation (the EXIF definition,
+// written out independently of the page's transforms): the upright
+// picture's pixel (x, y) is the stored picture's pixel at.
+const STORED_AT = {
+  1: (x, y) => [x, y],
+  2: (x, y, w) => [w - 1 - x, y],
+  3: (x, y, w, h) => [w - 1 - x, h - 1 - y],
+  4: (x, y, w, h) => [x, h - 1 - y],
+  5: (x, y) => [y, x],
+  6: (x, y, w) => [y, w - 1 - x],
+  7: (x, y, w, h) => [h - 1 - y, w - 1 - x],
+  8: (x, y, w, h) => [h - 1 - y, x],
+};
+const tag = (x, y) => [x * 30, y * 30, 7, 255]; // every stored pixel its own colour
+const pixelsOfCanvas = (c) => { const out = []; for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) out.push(c.pixel(x, y).join()); return out; };
+
+test('D4: every EXIF orientation is turned upright, pixel for pixel', async () => {
+  await withPage({ bitmap: cannot, image: cannot }, async () => {
+    const sw = 5, sh = 3; // as stored
+    const stored = picture(sw, sh, tag);
+    for (let o = 1; o <= 8; o++) {
+      const c = copyCanvas(stored, sw, sh, o);
+      const [w, h] = o >= 5 ? [sh, sw] : [sw, sh];
+      assert.deepEqual([c.width, c.height], [w, h], `orientation ${o}: sides`);
+      const want = [];
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) want.push(tag(...STORED_AT[o](x, y, w, h)).join());
+      assert.deepEqual(pixelsOfCanvas(c), want, `orientation ${o}: pixels`);
+    }
+    // and a big turned photo is shrunk on its upright long side
+    const c = copyCanvas(picture(4032, 3024, () => RED), 4032, 3024, 6);
+    assert.deepEqual([c.width, c.height], [768, 1024]);
+  });
+});
+
+test('D4: the stored size and EXIF orientation are read from the JPEG header', () => {
+  assert.deepEqual(jpegFacts(jpegBytes({ width: 4032, height: 3024, orientation: 6, camera: true })), { width: 4032, height: 3024, orientation: 6 });
+  assert.deepEqual(jpegFacts(jpegBytes({ width: 640, height: 480 })), { width: 640, height: 480, orientation: 1 }, 'no EXIF: as stored');
+  assert.equal(jpegFacts(new Uint8Array(text('not a jpeg at all'))), null);
+  // a little-endian EXIF block (as many cameras write it) with orientation 8
+  const le = [...text('II'), 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
+  const bytes = new Uint8Array([0xff, 0xd8, ...seg(0xe1, [...text('Exif'), 0, 0, ...le]), ...seg(0xc2, [8, 0, 10, 0, 20, 1, 1, 0x11, 0]), 0xff, 0xd9]);
+  assert.deepEqual(jpegFacts(bytes), { width: 20, height: 10, orientation: 8 });
+  // whether the page still has to turn what the decoder gave
+  const facts = { width: 4032, height: 3024, orientation: 6 };
+  assert.equal(orientationToApply(facts, 4032, 3024), 6, 'the decoder ignored it');
+  assert.equal(orientationToApply(facts, 3024, 4032), 1, 'the decoder turned it already');
+  assert.equal(orientationToApply({ ...facts, orientation: 1 }, 4032, 3024), 1);
+  assert.equal(orientationToApply({ width: 900, height: 900, orientation: 6 }, 900, 900), 1, 'a square cannot be told: the decoder is trusted');
+  assert.equal(orientationToApply(null, 10, 10), 1);
+});
+
+test('D4: every camera segment is taken out; the picture itself is kept byte for byte', () => {
+  const src = jpegBytes({ width: 64, height: 48, orientation: 6, camera: true, id: 77 });
+  const raw = new TextDecoder('latin1').decode(src);
+  for (const s of ['Exif', 'GPS', 'PhoneCam', 'xmpmeta']) assert.ok(raw.includes(s), `the test file has ${s}`);
+  const out = stripJpegMetadata(src);
+  const kept = new TextDecoder('latin1').decode(out);
+  for (const s of ['Exif', 'GPS', 'PhoneCam', 'xmpmeta', '2026:10:27']) assert.ok(!kept.includes(s), `${s} is gone`);
+  assert.ok(kept.includes('JFIF'), 'the JFIF header stays');
+  assert.deepEqual(jpegFacts(out), { width: 64, height: 48, orientation: 1 });
+  assert.equal(scanId(out), 77, 'the scan is untouched');
+  assert.deepEqual(Array.from(out.subarray(-4)), Array.from(src.subarray(-4)));
+  assert.deepEqual(stripJpegMetadata(out), out, 'stripping twice changes nothing');
+  const png = new Uint8Array([0x89, ...text('PNG'), 13, 10, 26, 10, 1, 2, 3]);
+  assert.deepEqual(stripJpegMetadata(png), png, 'not a JPEG: unchanged');
+});
+
+// A portrait phone photo as phones store it: landscape pixels, EXIF 6.
+// Upright, the top half is red, the bottom half blue, the top-left pixel
+// green (so a mirror image would show).
+const PW = 8, PH = 4; // stored
+const uprightOf = (x, y) => (x === 0 && y === 0 ? GREEN : y < PW / 2 ? RED : BLUE); // upright is PH wide, PW high
+const storedPortrait = picture(PW, PH, (sx, sy) => {
+  // the inverse of STORED_AT[6]: stored (sx, sy) shows at upright (PH - 1 - sy, sx)
+  return uprightOf(PH - 1 - sy, sx);
+});
+const uprightPortrait = picture(PH, PW, uprightOf);
+function assertUpright(c, what) {
+  assert.deepEqual([c.width, c.height], [PH, PW], `${what}: portrait sides`);
+  for (let y = 0; y < PW; y++) for (let x = 0; x < PH; x++) assert.deepEqual(c.pixel(x, y), uprightOf(x, y), `${what}: pixel ${x},${y}`);
+}
+const phoneFile = () => fileOf(padded(jpegBytes({ width: PW, height: PH, orientation: 6, camera: true }), 4096), 'image/jpeg', 'IMG_0002.JPG');
+
+test('D4: a portrait phone photo is shown and sent upright, and the copy sent holds no camera data', async () => {
+  const cases = [
+    ['a decoder that ignores EXIF', { bitmap: async () => storedPortrait, image: cannot }],
+    ['a decoder that applies EXIF', { bitmap: async (src, opts) => { assert.equal(opts.imageOrientation, 'from-image'); return uprightPortrait; }, image: cannot }],
+    ['the picture-element fallback (it applies EXIF)', { bitmap: cannot, image: async () => uprightPortrait }],
+    ['a picture-element fallback that ignores EXIF', { bitmap: cannot, image: async () => storedPortrait }],
+  ];
+  for (const [what, page] of cases) {
+    await withPage(page, async () => {
+      const file = phoneFile();
+      const p = await readPhoto(file);
+      assert.deepEqual([p.width, p.height], [PH, PW], what);
+      assertUpright(p.picture, `${what}, shown`);
+      // the very bytes that are sent
+      const sent = new Uint8Array(await p.blob.arrayBuffer());
+      assert.equal(p.blob.type, 'image/jpeg');
+      const words = new TextDecoder('latin1').decode(sent);
+      for (const s of ['Exif', 'GPS', 'PhoneCam', 'xmpmeta', '2026:10:27']) assert.ok(!words.includes(s), `${what}: no ${s} in the copy sent`);
+      assert.deepEqual(jpegFacts(sent), { width: PH, height: PW, orientation: 1 }, `${what}: sent upright, with no turn left for the server to apply`);
+      const enc = ENCODED.get(scanId(sent));
+      for (let y = 0; y < PW; y++) for (let x = 0; x < PH; x++) assert.deepEqual(enc.pixel(x, y), uprightOf(x, y), `${what}: sent pixel ${x},${y}`);
+      // the MOCK preview is upright too
+      assertUpright((await previewPhoto(file)).picture, `${what}, preview`);
+    });
+  }
 });

@@ -4,7 +4,7 @@
 // file's own bytes, and send the copy with progress lines (waiting out a
 // busy server, stopped after 120 s or by the page's Cancel). The browser's
 // decoder decides what a photo is, never the file's label. Touches the page.
-import { shrinkSize, photoRefusal, undecodableWords } from './reply.js';
+import { shrinkSize, photoRefusal, undecodableWords, jpegFacts, orientationToApply, stripJpegMetadata } from './reply.js';
 
 export async function sha256Hex(bytes) {
   const subtle = globalThis.crypto && globalThis.crypto.subtle;
@@ -13,23 +13,33 @@ export async function sha256Hex(bytes) {
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// A canvas holding the copy: the exact pixels that are sent.
-export function copyCanvas(source, w, h) {
-  const size = shrinkSize(w, h);
+// A canvas holding the copy: the exact pixels that are sent. `orientation`
+// is the EXIF turn (1 to 8) still to apply to a source of w × h, so a
+// portrait phone photo is shown and sent upright; 5 to 8 swap the sides.
+export function copyCanvas(source, w, h, orientation = 1) {
+  const o = orientation >= 2 && orientation <= 8 ? orientation : 1;
+  const swap = o >= 5;
+  const size = swap ? shrinkSize(h, w) : shrinkSize(w, h);
+  const W = size.width, H = size.height;
   const c = document.createElement('canvas');
-  c.width = size.width;
-  c.height = size.height;
+  c.width = W;
+  c.height = H;
   const g = c.getContext('2d', { willReadFrequently: true });
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(source, 0, 0, size.width, size.height);
+  const turn = { 2: [-1, 0, 0, 1, W, 0], 3: [-1, 0, 0, -1, W, H], 4: [1, 0, 0, -1, 0, H], 5: [0, 1, 1, 0, 0, 0], 6: [0, 1, -1, 0, W, 0], 7: [0, -1, -1, 0, W, H], 8: [0, -1, 1, 0, 0, H] }[o];
+  if (turn) g.transform(...turn);
+  g.drawImage(source, 0, 0, swap ? H : W, swap ? W : H);
   return c;
 }
 
+// The copy as JPEG, with every camera segment taken out of the encoder's
+// output too (src/reply.js stripJpegMetadata), so no camera, place or time
+// data can leave the device whatever the browser's encoder writes.
 export function canvasJpeg(canvas) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('The photo could not be re-encoded.'))), 'image/jpeg', 0.9);
-  });
+  }).then(async (b) => new Blob([stripJpegMetadata(new Uint8Array(await b.arrayBuffer()))], { type: 'image/jpeg' }));
 }
 
 // The JPEG copy decoded again, so the page traces the very pixels the
@@ -62,7 +72,8 @@ export async function decodePhoto(file, head = null) {
   try {
     return await decodeWithImage(file);
   } catch { /* neither could */ }
-  const first = head || new Uint8Array(await file.slice(0, 64).arrayBuffer());
+  let first = head;
+  try { first = first || new Uint8Array(await file.slice(0, 64).arrayBuffer()); } catch { /* the label alone */ }
   throw new Error(undecodableWords(first, file.type));
 }
 
@@ -93,7 +104,7 @@ export async function readPhoto(file) {
   const bytes = await file.arrayBuffer();
   const sha256 = await sha256Hex(bytes);
   const pic = await decodePhoto(file, new Uint8Array(bytes, 0, Math.min(64, bytes.byteLength)));
-  const copy = copyCanvas(pic.source, pic.width, pic.height);
+  const copy = copyCanvas(pic.source, pic.width, pic.height, orientationToApply(jpegFacts(bytes), pic.width, pic.height));
   pic.done();
   const blob = await canvasJpeg(copy);
   const picture = await decodeToCanvas(blob, copy.width, copy.height);
@@ -101,14 +112,24 @@ export async function readPhoto(file) {
 }
 
 // A picked photo to show on this device only (MOCK): decoded and shrunk
-// here, never fingerprinted, encoded or sent.
+// here, never fingerprinted, encoded or sent. Upright like the sent copy.
 export async function previewPhoto(file) {
   const why = photoRefusal(file);
   if (why) throw new Error(why);
   const pic = await decodePhoto(file);
-  const picture = copyCanvas(pic.source, pic.width, pic.height);
+  const picture = copyCanvas(pic.source, pic.width, pic.height, orientationToApply(await headerFacts(file), pic.width, pic.height));
   pic.done();
   return { picture, width: picture.width, height: picture.height };
+}
+// The JPEG facts from the start of a file (enough to hold its EXIF block,
+// at most 64 KB, and its frame header), or null when it cannot be read.
+const HEADER_BYTES = 256 * 1024;
+async function headerFacts(file) {
+  try {
+    return jpegFacts(await file.slice(0, HEADER_BYTES).arrayBuffer());
+  } catch {
+    return null;
+  }
 }
 
 // When every reader on the server is busy (429, code 'busy'), the same copy

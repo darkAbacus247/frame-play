@@ -51,6 +51,97 @@ export function undecodableWords(firstBytes, type = '') {
   return NOT_PICTURE_WORDS;
 }
 
+// ---- JPEG headers: the stored size, the EXIF orientation, and a copy with
+// every camera segment taken out. Pure byte work, no decoder.
+
+// { width, height, orientation } of a JPEG as stored (before the EXIF
+// orientation is applied), or null when the bytes are not a JPEG.
+// orientation is 1 when the file names none.
+export function jpegFacts(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (photoKind(b) !== 'jpeg') return null;
+  const out = { width: 0, height: 0, orientation: 1 };
+  let i = 2;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 0xff) return out.width ? out : null;
+    const m = b[i + 1];
+    if (m === 0xff) { i++; continue; }
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+    if (m === 0xd9 || m === 0xda) break;
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2) break;
+    const seg = b.subarray(i + 4, Math.min(b.length, i + 2 + len));
+    if (m === 0xe1 && seg.length > 14 && ascii(seg, 0, 6) === 'Exif\0\0') out.orientation = exifOrientation(seg.subarray(6)) || out.orientation;
+    const sof = m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
+    if (sof && seg.length >= 5) {
+      out.height = (seg[1] << 8) | seg[2];
+      out.width = (seg[3] << 8) | seg[4];
+    }
+    i += 2 + len;
+  }
+  return out.width && out.height ? out : null;
+}
+
+// The orientation tag (0x0112) of IFD0 in a TIFF block, 1 to 8, or 0.
+function exifOrientation(t) {
+  if (t.length < 8) return 0;
+  const le = t[0] === 0x49 && t[1] === 0x49;
+  if (!le && !(t[0] === 0x4d && t[1] === 0x4d)) return 0;
+  const u16 = (o) => (o + 2 <= t.length ? (le ? t[o] | (t[o + 1] << 8) : (t[o] << 8) | t[o + 1]) : 0);
+  const u32 = (o) => (o + 4 <= t.length ? (le ? (t[o] | (t[o + 1] << 8) | (t[o + 2] << 16)) + t[o + 3] * 2 ** 24 : t[o] * 2 ** 24 + ((t[o + 1] << 16) | (t[o + 2] << 8) | t[o + 3])) : 0);
+  const ifd = u32(4);
+  const n = u16(ifd);
+  for (let k = 0; k < n; k++) {
+    const e = ifd + 2 + k * 12;
+    if (e + 12 > t.length) break;
+    if (u16(e) === 0x0112) {
+      const v = u16(e + 8);
+      return v >= 1 && v <= 8 ? v : 0;
+    }
+  }
+  return 0;
+}
+
+// A JPEG with every APP1 to APP15 segment (EXIF, XMP, ICC, maker notes:
+// camera, place and time) and every comment taken out. The JFIF header
+// (APP0) and the picture itself are kept byte for byte. Bytes that are not
+// a JPEG come back unchanged.
+export function stripJpegMetadata(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (photoKind(b) !== 'jpeg') return b;
+  const parts = [b.subarray(0, 2)];
+  let i = 2;
+  while (i + 4 <= b.length && b[i] === 0xff) {
+    const m = b[i + 1];
+    if (m === 0xff) { i++; continue; }
+    if (m === 0xda || m === 0xd9) break;
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2) break;
+    const camera = (m >= 0xe1 && m <= 0xef) || m === 0xfe;
+    if (!camera) parts.push(b.subarray(i, i + 2 + len));
+    i += 2 + len;
+  }
+  parts.push(b.subarray(i));
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// The orientation the page must still apply to a decoded picture. A
+// decoder asked for 'from-image' usually turns the picture itself; when the
+// EXIF orientation swaps the sides (5 to 8, a portrait phone photo) and the
+// decoded picture still has the stored sides, the decoder ignored it, and
+// the page turns it. Otherwise (no turn named, the decoder turned it, or a
+// square picture or a turn that keeps the sides, where it cannot be told)
+// the decoder is trusted: 1.
+export function orientationToApply(facts, decodedWidth, decodedHeight) {
+  const o = facts && facts.orientation;
+  if (!(o >= 5 && o <= 8)) return 1;
+  if (facts.width === facts.height) return 1;
+  return decodedWidth === facts.width && decodedHeight === facts.height ? o : 1;
+}
+
 // The size of the copy that is sent: at most 1024 px on the long side.
 export function shrinkSize(w, h, max = MAX_SIDE) {
   const s = Math.min(1, max / Math.max(w, h));
