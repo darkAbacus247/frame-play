@@ -14,6 +14,7 @@ import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tou
 import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
+import { mountFxSettings } from './src/settings_fx.js';
 import { makeMarkedRoom, keptMarkedEntry, sanitizeMarks, needs } from './src/marks.js';
 import { mountMarker } from './src/marker.js';
 import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal, NOT_SAME_WORDS } from './src/own.js';
@@ -470,7 +471,6 @@ function renderDrawer() {
     el('h2', { text: 'Settings' }),
     el('div', { class: 'settings' }, [
       sw('Sound', audio.on, () => setSoundOn(!audio.on), 'Turns every sound on or off'),
-      sw('Motion', !reducedMotion(), () => { S.setMotion(reducedMotion()); applySettings(); }, 'Animations such as the outlines drawing in and the walk bob'),
       sw('High contrast', highContrast(), () => { S.setContrast(!highContrast()); applySettings(); }, 'Thicker lines, opaque badges and a dimmed picture'),
       sw('Show outlines while playing', outlinesOn(), () => { S.setOutlinesWhilePlaying(!outlinesOn()); applySettings(); }, 'Draws the outlines the AI found while you play'),
       el('button', { type: 'button', class: 'btn', text: 'Read this screen aloud', tip: 'Reads the main words on this screen', onclick: readScreen }),
@@ -482,6 +482,8 @@ function renderDrawer() {
     el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
     el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', text: 'Close settings', tip: 'Closes this drawer', onclick: toggleDrawer })]),
   );
+  // Music, its volume, Effects and Reduce motion (the one motion switch: it saves the same setting the page reads)
+  mountFxSettings(d.querySelector('.settings'));
 }
 
 function readScreen() {
