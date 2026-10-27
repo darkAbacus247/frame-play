@@ -497,6 +497,7 @@ function renderDrawer() {
       sw('Show outlines while playing', outlinesOn(), () => { S.setOutlinesWhilePlaying(!outlinesOn()); applySettings(); }, 'Draws the outlines the AI found while you play'),
       el('button', { type: 'button', class: 'btn', text: 'Read this screen aloud', tip: 'Reads the main words on this screen', onclick: readScreen }),
       el('button', { type: 'button', class: 'btn', text: 'Start over from Step 1', tip: 'Starts the road again, after you confirm. Saved levels stay', onclick: confirmStartOver }),
+      A.installPrompt ? el('button', { type: 'button', class: 'btn install-btn', text: 'Install', tip: 'Installs FRAME//PLAY as an app on this device, opened from its own window', onclick: install }) : null,
     ]),
     // shown, never folded: the disclosure is always in view in Settings
     el('h3', { text: 'About FRAME//PLAY' }),
@@ -1808,9 +1809,39 @@ function rehearsalBand() {
   } else if (A.mode !== 'rehearsal' && band) band.remove();
 }
 
+// ---- install and launch ----
+// The page is an installable app (manifest.webmanifest, sw.js: the
+// worker keeps the page's own static files only). Settings offers Install
+// only while the browser offers installation.
+function installable() {
+  const nav = globalThis.navigator;
+  if (nav && nav.serviceWorker && /^https?:$/.test(globalThis.location && globalThis.location.protocol)) {
+    nav.serviceWorker.register('sw.js').catch(() => { /* not installable here */ });
+  }
+  addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    A.installPrompt = e;
+    renderDrawer();
+  });
+  addEventListener('appinstalled', () => { A.installPrompt = null; renderDrawer(); });
+}
+
+async function install() {
+  const e = A.installPrompt;
+  if (!e) return;
+  A.installPrompt = null;
+  try {
+    e.prompt();
+    const choice = await e.userChoice;
+    say(choice && choice.outcome === 'accepted' ? 'Installed. FRAME//PLAY opens from your apps.' : 'Not installed.');
+  } catch { /* the browser withdrew the offer */ }
+  renderDrawer();
+}
+
 // ---- boot ----
 async function boot() {
   initTooltips(() => A.tour.on);
+  installable();
   A.firstVisit = readPref('visited', null) === null;
   writePref('visited', true);
   A.tour.on = readPref('tour', false) === true;

@@ -232,7 +232,19 @@ asks first and clears nothing unless you confirm. I'm done ends the visit
 with a short thank-you (one line of the rooms played and won, a soft fade,
 the music's closing sting once) and then closes the app window; an ordinary
 browser tab cannot be closed by the page, so there it says "You can close
-this tab now." and offers Free play and Start over. While a card or the settings are open, a round in play holds
+this tab now." and offers Free play and Start over.
+
+Install it as an app: the page is an installable web app
+(`manifest.webmanifest`, icons in `icons/` drawn from the favicon by
+`python -B tools/make_icons.py`, and a small service worker, `sw.js`, that
+keeps only the page's own static files, never `api/...`, a photo or a key).
+Open the page from the local server in a browser that offers installation
+(Chrome or Edge, for example); Settings then shows Install (it appears only
+while the browser offers it), or use the browser's own install item. The
+installed app opens in its own window from your apps, and there I'm done
+closes that window. It is the same page: LIVE (and REHEARSAL) still need
+the local server running, started as above, and the installed app is tied
+to the address it was installed from. While a card or the settings are open, a round in play holds
 still, so no round ends under them. Free play always opens on the list of rooms (the three sample rooms, and
 your own room once made: our kitchen carries its REPLAY tag where it was
 replayed); a replay of a room there lasts only
