@@ -33,7 +33,9 @@ IN_FLIGHT = 2
 PER_HOUR = 40
 PER_DAY = 200
 USD_STOP = 5.0
-SPARK_MAX_COMPLETION_TOKENS = 2400
+# The first real desk read used 1,691 output tokens (1,151 reasoning); a
+# cluttered room needs room to finish its JSON.
+SPARK_MAX_COMPLETION_TOKENS = 4000
 # After an account or model problem, no photo is sent for this long; then one
 # photo may check again.
 LIVE_HOLD_S = 600.0

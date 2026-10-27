@@ -60,6 +60,13 @@ class Modes(unittest.TestCase):
         config.check_models(config.MODELS)
 
 
+class Ceilings(unittest.TestCase):
+    def test_the_spark_answer_has_room_to_finish(self):
+        self.assertEqual(config.SPARK_MAX_COMPLETION_TOKENS, 4000)
+        from server.limits import SPARK_WORST
+        self.assertLess(SPARK_WORST, 0.035, 'the worst Spark call is still reserved at a few cents')
+
+
 class TheKey(unittest.TestCase):
     def test_the_holder_never_prints_or_copies(self):
         k = KeyHolder(TEST_VALUE)
