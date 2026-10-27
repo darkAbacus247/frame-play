@@ -18,6 +18,20 @@ photo from your device, or from the camera where the browser offers one.
 What happens to that photo depends on the server's mode, and Step 9 says
 so before you choose one.
 
+### Sample rooms
+
+Drawn by code, with exact outlines, and labelled MOCK: The Desk Top and
+The Living Room, seen at eye level, and The Apartment, a floor plan seen
+from above: a living room, a kitchen, a bedroom and a hall, joined by
+three doorways and walled off everywhere else, with a coin in each of
+three rooms, a cactus in the kitchen, obstacles (a sofa, a coffee table, a
+dining table and two chairs, a bed, a cabinet) and the exit in the
+bedroom, which only the kitchen opens onto. The stand-in answers for any
+of them (`--room apartment`), so a rehearsal of the apartment runs the
+whole live path: a read seen from above, a floor in four matches, the
+floor grown on the picture, walls and doorways. This copy's page still
+offers the first two on Steps 2 and 5.
+
 ### How a photo becomes a room
 
 - **LIVE** (a key and the live switch on the server): the photo is shrunk

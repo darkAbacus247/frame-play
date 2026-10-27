@@ -11,7 +11,7 @@ from server.limits import Limits
 from server.pipeline import Pipeline, sam_text
 from server.server import main as server_main
 from server.standin import DRILLS, StandIn, load_room, make_server, pixel_box
-from server.tests import images
+from server.tests import images, standin_replay
 from server.tests.test_server import Running
 
 
@@ -24,7 +24,7 @@ class Shapes(unittest.TestCase):
         self.assertEqual(pixel_box(arc, 1024, 768), [0, 0, 99, 49])
 
     def test_both_rooms_load(self):
-        for rid in ('desk', 'living'):
+        for rid in ('desk', 'living', 'apartment'):
             room = load_room(rid)
             s = StandIn(rid)
             read = s.read()
@@ -55,7 +55,7 @@ class TheRealGrammar(unittest.TestCase):
             self.assertIsNotNone(SHAPE.fullmatch(text), noun)
 
     def test_every_stand_in_answer_has_the_same_shape(self):
-        for rid in ('desk', 'living'):
+        for rid in ('desk', 'living', 'apartment'):
             s = StandIn(rid)
             room = load_room(rid)
             nouns = {o['name'] for o in room['objects']} | {room['surface']['name']}
@@ -95,6 +95,29 @@ class TheRealGrammar(unittest.TestCase):
         s = StandIn('desk', drill='malformed_record')
         p = samtext.parse(s.find('mug', 1024, 768), 1024, 768)
         self.assertEqual((len(p.records), p.errors), (1, ['malformed_record']))
+
+    def test_the_apartment_floor_is_one_match_a_room(self):
+        # W1d: a floor plan's floor, as SAM answers "floor": one match a
+        # room, never the doorways alone; the read is seen from above, with
+        # a point on the open floor of every room and a count for each kind
+        s = StandIn('apartment')
+        p = samtext.parse(s.find('floor', 1024, 768), 1024, 768)
+        self.assertEqual((p.errors, p.warnings), ([], []))
+        self.assertEqual(sorted(r['box'] for r in p.records),
+                         [[54, 54, 520, 420], [54, 434, 520, 714], [534, 54, 970, 380], [534, 394, 970, 714]])
+        read = s.read()
+        self.assertEqual(read['view'], 'top_down')
+        self.assertEqual(len(read['floor_seeds']), 4)
+        counts = {o['name']: o['count'] for o in read['objects']}
+        self.assertEqual((counts['coin'], counts['chair'], counts['sofa']), (3, 2, 1))
+        self.assertEqual(len(read['objects']), 10, 'ten kinds: more than the old ceiling of 9 calls could look for')
+        self.assertEqual(StandIn('desk').read()['view'], 'eye_level')
+
+    def test_the_apartment_golden_reply(self):
+        # the pipeline's reply to the stand-in's apartment, field for field
+        # (tests/apartment.test.js builds the level from the same file)
+        golden = json.loads((Path(__file__).parent / 'fixtures' / 'apartment_rehearsal.json').read_text(encoding='utf-8'))
+        self.assertEqual(standin_replay.golden(standin_replay.run('apartment')), golden['reply'])
 
     def post_responses(self, noun):
         body = {'model': 'sam-3.1', 'stream': False, 'store': False,

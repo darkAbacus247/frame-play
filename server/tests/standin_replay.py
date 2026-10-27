@@ -59,7 +59,8 @@ def main(argv=None):
     ap.add_argument('--golden', action='store_true')
     args = ap.parse_args(argv)
     reply = run(args.room)
-    print(json.dumps(golden(reply) if args.golden else reply, ensure_ascii=False, indent=1 if args.golden else None))
+    # ASCII only, so no console's own encoding can change a word
+    print(json.dumps(golden(reply) if args.golden else reply, indent=1 if args.golden else None))
     return 0
 
 

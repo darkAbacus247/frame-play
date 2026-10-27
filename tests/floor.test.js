@@ -15,6 +15,7 @@ import { traceFloor, floorFromReply } from '../src/trace_in_box.js';
 import { buildLevel, floorRooms, validateLevel } from '../src/level.js';
 import { jpegLike } from './jpegsim.js';
 import { PLAN_ROOMS, PLAN_DOORS, planJson } from './plan.js';
+import { standInReply } from './golden_apartment.js';
 
 const CREATED = '2026-10-27T12:00:00Z';
 const rect = (x, y, w, h) => ({ rect: [x, y, w, h] });
@@ -138,12 +139,6 @@ test('a traced floor: the play area is the floor, the words say how it was found
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-// A sample room's answers from the stand-in through the real pipeline, in
-// one process with no socket (server/tests/standin_replay.py).
-function standInReply(room, golden = false) {
-  const out = execFileSync(PYTHON, ['-B', '-m', 'server.tests.standin_replay', '--room', room, ...(golden ? ['--golden'] : [])], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
-  return JSON.parse(out);
-}
 // The first live desk answers (10-27) through the pipeline (server/tests/recorded.py).
 const recordedReply = () => JSON.parse(execFileSync(PYTHON, ['-B', '-m', 'server.tests.recorded'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 }));
 
