@@ -37,6 +37,20 @@ MIN_CONFIDENCE = 0.35
 SEED_REACH = 0.03
 FLOOR = 0.5
 SAME_BOX = 0.5
+# Spurious extra matches: with no point to go by, an extra match is kept
+# only at RELATIVE of the name's best or more (the desk's real coins were
+# 0.879 to 0.887; the notebook's stray match on the book stack 0.594); a
+# match with no point that lies INSIDE (85%) another name's kept box is
+# not a second thing. A box under MIN_SIDE px once held to the picture is
+# no box.
+RELATIVE = 0.75
+INSIDE = 0.85
+MIN_SIDE = 2
+# Boxes that are the surface rather than a thing on it: named like it (the
+# same last word), filling GIANT of the picture, or covering COVERS of the
+# surface's box (the level side uses the same rules).
+GIANT = 0.45
+COVERS = 0.8
 # When SAM finds nothing usable for a thing (point_regions): a region around
 # Muse Spark's points, grown by 5% of the long side; points to collect less
 # than 10% apart are one thing.
@@ -336,10 +350,19 @@ def choose_matches(records, seeds, role, W, H):
         kept = [(usable[k], True) for k in sorted(picked)]
         dropped += [(r, 'no_point') for k, r in enumerate(usable) if k not in picked]
     else:
-        kept = [(r, False) for r in usable if _conf(r) >= FLOOR]
+        best = _conf(usable[0]) if usable else 0.0
+        kept = [(r, False) for r in usable if _conf(r) >= FLOOR and _conf(r) >= RELATIVE * best]
         dropped += [(r, 'below_floor') for r in usable if _conf(r) < FLOOR]
-    dropped += [(r, 'over_count') for r, _ in kept[cap:]]
-    return kept[:cap], dropped
+        dropped += [(r, 'relative') for r in usable if _conf(r) >= FLOOR and _conf(r) < RELATIVE * best]
+    # two matches of one name on the same thing are one thing
+    single = []
+    for r, seeded in kept:
+        if any(iou(r['box'], s['box']) >= SAME_BOX for s, _ in single):
+            dropped.append((r, 'twice'))
+        else:
+            single.append((r, seeded))
+    dropped += [(r, 'over_count') for r, _ in single[cap:]]
+    return single[:cap], dropped
 
 
 def iou(a, b):
@@ -350,21 +373,85 @@ def iou(a, b):
     return inter / union if union else 0.0
 
 
+def inside(a, b):
+    """The share of box a that lies in box b."""
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    area = (a[2] - a[0]) * (a[3] - a[1])
+    return ix * iy / area if area else 0.0
+
+
 def settle_claims(picks):
     """One box is never two objects: of matches of different names that
     cover the same thing (IoU at least SAME_BOX), the one holding a Muse
-    Spark point wins, then the more confident, then the earlier name.
+    Spark point wins, then the more confident, then the earlier name. A
+    match holding no point that lies INSIDE a box kept for another name is
+    a part of that thing, not a second one (a coin Muse Spark pointed at
+    may still lie on a notebook).
     picks: [(order, name, record, seeded)]. Returns (kept, lost) where lost
-    holds (pick, the name that kept the box)."""
+    holds (pick, the name that kept the box, 'same_box' or 'inside')."""
     ranked = sorted(picks, key=lambda q: (not q[3], -_conf(q[2]), q[0], q[2]['id']))
     kept, lost = [], []
     for q in ranked:
         rival = next((k for k in kept if k[1] != q[1] and iou(k[2]['box'], q[2]['box']) >= SAME_BOX), None)
         if rival:
-            lost.append((q, rival[1]))
+            lost.append((q, rival[1], 'same_box'))
+            continue
+        rival = None if q[3] else next((k for k in kept if k[1] != q[1] and inside(q[2]['box'], k[2]['box']) >= INSIDE), None)
+        if rival:
+            lost.append((q, rival[1], 'inside'))
         else:
             kept.append(q)
     return kept, lost
+
+
+def held(box, W, H):
+    """A box held to the picture on every side, in whole pixels, or None
+    when less than MIN_SIDE px of it is left."""
+    try:
+        x0, y0, x1, y1 = (int(round(float(v))) for v in box)
+    except (TypeError, ValueError):
+        return None
+    x0, x1 = max(0, min(W, x0)), max(0, min(W, x1))
+    y0, y1 = max(0, min(H, y0)), max(0, min(H, y1))
+    if x1 - x0 < MIN_SIDE or y1 - y0 < MIN_SIDE:
+        return None
+    return [x0, y0, x1, y1]
+
+
+def held_records(records, W, H):
+    """SAM's records with their boxes held to the picture; (kept, emptied)."""
+    kept, emptied = [], []
+    for r in records:
+        box = held(r['box'], W, H)
+        (kept if box else emptied).append({**r, 'box': box or r['box']})
+    return kept, emptied
+
+
+def head(name):
+    """A name's last word, without a plural s: 'desk lamp' is a lamp."""
+    words = str(name).strip().lower().split()
+    return words[-1].removesuffix('s') if words else ''
+
+
+def surface_like(name, box, surface_name, surface_box, W, H):
+    """Why a thing's box is really the play surface, or None: named like the
+    surface (by its last word only), filling most of the picture, or
+    covering most of the surface's box."""
+    if surface_name and head(name) == head(surface_name):
+        return 'named'
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    if area >= GIANT * W * H:
+        return 'giant'
+    if surface_box:
+        s_area = (surface_box[2] - surface_box[0]) * (surface_box[3] - surface_box[1])
+        if s_area and inside(surface_box, box) >= COVERS:
+            return 'covers'
+    return None
+
+
+def union(boxes):
+    return [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]
 
 
 def point_regions(seeds, role, W, H):
@@ -404,6 +491,14 @@ DROP_WORDS = {
     'no_point': 'none of Muse Spark’s points for it fell in it',
     'below_floor': 'its confidence was under 0.5',
     'over_count': 'more matches than its role keeps',
+    'relative': 'its confidence was far under its best match’s',
+    'twice': 'it is the same thing as a better match',
+    'empty_box': 'its box held to the picture is empty',
+}
+SURFACE_WORDS = {
+    'named': 'it is the play surface',
+    'giant': 'it fills most of the picture, so it is part of the play surface',
+    'covers': 'it covers most of the play surface, so it is part of it',
 }
 
 SAM_BUSY_WORDS = 'SAM 3.1 is busy right now. Please try the same photo again in a minute.'
@@ -683,20 +778,16 @@ class Pipeline:
 
         surface = None
         surface_matches = 0
+        surface_err = None
         if room['surface']:
-            parsed, err = answers[('surface', room['surface'])]
+            parsed, surface_err = answers[('surface', room['surface'])]
             if parsed is not None and not ('size_mismatch' in parsed.errors) and parsed.records:
-                whole = surface_from(parsed.records)
+                whole = surface_from(held_records(parsed.records, W, H)[0])
                 if whole:
                     surface = {'name': room['surface'], 'box': whole['box'], 'confidence': whole['confidence']}
                     surface_matches = whole['matches']
-            if surface is None and err is not None:
-                warnings.append(f'not looked for: {room["surface"]} (the play surface; {first_sentence(err.message)}); '
-                                'the full width below the horizon is used')
-            elif surface is None:
-                warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
-        # which matches are which object: each name's own choice, then no box
-        # kept by two names
+        # which matches are which object: each name's own choice (boxes held
+        # to the picture), then no box kept by two names
         picks = []
         dropped = {}
         for k, o in enumerate(on):
@@ -705,12 +796,43 @@ class Pipeline:
             parsed, err = answers[('object', o['name'])]
             if err is not None or 'size_mismatch' in parsed.errors:
                 continue
-            kept, lost = choose_matches(parsed.records, o['seeds'], o['role'], W, H)
+            records, emptied = held_records(parsed.records, W, H)
+            kept, lost = choose_matches(records, o['seeds'], o['role'], W, H)
             picks += [(k, o['name'], r, seeded) for r, seeded in kept]
-            dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost]
+            dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost + [(r, 'empty_box') for r in emptied]]
         picks, lost = settle_claims(picks)
-        for (k, name, r, seeded), winner in lost:
-            dropped[name].append((r, f'the same box was kept for the {winner}', 'same_box'))
+        for (k, name, r, seeded), winner, why in lost:
+            words = f'the same box was kept for the {winner}' if why == 'same_box' else f'it lies inside the {winner}'
+            dropped[name].append((r, words, why))
+        # boxes that are the surface, not a thing on it, join the surface (or
+        # become it, when SAM found none); the name is not traced by points
+        absorbed = []
+        for q in picks:
+            why = surface_like(q[1], q[2]['box'], room['surface'], surface and surface['box'], W, H)
+            if why:
+                absorbed.append((q, why))
+        if absorbed:
+            picks = [q for q in picks if not any(q is a for a, _ in absorbed)]
+            boxes = [q[2]['box'] for q, _ in absorbed]
+            if surface is None:
+                named = any(why == 'named' for _, why in absorbed)
+                biggest = max(absorbed, key=lambda a: (a[0][2]['box'][2] - a[0][2]['box'][0]) * (a[0][2]['box'][3] - a[0][2]['box'][1]))
+                surface = {'name': room['surface'] if named else biggest[0][1], 'box': union(boxes),
+                           'confidence': max(_conf(q[2]) for q, _ in absorbed)}
+                surface_matches = 0
+            else:
+                surface['box'] = union([surface['box']] + boxes)
+            for q, why in absorbed:
+                words = SURFACE_WORDS[why]
+                if surface['name'] == q[1] and why != 'named':
+                    words = words.replace('is part of the play surface', 'is the play surface')
+                dropped[q[1]].append((q[2], words, 'surface'))
+        absorbed_names = {q[1] for q, _ in absorbed} - {q[1] for q in picks}
+        if room['surface'] and surface is None and surface_err is not None:
+            warnings.append(f'not looked for: {room["surface"]} (the play surface; {first_sentence(surface_err.message)}); '
+                            'the full width below the horizon is used')
+        elif room['surface'] and surface is None:
+            warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
         for c in calls:
             if c['stage'] == 'find' and c.get('surface'):
                 c['kept'] = surface_matches
@@ -738,6 +860,11 @@ class Pipeline:
                         warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
                 picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
                 why = None
+            if not picked and o['name'] in absorbed_names:
+                continue  # it is the surface, said above
+            if not picked and room['surface'] and head(o['name']) == head(room['surface']):
+                warnings.append(f'not used: {o["name"]} ({SURFACE_WORDS["named"]})')
+                continue
             if not picked:
                 # SAM found nothing usable: Muse Spark's own points, when it
                 # gave any, still say where the thing is

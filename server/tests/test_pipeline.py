@@ -11,7 +11,7 @@ from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import CallError, Transport
 from server.pipeline import (Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims,
-                             reply_error, surface_from)
+                             held, inside, reply_error, surface_from, surface_like)
 from server.samtext import compose
 from server.server import Log
 from server.tests import images, recorded
@@ -243,8 +243,8 @@ class Reads(WithFake):
         self.assertEqual(line['found'], [
             {'name': 'desk', 'matches': 1, 'kept': 1, 'surface': True},
             {'name': 'box', 'matches': 1, 'kept': 1, 'points': 0},
-            {'name': 'cactus', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['over_count']},
-            {'name': 'coin', 'matches': 4, 'kept': 3, 'points': 0, 'dropped': ['over_count']},
+            {'name': 'cactus', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['relative']},
+            {'name': 'coin', 'matches': 4, 'kept': 3, 'points': 0, 'dropped': ['relative']},
             {'name': 'lamp', 'matches': 0, 'kept': 0, 'points': 0},
             {'name': 'mug', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['low']},
         ])
@@ -517,6 +517,142 @@ class RecordedDesk(unittest.TestCase):
         self.assertIn('not found by SAM 3.1: coffee mug; code traces around Muse Spark’s points for it instead', r['warnings'])
 
 
+class DeskRead(recorded.RecordedTransport):
+    """The recorded desk with another room read in place of Muse Spark's."""
+
+    def __init__(self, read, answers=None):
+        super().__init__(answers)
+        self.read = read
+
+    def post(self, route, body, deadline, sleep=None, clock=None):
+        j, attempt, ms = super().post(route, body, deadline, sleep, clock)
+        if route == '/chat/completions':
+            j['choices'][0]['message']['content'] = json.dumps(self.read)
+        return j, attempt, ms
+
+
+def run_desk(change, answers=None):
+    read = json.loads(json.dumps(recorded.FIXTURE['read']))
+    change(read)
+    pipe = Pipeline(settings_from({}, 'http://127.0.0.1:9/v1', 'desk'), Limits(), transport=DeskRead(read, answers),
+                    sleep=lambda s: None)
+    return pipe.run(check_photo(images.jpeg(recorded.W, recorded.H), config.MAX_SIDE))
+
+
+def desk_answer(*matches):
+    return samtext.compose([{'box': m[:4], 'confidence': m[4], 'payload': 'abc'} for m in matches], recorded.W, recorded.H)
+
+
+def with_thing(name, seeds=()):
+    """A change to the read: one more thing on the desk, in place of the
+    picture frame (scenery; a read keeps 8 things)."""
+    def change(read):
+        read['objects'][-1] = {'name': name, 'role': 'solid', 'reason': 'x', 'on_surface': True,
+                               'seeds': [{'x': x, 'y': y} for x, y in seeds]}
+    return change
+
+
+class MatchHygiene(unittest.TestCase):
+    """A5, through the pipeline on the recorded desk."""
+
+    def names(self, r):
+        return sorted(o['name'] for o in r['objects'])
+
+    def test_the_stray_notebook_match_without_points(self):
+        def no_points(read):
+            next(o for o in read['objects'] if o['name'] == 'blue notebook')['seeds'] = []
+        r = run_desk(no_points)
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(self.names(r).count('blue notebook'), 1)
+        self.assertEqual(self.names(r).count('gold coin'), 3)
+        self.assertIn('not used: a match for blue notebook at 59% (its confidence was far under its best match’s)', r['warnings'])
+
+    def test_a_match_inside_another_names_box_is_not_a_second_thing(self):
+        def no_points(read):
+            next(o for o in read['objects'] if o['name'] == 'blue notebook')['seeds'] = []
+        r = run_desk(no_points, {'blue notebook': desk_answer((648, 283, 799, 311, 0.594))})
+        self.assertNotIn('blue notebook', self.names(r))
+        self.assertIn('not used: a match for blue notebook at 59% (it lies inside the book stack)', r['warnings'])
+        self.assertIn('not found: blue notebook', r['warnings'])
+
+    def test_the_surface_named_as_a_thing(self):
+        r = run_desk(with_thing('desk'))
+        self.assertEqual(r['status'], 'ok')
+        self.assertNotIn('desk', self.names(r))
+        self.assertIn('desk lamp', self.names(r), 'a desk lamp is a lamp')
+        self.assertEqual(r['surface']['box'], [0, 319, 1024, 687])
+        self.assertIn('not used: a match for desk at 79% (it is the play surface)', r['warnings'])
+
+    def test_the_surface_named_as_a_thing_and_found_only_by_points(self):
+        r = run_desk(with_thing('wooden desk', seeds=[(500, 600)]))
+        self.assertNotIn('wooden desk', self.names(r))
+        self.assertIn('not used: wooden desk (it is the play surface)', r['warnings'])
+
+    def test_a_giant_thing_joins_the_surface(self):
+        r = run_desk(with_thing('bed'), {'bed': desk_answer((0, 90, 1023, 767, 0.9))})
+        self.assertEqual(r['status'], 'ok')
+        self.assertNotIn('bed', self.names(r))
+        self.assertEqual(r['surface'], {'name': 'desk', 'box': [0, 90, 1024, 768], 'confidence': 0.7852349281311035})
+        self.assertIn('not used: a match for bed at 90% (it fills most of the picture, so it is part of the play surface)', r['warnings'])
+
+    def test_a_giant_thing_is_the_surface_when_there_is_none(self):
+        def no_surface(read):
+            read['surface'] = {'name': ''}
+            with_thing('bed')(read)
+        r = run_desk(no_surface, {'bed': desk_answer((0, 90, 1023, 767, 0.9))})
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['surface'], {'name': 'bed', 'box': [0, 90, 1024, 768], 'confidence': 0.9})
+        self.assertNotIn('bed', self.names(r))
+        self.assertIn('not used: a match for bed at 90% (it fills most of the picture, so it is the play surface)', r['warnings'])
+        self.assertFalse([w for w in r['warnings'] if 'the full width below the horizon' in w])
+
+    def test_the_surface_found_by_its_namesake_when_sam_missed_it(self):
+        r = run_desk(with_thing('wooden desk'),
+                     {'desk': '<0f>\n', 'wooden desk': desk_answer((0, 319, 1023, 686, 0.8))})
+        self.assertEqual(r['surface'], {'name': 'desk', 'box': [0, 319, 1024, 687], 'confidence': 0.8})
+        self.assertNotIn('wooden desk', self.names(r))
+        self.assertFalse([w for w in r['warnings'] if 'the full width below the horizon' in w])
+
+
+DATA = Path(__file__).parent / 'data' / 'desk_1027'
+
+
+class GoldenDesk(unittest.TestCase):
+    """The real answers of 10-27 (server/tests/data/desk_1027, redacted),
+    served whole by the loopback fake and read through the real transport
+    and pipeline: the right room. (tests/recorded_desk.test.js builds and
+    proves the same reply winnable.)"""
+
+    def test_the_real_answers_make_the_right_room(self):
+        saved = [json.loads(p.read_text(encoding='utf-8')) for p in sorted(DATA.glob('*.json'))]
+        read = next(s['answer'] for s in saved if s['route'] == '/chat/completions')
+        by_noun = {s['noun']: s['answer'] for s in saved if s['route'] == '/responses'}
+        self.assertEqual(len(by_noun), 8)
+        fake = FakeMeta()
+        try:
+            fake.always('/chat/completions', ok_json(read))
+            fake.always('/responses', lambda req, h: ok_json(by_noun[req['body']['input'][0]['content'][0]['text']]))
+            pipe = Pipeline(settings_from({}, fake.base, 'desk'), Limits(), sleep=lambda s: None)
+            r = pipe.run(check_photo(images.jpeg(recorded.W, recorded.H), config.MAX_SIDE))
+        finally:
+            fake.stop()
+        self.assertEqual(r['status'], 'ok', r['error'])
+        self.assertEqual(sorted((o['name'], o['role'], o['found_by']) for o in r['objects']), sorted(
+            [('gold coin', 'collect', 'sam')] * 3 + [(n, role, 'sam') for n, role in (
+                ('blue notebook', 'collect'), ('coffee mug', 'solid'), ('desk lamp', 'solid'),
+                ('potted cactus', 'avoid'), ('book stack', 'solid'), ('cardboard box', 'exit'))]))
+        boxes = {(o['name'], o['instance']): o['box'] for o in r['objects']}
+        self.assertEqual(boxes[('blue notebook', 1)], [293, 429, 477, 522])
+        self.assertEqual(sorted(b for (n, _), b in boxes.items() if n == 'gold coin'),
+                         [[283, 444, 317, 465], [453, 332, 487, 353], [725, 552, 759, 573]])
+        self.assertEqual(r['surface'], {'name': 'desk', 'box': [0, 319, 1024, 687], 'confidence': 0.7852349281311035})
+        self.assertEqual(r['warnings'], ['not used: a match for blue notebook at 59% (none of Muse Spark’s points for it fell in it)'])
+        finds = [c for c in r['provenance']['calls'] if c['stage'] == 'find']
+        self.assertEqual((len(finds), {c['status'] for c in finds}), (8, {200}))
+        self.assertFalse([c for c in finds if c.get('diagnostics')], 'the real answers parse with no surprise')
+        self.assertIsNone(r['error'])
+
+
 class Choosing(unittest.TestCase):
     def rec(self, i, box, c):
         return {'id': i, 'box': box, 'confidence': c, 'mask': None}
@@ -534,9 +670,9 @@ class Choosing(unittest.TestCase):
         self.assertEqual([(r['id'], why) for r, why in dropped], [(1, 'below_floor')])
 
     def test_the_role_caps_and_the_minimum(self):
-        recs = [self.rec(k, [10 * k, 0, 10 * k + 5, 5], c) for k, c in enumerate((0.9, 0.8, 0.7, 0.6, 0.2))]
+        recs = [self.rec(k, [10 * k, 0, 10 * k + 5, 5], c) for k, c in enumerate((0.9, 0.88, 0.86, 0.85, 0.2))]
         kept, dropped = choose_matches(recs, [], 'collect', 100, 100)
-        self.assertEqual([r['confidence'] for r, _ in kept], [0.9, 0.8, 0.7])
+        self.assertEqual([r['confidence'] for r, _ in kept], [0.9, 0.88, 0.86])
         self.assertEqual(sorted(why for _, why in dropped), ['low', 'over_count'])
         kept, _ = choose_matches(recs, [], 'exit', 100, 100)
         self.assertEqual(len(kept), 1)
@@ -559,13 +695,51 @@ class Choosing(unittest.TestCase):
         self.assertEqual(surface_from(recs), {'box': [0, 380, 1024, 768], 'confidence': 0.8, 'matches': 2})
         self.assertIsNone(surface_from([self.rec(0, [0, 0, 9, 9], 0.3)]))
 
+    def test_a_far_weaker_extra_match_is_not_a_second_thing(self):
+        # A5: with no point to go by, an extra match needs 75% of the best
+        recs = [self.rec(0, [10, 10, 20, 20], 0.9), self.rec(1, [50, 50, 60, 60], 0.6)]
+        kept, dropped = choose_matches(recs, [], 'collect', 100, 100)
+        self.assertEqual(([r['id'] for r, _ in kept], [(r['id'], why) for r, why in dropped]), ([0], [(1, 'relative')]))
+        kept, _ = choose_matches(recs, [[15, 15], [55, 55]], 'collect', 100, 100)
+        self.assertEqual(len(kept), 2, 'a match Muse Spark pointed at is kept however weak')
+
+    def test_one_thing_twice_under_one_name(self):
+        recs = [self.rec(0, [10, 10, 30, 30], 0.9), self.rec(1, [11, 10, 31, 30], 0.88)]
+        kept, dropped = choose_matches(recs, [], 'collect', 100, 100)
+        self.assertEqual(([r['id'] for r, _ in kept], [(r['id'], why) for r, why in dropped]), ([0], [(1, 'twice')]))
+
+    def test_a_match_inside_another_names_box(self):
+        # the real stray "blue notebook" match on the book stack's spine
+        stack = self.rec(0, [636, 262, 812, 346], 1.0)
+        stray = self.rec(1, [648, 283, 800, 312], 0.594)
+        coin = self.rec(2, [650, 300, 680, 320], 0.88)
+        kept, lost = settle_claims([(0, 'book stack', stack, True), (1, 'blue notebook', stray, False), (2, 'gold coin', coin, True)])
+        self.assertEqual(sorted(q[1] for q in kept), ['book stack', 'gold coin'], 'a coin Muse Spark pointed at stays on the books')
+        self.assertEqual([(q[1], w, why) for q, w, why in lost], [('blue notebook', 'book stack', 'inside')])
+        self.assertAlmostEqual(inside([0, 0, 10, 10], [5, 0, 20, 10]), 0.5)
+
+    def test_boxes_are_held_to_the_picture(self):
+        self.assertEqual(held([1000, 10, 1030, 40], 1024, 768), [1000, 10, 1024, 40])
+        self.assertEqual(held([-3.4, -1, 20.6, 800], 1024, 768), [0, 0, 21, 768])
+        self.assertIsNone(held([5, 5, 6, 40], 1024, 768), 'under 2 px wide')
+        self.assertIsNone(held([1030, 5, 1090, 40], 1024, 768), 'wholly outside')
+        self.assertIsNone(held(['x', 0, 1, 1], 1024, 768))
+
+    def test_what_is_the_surface(self):
+        self.assertIsNone(surface_like('desk lamp', [0, 0, 10, 10], 'desk', None, 100, 100), 'the last word only')
+        self.assertEqual(surface_like('wooden desk', [0, 0, 10, 10], 'desk', None, 100, 100), 'named')
+        self.assertEqual(surface_like('desks', [0, 0, 10, 10], 'desk', None, 100, 100), 'named')
+        self.assertEqual(surface_like('bed', [0, 30, 100, 100], 'floor', None, 100, 100), 'giant', '70% of the picture')
+        self.assertEqual(surface_like('table', [0, 50, 90, 90], 'tabletop', [5, 55, 85, 85], 100, 100), 'covers')
+        self.assertIsNone(surface_like('rug', [0, 50, 40, 90], 'floor', [0, 50, 100, 100], 100, 100))
+
     def test_settle_claims(self):
         a = self.rec(0, [0, 0, 10, 10], 0.9)
         b = self.rec(0, [1, 0, 11, 10], 0.95)
         c = self.rec(1, [40, 40, 50, 50], 0.5)
         kept, lost = settle_claims([(0, 'mug', a, True), (1, 'cup', b, False), (1, 'cup', c, False)])
         self.assertEqual(sorted(q[1] for q in kept), ['cup', 'mug'], 'a point beats a higher confidence')
-        self.assertEqual([(q[1], q[2]['box'], w) for q, w in lost], [('cup', [1, 0, 11, 10], 'mug')])
+        self.assertEqual([(q[1], q[2]['box'], w, why) for q, w, why in lost], [('cup', [1, 0, 11, 10], 'mug', 'same_box')])
         self.assertAlmostEqual(iou([0, 0, 10, 10], [5, 0, 15, 10]), 1 / 3)
 
 

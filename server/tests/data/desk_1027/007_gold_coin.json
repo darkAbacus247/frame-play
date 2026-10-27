@@ -1,0 +1,59 @@
+{
+ "about": "A real answer of 10-27 for the desk sample picture; ids and times redacted; no key, no photo.",
+ "route": "/responses",
+ "model": "sam-3.1",
+ "noun": "gold coin",
+ "answer": {
+  "metadata": {
+   "mask_encoding": "one_bit",
+   "include_confidence": "true"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "redacted",
+  "object": "response",
+  "status": "completed",
+  "created_at": 0,
+  "completed_at": 0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "redacted",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=725;y1=552;x2=758;y2=572;w=1024;h=768;c=0.8827838897705078|><|mask;x=0;y=0;c=0.8827838897705078;data=21,34,!!!!!?H3H'npa.{Gl(M'ROHh]?bn5$5HPUMZ!!|>,1<|box;x1=283;y1=444;x2=316;y2=464;w=1024;h=768;c=0.8865247964859009|><|mask;x=0;y=0;c=0.8865247964859009;data=21,34,!!!!!?HOW:fQFNvRn$%1^$ov*vB{(RUofsf1!!|>,2<|box;x1=453;y1=332;x2=486;y2=352;w=1024;h=768;c=0.8787879347801208|><|mask;x=0;y=0;c=0.8787879347801208;data=21,34,!!!!!?H3J$72Ps[qSI!mOA$vM)*=eVnV8c{V!!|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}

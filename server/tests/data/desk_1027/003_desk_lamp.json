@@ -1,0 +1,59 @@
+{
+ "about": "A real answer of 10-27 for the desk sample picture; ids and times redacted; no key, no photo.",
+ "route": "/responses",
+ "model": "sam-3.1",
+ "noun": "desk lamp",
+ "answer": {
+  "metadata": {
+   "include_confidence": "true",
+   "mask_encoding": "one_bit"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "redacted",
+  "object": "response",
+  "status": "completed",
+  "created_at": 0,
+  "completed_at": 0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "redacted",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=161;y1=170;x2=297;y2=385;w=1024;h=768;c=0.8202247023582458|><|mask;x=0;y=0;c=0.8202247023582458;data=216,137,!!!!#$Dg:aG@M51:e0@]:dGd3unSn+gt?u^HSa%klU'_*`RXL-:1#t+-iuhS/V*&0*m8GS{BbB5V2R={2HNFmLuI-S4e'{KL[hV8%Jk]z`DLQn='/*b|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}

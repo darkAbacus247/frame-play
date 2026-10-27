@@ -1,0 +1,35 @@
+{
+ "about": "A real answer of 10-27 for the desk sample picture; ids and times redacted; no key, no photo.",
+ "route": "/chat/completions",
+ "model": "muse-spark-1.3",
+ "noun": null,
+ "answer": {
+  "id": "redacted",
+  "choices": [
+   {
+    "finish_reason": "stop",
+    "index": 0,
+    "message": {
+     "content": "{\"objects\": [{\"name\": \"cardboard box\", \"on_surface\": true, \"reason\": \"Cozy hideout to escape the big desk adventure.\", \"role\": \"exit\", \"seeds\": [{\"x\": 165, \"y\": 730}, {\"x\": 115, \"y\": 754}]}, {\"name\": \"gold coin\", \"on_surface\": true, \"reason\": \"Shiny treasure waiting for a tiny hero.\", \"role\": \"collect\", \"seeds\": [{\"x\": 458, \"y\": 446}, {\"x\": 321, \"y\": 592}, {\"x\": 752, \"y\": 731}]}, {\"name\": \"blue notebook\", \"on_surface\": true, \"reason\": \"Secret map for brave desk explorers.\", \"role\": \"collect\", \"seeds\": [{\"x\": 385, \"y\": 618}, {\"x\": 450, \"y\": 615}]}, {\"name\": \"potted cactus\", \"on_surface\": true, \"reason\": \"Ouch! Spiky guard, best tiptoe around.\", \"role\": \"avoid\", \"seeds\": [{\"x\": 875, \"y\": 505}, {\"x\": 875, \"y\": 618}]}, {\"name\": \"coffee mug\", \"on_surface\": true, \"reason\": \"Hot and tall, do not bump into it.\", \"role\": \"solid\", \"seeds\": [{\"x\": 625, \"y\": 565}]}, {\"name\": \"desk lamp\", \"on_surface\": true, \"reason\": \"Big glowing tower lighting the way.\", \"role\": \"solid\", \"seeds\": [{\"x\": 245, \"y\": 275}, {\"x\": 251, \"y\": 486}]}, {\"name\": \"book stack\", \"on_surface\": true, \"reason\": \"Wobbly mountain blocking the path.\", \"role\": \"solid\", \"seeds\": [{\"x\": 735, \"y\": 355}, {\"x\": 735, \"y\": 426}]}, {\"name\": \"picture frame\", \"on_surface\": false, \"reason\": \"Distant art watching over the desk.\", \"role\": \"solid\", \"seeds\": [{\"x\": 845, \"y\": 152}]}], \"people_present\": false, \"surface\": {\"name\": \"desk\"}, \"theme_line\": \"Tiny explorer hunts lost coins across the desk and escapes in the box.\", \"title\": \"Desktop Dash: Cactus Corner Quest\"}",
+     "refusal": null,
+     "role": "assistant"
+    },
+    "logprobs": null
+   }
+  ],
+  "created": 0,
+  "model": "muse-spark-1.3",
+  "object": "chat.completion",
+  "usage": {
+   "completion_tokens": 1691,
+   "prompt_tokens": 1354,
+   "total_tokens": 3045,
+   "completion_tokens_details": {
+    "reasoning_tokens": 1151
+   },
+   "prompt_tokens_details": {
+    "cached_tokens": 295
+   }
+  }
+ }
+}
