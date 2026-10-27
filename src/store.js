@@ -93,6 +93,34 @@ export function storedLevelCount() {
   return readLevels().length;
 }
 
+// Your marks: the last 12 photos marked by hand, keyed by the photo file's
+// sha256, each with its marks (roles and boxes) and the level made from
+// them, or null while not made yet. Never the photo. A damaged or foreign
+// entry is dropped (the marks themselves are checked again by the page,
+// src/marks.js sanitizeMarks, against the photo's size).
+const MARKED = 'marked';
+
+function readMarkedList() {
+  const list = readPref(MARKED, []);
+  if (!Array.isArray(list)) return [];
+  return list.filter((e) => e && typeof e === 'object' && SHA.test(e.sha256) && Array.isArray(e.marks)
+    && (e.level === null || (e.level && e.level.schema === 'frameplay.level/2' && e.level.origin === 'marked'
+      && e.level.picture && e.level.picture.kind === 'marked' && e.level.picture.sha256 === e.sha256)));
+}
+
+export function saveMarks(sha256, marks, level = null) {
+  if (!SHA.test(sha256) || !Array.isArray(marks)) return false;
+  const list = readMarkedList().filter((e) => e.sha256 !== sha256);
+  list.unshift({ sha256, marks: marks.map((m) => ({ role: m.role, box: m.box.slice(0, 4) })), level: level || null, saved: new Date().toISOString() });
+  let keep = list.slice(0, LEVEL_STORE_SIZE);
+  while (keep.length && !writePref(MARKED, keep)) keep = keep.slice(0, -1);
+  return keep.length > 0;
+}
+
+export function loadMarks(sha256) {
+  return readMarkedList().find((e) => e.sha256 === sha256) || null;
+}
+
 export function outlinesWhilePlaying() {
   return readPref('outlines', true) !== false;
 }

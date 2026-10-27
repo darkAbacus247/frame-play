@@ -6,11 +6,13 @@ import { ringsInside } from './geom.js';
 import { navParams, buildNav, gridDistances, cellCenter, findPath } from './nav.js';
 
 export const LEVEL_SCHEMA = 'frameplay.level/2';
-export const ORIGINS = ['mock', 'live', 'rehearsal'];
+export const ORIGINS = ['mock', 'live', 'rehearsal', 'marked'];
 export const LABELS = {
   mock: 'Sample room · MOCK · drawn by code; no model was called',
   live: 'LIVE · Meta Model API · muse-spark-1.3 and sam-3.1',
   rehearsal: 'REHEARSAL · local stand-in, not Meta',
+  // your own room, marked by you (src/marks.js)
+  marked: 'MARKED BY YOU · outlines traced by code; no model was called',
 };
 export const ROLES = ['collect', 'avoid', 'exit', 'solid', 'flat'];
 export const OUTLINE_SOURCES = ['exact', 'sam_mask', 'traced_in_box', 'box'];
@@ -415,7 +417,7 @@ export function buildLevel(input) {
 
   const proof = proveLevel(level, rt, start);
   if (!proof.winnable) {
-    return { error: `No level from this picture: ${proof.why}. Try a sample room or another photo.` };
+    return { error: `No level from this picture: ${proof.why}. Try a sample room or another photo.`, why: proof.why };
   }
   finishLevel(level, rt, start, proof);
   return { level, rt };

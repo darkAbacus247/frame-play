@@ -8,6 +8,12 @@
 // Forward from its step then goes straight past its reveal and play steps,
 // and Back from there comes straight home to it. A room made and played is
 // never passed by: Continue to the end keeps it on the road.
+//
+// Your own room may also be marked by hand (src/marks.js): its slot then
+// holds { kind: 'marked', sha256, made }. Choosing to mark a photo puts it
+// on the road unmade, and Step 10 (named Your marks) is where the marks are
+// drawn; Forward waits there until the room is made from them. Only a made
+// room counts as made.
 
 export const STEP_NAMES = [
   null,
@@ -68,6 +74,7 @@ export function canForward(road) {
   if (s === 5 && !road.rooms[1]) return { ok: false, why: 'Pick a second room to continue' };
   if (s === 7 && !road.finished[1]) return { ok: false, why: 'Finish a round, win or lose, to continue' };
   if (s === OWN_STEP && !road.rooms[2] && road.own !== 'skipped') return { ok: false, why: 'Choose a photo, or continue to the end' };
+  if (s === OWN_STEP + 1 && marking(road)) return { ok: false, why: 'Make the room from your marks to go on' };
   if (s === OWN_STEP + 2 && !road.finished[2]) return { ok: false, why: 'Finish a round, win or lose, to continue' };
   return { ok: true, why: '' };
 }
@@ -104,7 +111,8 @@ export function chooseRoom(road, slot, ref) {
   const rooms = road.rooms.slice();
   const finished = road.finished.slice();
   const best = road.best.slice();
-  const same = rooms[slot] && sameRef(rooms[slot], ref);
+  // a room marked again from scratch starts its results again too
+  const same = rooms[slot] && sameRef(rooms[slot], ref) && !(ref.kind === 'marked' && !ref.made);
   rooms[slot] = ref;
   if (!same) {
     finished[slot] = false;
@@ -117,8 +125,29 @@ export function chooseRoom(road, slot, ref) {
 // Your own room counts as made whenever its slot holds a room. 'skipped'
 // is only a routing flag (Forward and Back pass its reveal and play steps);
 // it never means "not made".
+// A room marked by hand counts only once it was made from its marks.
 export function ownMade(road) {
-  return !!road.rooms[2];
+  return !!road.rooms[2] && !marking(road);
+}
+
+// Your own room is on the road as marks not made into a room yet.
+export function marking(road) {
+  const r = road.rooms[2];
+  return !!r && r.kind === 'marked' && !r.made;
+}
+
+// The room is made from its marks, on Step 10 or, in place, on Step 11: the
+// step stays, and its results start again (a new level, a new round).
+export function makeMarked(road) {
+  const r = road.rooms[2];
+  if (!r || r.kind !== 'marked' || road.step < OWN_STEP + 1 || road.step > OWN_STEP + 2) return road;
+  const rooms = road.rooms.slice();
+  const finished = road.finished.slice();
+  const best = road.best.slice();
+  rooms[2] = { kind: 'marked', sha256: r.sha256, made: true };
+  finished[2] = false;
+  best[2] = null;
+  return { ...road, rooms, finished, best };
 }
 
 // Continue to the end, from your own room's steps (9, 10 or 11). A room
@@ -127,7 +156,7 @@ export function ownMade(road) {
 // yet is passed by, straight on past its reveal and play steps.
 export function passOwnRoom(road) {
   if (road.step < OWN_STEP || road.step > OWN_STEP + 2) return road;
-  if (road.rooms[2] && road.finished[2]) return go(road, AFTER_OWN);
+  if (ownMade(road) && road.finished[2]) return go(road, AFTER_OWN);
   return go({ ...road, own: 'skipped' }, AFTER_OWN);
 }
 export const skipOwnRoom = passOwnRoom;
@@ -180,12 +209,20 @@ export function towardStep(road, step) {
 }
 
 export function sameRef(a, b) {
-  return !!a && !!b && a.kind === b.kind && (a.kind === 'photo' ? a.sha256 === b.sha256 : a.id === b.id);
+  return !!a && !!b && a.kind === b.kind && (a.kind === 'photo' || a.kind === 'marked' ? a.sha256 === b.sha256 : a.id === b.id);
 }
 
 export function counterText(road) {
   if (road.step >= FREE_PLAY) return 'Free play';
-  return `Step ${road.step} of ${LAST_STEP}: ${STEP_NAMES[road.step]}`;
+  return `Step ${road.step} of ${LAST_STEP}: ${stepName(road, road.step)}`;
+}
+
+// A step's name on this road: a room marked by hand shows its marks where
+// a read room shows what the AI found.
+export function stepName(road, step) {
+  const r = road.rooms && road.rooms[2];
+  if (step === OWN_STEP + 1 && r && r.kind === 'marked') return 'Your marks';
+  return STEP_NAMES[step];
 }
 
 export function lapText(road) {
@@ -223,9 +260,12 @@ export function sanitizeRoad(o) {
     if (r.kind === 'photo' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)) return { kind: 'photo', sha256: r.sha256 };
     return null;
   };
+  // a marked room only in your own room's slot
+  const ownRef = (r) => (r && typeof r === 'object' && r.kind === 'marked' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)
+    ? { kind: 'marked', sha256: r.sha256, made: r.made === true } : ref(r));
   const at = (list, k, f) => f(Array.isArray(list) ? list[k] : undefined);
   const slots = [0, 1, 2];
-  const rooms = slots.map((k) => (o.v === 2 && k === 2 ? null : at(o.rooms, k, ref)));
+  const rooms = slots.map((k) => (o.v === 2 && k === 2 ? null : at(o.rooms, k, k === 2 ? ownRef : ref)));
   const finished = slots.map((k) => (o.v === 2 && k === 2 ? false : at(o.finished, k, (v) => !!v)));
   const road = {
     v: 3,
@@ -234,7 +274,7 @@ export function sanitizeRoad(o) {
     consent: o.consent === true,
     // a room made and played is never passed by (roads saved before this
     // rule heal here)
-    own: o.v === 3 && o.own === 'skipped' && !(rooms[2] && finished[2]) ? 'skipped' : null,
+    own: o.v === 3 && o.own === 'skipped' && !(ownMade({ rooms }) && finished[2]) ? 'skipped' : null,
     rooms,
     finished,
     best: slots.map((k) => (o.v === 2 && k === 2 ? null : at(o.best, k, num))),

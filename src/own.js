@@ -3,8 +3,9 @@
 // says plainly what it does:
 // - LIVE: the photo goes through the real pipeline (Muse Spark, then SAM
 //   3.1), and the room is built from what the models found in it.
-// - MOCK: no model can read it, so nothing is sent and no level is made.
-//   The photo is shown on this device only.
+// - MOCK: no model can read it, so nothing is sent and no level is made
+//   from a read. The photo is shown on this device only, and the player
+//   may mark its objects by hand instead (src/marks.js).
 // - REHEARSAL: the local stand-in only knows the sample rooms' own
 //   pictures, so only the picture of the room it was started for is sent,
 //   or a faithful copy of it (re-encoded, resized). Any other photo, or a
@@ -182,45 +183,64 @@ export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNo
 //   samples: [{ id, title, sig, fine, boxes }], the sample pictures'
 //     fingerprints, fine grids and object boxes
 //   stored(photo) -> a level kept on this device for this photo, or null
+//   marked(photo) -> { ref, entry }: this photo is your own room marked by
+//     hand, made again from the marks on this device, or null
 // sameAs: the sha256 a room made again in place must have, or null.
 // Returns one of:
 //   { kind: 'kept', picture, words }     MOCK: shown here, nothing sent
 //   { kind: 'refused', picture, words }  not made, and why
 //   { kind: 'built', ref, entry }        a playable room
+// `markable` says the player may mark the photo by hand instead (MOCK, or a
+// read refused or failed); never after the people or content refusal, nor
+// for a photo that is not the one a room in place was made from. A refused
+// photo that was read carries its `sha256`. A send that throws carries the
+// photo read here as the error's `photo`.
 export const NOT_SAME_WORDS = 'That is not the photo this room was made from. Nothing was sent.';
+// what a reply refused for the photo's content: it is not marked instead
+export const CONTENT_REFUSALS = ['people_present', 'content_filter'];
+const markableReply = (reply) => !(reply && reply.error && CONTENT_REFUSALS.includes(reply.error.code));
 export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, sameAs = null, onWords = () => {}, yieldNow }) {
   const why = photoRefusal(file);
   if (why) return { kind: 'refused', picture: null, words: why };
   if (mode !== 'live' && mode !== 'rehearsal') {
     const p = await deps.preview(file);
-    return { kind: 'kept', picture: p.picture, words: MOCK_WORDS };
+    return { kind: 'kept', picture: p.picture, words: MOCK_WORDS, markable: true };
   }
   const photo = await deps.readPhoto(file);
   // a room made again in place: only from the very photo it was made from,
   // known by its sha256 before anything is looked up or sent
   if (sameAs && photo.sha256 !== sameAs) return { kind: 'refused', picture: null, words: NOT_SAME_WORDS, notSame: true };
+  const markedRoom = !sameAs && deps.marked ? deps.marked(photo) : null;
+  if (markedRoom) return { kind: 'built', ...markedRoom };
+  const refused = (words, markable = !sameAs) => ({ kind: 'refused', picture: photo.picture, sha256: photo.sha256, words, markable });
   let matched = null;
   if (mode === 'rehearsal') {
     matched = matchSample(signature(photo.pixels), deps.samples || []);
     const titleOf = (id) => ((deps.samples || []).find((s) => s.id === id) || { title: id }).title;
     const v = rehearsalVerdict(matched, rehearsalRoom, titleOf);
-    if (!v.ok) return { kind: 'refused', picture: photo.picture, words: v.why };
+    if (!v.ok) return refused(v.why);
     // and every object where the sample has it, looked at more finely
     const s = deps.samples.find((x) => x.id === matched);
     if (!s.fine || !s.boxes || worstBox(fineGrid(photo.pixels), s.fine, s.boxes) > MATCH_BOX) {
-      return { kind: 'refused', picture: photo.picture, words: `This is an edited copy of the sample picture of ${titleOf(matched)}: an object in it is not where the sample has it. Nothing was sent, and no level is made from it.` };
+      return refused(`This is an edited copy of the sample picture of ${titleOf(matched)}: an object in it is not where the sample has it. Nothing was sent, and no level is made from it.`);
     }
   }
   const ref = { kind: 'photo', sha256: photo.sha256 };
   const kept = deps.stored ? deps.stored(photo) : null;
   if (kept && kept.built.level.origin === mode) return { kind: 'built', ref, entry: kept };
-  const reply = await deps.send(photo.blob, onWords);
+  let reply;
+  try {
+    reply = await deps.send(photo.blob, onWords);
+  } catch (e) {
+    if (!sameAs) e.photo = { picture: photo.picture, sha256: photo.sha256 };
+    throw e;
+  }
   const ok = acceptReply(mode, reply, photo);
-  if (!ok.ok) return { kind: 'refused', picture: photo.picture, words: ok.why };
+  if (!ok.ok) return refused(ok.why, !sameAs && markableReply(reply));
   const other = mode === 'rehearsal' ? standInReplyRefusal(reply, matched) : null;
-  if (other) return { kind: 'refused', picture: photo.picture, words: other };
+  if (other) return refused(other);
   onWords('Tracing the outlines');
   const entry = await levelFromReply(reply, photo.picture, photo.pixels, ref, yieldNow);
-  if (entry.built.error) return { kind: 'refused', picture: photo.picture, words: entry.built.error };
+  if (entry.built.error) return refused(entry.built.error);
   return { kind: 'built', ref, entry };
 }

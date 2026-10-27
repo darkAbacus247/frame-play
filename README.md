@@ -25,8 +25,8 @@ so plainly:
   at most 10 calls in all, each carrying the photo (a failed call may be
   sent one more time). This app does not store the photo. The room is
   built from what the models found in it.
-- **MOCK** (no key): nothing reads the photo, so nothing is invented. It is
-  shown on your device only, and the road goes on to its end.
+- **MOCK** (no key): no model reads the photo, so nothing is invented. It is
+  shown on your device only, and you can mark the room yourself (below).
 - **REHEARSAL** (the local stand-in): the stand-in only knows its sample
   room's own picture, which the page offers to save. Any other photo, or a
   copy of that picture edited enough for the page's check to see (an
@@ -38,12 +38,30 @@ so plainly:
 A photo that is refused (in any mode) is not shown; the screen says in
 words why no room was made from it.
 
+**Mark it yourself.** Whenever this copy cannot read a chosen photo with
+Meta's models (MOCK; or a LIVE or REHEARSAL read that was refused or failed,
+such as a refused key or a timeout, but never after the people refusal),
+the next button is Mark your room. On Step 10 (named Your marks) you pick
+what a box is (a coin to collect, an obstacle, a hazard or the exit) and
+drag one over each object, with a mouse, pen or finger, or with the
+keyboard alone (a box cursor: arrow keys move it, Shift with an arrow
+resizes it, Enter adds it). A line says what the room still needs to be
+winnable. Make the room then runs the same code a model's reply goes
+through: code first finds the object's own bounds inside each of your
+boxes, then traces its outline there with the same tracer and tightness
+test as SAM's boxes, keeping your box where the trace is not tight; the
+level builder and the proof follow. The reveal, the play label, the closing
+screen and Free play say you marked the objects and code traced the
+outlines, and that no model was called. Nothing is sent: the marks (roles
+and boxes) and the level are kept on this device under the photo's
+fingerprint, never the photo, so after a reload the same photo picked again
+brings the room back in place.
+
 The road ends on a closing screen (the counter's last step) that says the
 circuit is complete: each room with whether you won and your best route,
 one sentence on what the AI did in it, and the ways on: Free play, Play
-again for any room, Try your own room (or, in MOCK, why it needs the live
-AI), and Start over, which asks first and clears nothing unless you
-confirm. While a card or the settings are open, a round in play holds
+again for any room, Try your own room, and Start over, which asks first
+and clears nothing unless you confirm. While a card or the settings are open, a round in play holds
 still, so no round ends under them. Free play always opens on the list of rooms; a replay lasts only
 while you stay on it, and its rounds never change the road's results (its
 end card says so). Your own room, when made, stays on the road: going

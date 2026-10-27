@@ -357,6 +357,21 @@ export function traceInBox(pixels, box, seeds = [], opts = {}) {
   return first;
 }
 
+// A box drawn by hand is looser than SAM's: the same cut inside it, with no
+// tightness test, finds the bounds of the shape that stands out in it, so
+// the object can then be traced inside those bounds exactly as inside SAM's
+// box (traceInBox, tightness test and all). The bounds [x0, y0, x1, y1], or
+// null when nothing stood out or the shape is a sliver of the box (under
+// a tenth of its area, or under 4 px on a side).
+export function snugBox(pixels, box, seeds = []) {
+  const t = traceOnce(pixels, box, seeds, { loose: true });
+  if (t.source !== 'loose') return null;
+  const [x0, y0, x1, y1] = t.bounds;
+  if (x1 - x0 < 4 || y1 - y0 < 4) return null;
+  if ((x1 - x0) * (y1 - y0) < 0.1 * (box[2] - box[0]) * (box[3] - box[1])) return null;
+  return t.bounds;
+}
+
 function traceOnce(pixels, box, seeds, opts) {
   const fallback = (why) => ({ source: 'box', rings: boxRingsOf(box), why });
   const W = pixels.width, H = pixels.height, data = pixels.data;
@@ -497,6 +512,8 @@ function traceOnce(pixels, box, seeds, opts) {
   const mb = maskBounds(pmask, aw, ah);
   if (!mb) return fallback('Nothing was left after the clean-up');
   const tx0 = mb.x0 + ax0, ty0 = mb.y0 + ay0, tx1 = mb.x1 + ax0, ty1 = mb.y1 + ay0;
+  // a loose box (snugBox): where the shape is, with no test
+  if (opts.loose) return { source: 'loose', bounds: [tx0, ty0, tx1, ty1], why: null };
   const touches = Math.abs(tx0 - bx0) <= 2 && Math.abs(ty0 - by0) <= 2 && Math.abs(tx1 - bx1) <= 2 && Math.abs(ty1 - by1) <= 2;
   const cover = ((tx1 - tx0) * (ty1 - ty0)) / (bw * bh);
   if (!touches) return fallback('The traced shape did not reach every side of SAM’s box');

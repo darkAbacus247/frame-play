@@ -21,7 +21,16 @@ const LINES = {
   [FREE_PLAY]: { target: 'room-card', line: 'Free play: pick any room to play it again.' },
 };
 
-export function tourStep(step) {
+// Your own room marked by hand: its Step 10 is the marking board, then the
+// room made from the marks.
+const MARKED = {
+  marking: { target: 'primary', line: 'Pick what a box is, drag one over each object, then press Make the room.' },
+  made: { target: 'primary', line: 'Code traced these outlines inside your boxes. Press Play this room.' },
+};
+
+// own: 'marking' or 'made' while your own room is marked by hand, or null
+export function tourStep(step, own = null) {
+  if (step === 10 && MARKED[own]) return MARKED[own];
   return LINES[step] || null;
 }
 

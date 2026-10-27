@@ -10,6 +10,7 @@ import { OWN_STEP, PICK_STEPS } from './road.js';
 import { objectWords } from './level.js';
 import { ROLE_WORDS } from './words.js';
 import { MOCK_WORDS } from './own.js';
+import { MARK_ROLES, markedWords } from './marks.js';
 
 // A disclosure: its summary in view, its body one press away. Closed until
 // the player opens it.
@@ -88,7 +89,7 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
 }
 
 // ---- picking a sample room (steps 2 and 5) ----
-export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in' };
+export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in', marked: 'MARKED · by you' };
 
 export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, tour = true }) {
   const thumb = el('canvas', { class: 'thumb', width: '320', height: '240', 'aria-hidden': 'true' });
@@ -143,6 +144,12 @@ export const SOURCE_WORDS = {
   traced_in_box: 'traced by code inside SAM’s box',
   box: 'SAM’s box (the trace was not tight enough)',
 };
+// a room marked by hand: the boxes are the player's
+export const MARKED_SOURCE_WORDS = {
+  traced_in_box: 'traced by code inside your box',
+  box: 'your box (the trace was not tight enough)',
+};
+const sourceWords = (level, src) => (level.origin === 'marked' ? MARKED_SOURCE_WORDS[src] : null) || SOURCE_WORDS[src];
 
 const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
 
@@ -158,6 +165,7 @@ export function summaryLine(level, summary) {
   if (level.origin === 'mock') {
     return 'This sample room was drawn by code: no model was called, and its outlines are the exact shapes code painted. Code proved the room can be won.';
   }
+  if (level.origin === 'marked') return `${markedWords(level)} Code proved the room can be won.`;
   const n = level.objects.length;
   const named = summary ? summary.named : n;
   const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
@@ -182,19 +190,20 @@ export function revealHeight({ width, aspect, spaceH, headH, gap, infoH, beside,
 
 const changeCount = (n) => (n === 0 ? 'none' : n === 1 ? '1 change' : `${n} changes`);
 
-// actions: { play, describe(desc, button), walls(on) }
+// actions: { play, describe(desc, button), walls(on), remark (a marked room) }
 export function foundView({ level, summary, fromDevice, actions }) {
+  const marked = level.origin === 'marked';
   const pic = el('div', { class: 'found-pic' });
   const list = el('ol', { class: 'obj-list' });
   level.objects.forEach((o, k) => {
-    const conf = o.confidence == null ? 'no confidence score (drawn by code)' : `confidence ${Math.round(o.confidence * 100)}%`;
+    const conf = marked ? 'marked by you' : o.confidence == null ? 'no confidence score (drawn by code)' : `confidence ${Math.round(o.confidence * 100)}%`;
     list.append(el('li', {}, [
       el('span', { class: 'num', 'aria-hidden': 'true', text: String(k + 1) }),
       el('span', { class: 'obj' }, [
         el('strong', { text: objectWords(level, k) }),
         el('span', { text: ` · ${o.on_surface ? ROLE_WORDS[o.role] : 'scenery, out of reach'}` }),
         el('span', { class: 'reason', text: `“${o.reason}”` }),
-        el('small', { text: `${SOURCE_WORDS[o.outline.source]} · ${conf}` }),
+        el('small', { text: `${sourceWords(level, o.outline.source)} · ${conf}` }),
       ]),
     ]));
   });
@@ -226,9 +235,10 @@ export function foundView({ level, summary, fromDevice, actions }) {
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Start playing this room', text: 'Play this room', onclick: actions.play }),
       describeBtn,
       wallsBtn,
+      marked && actions.remark ? el('button', { type: 'button', class: 'btn', text: 'Change your marks', tip: 'Back to your boxes, to move, change or remove them', onclick: actions.remark }) : null,
     ]),
     desc,
-    more(`Objects found (${level.objects.length})`, [
+    more(`${marked ? 'Objects you marked' : 'Objects found'} (${level.objects.length})`, [
       list,
       scenery.length ? el('p', { text: `Also seen, as scenery (never a wall, never sent to SAM): ${scenery.join(', ')}.` }) : null,
       warnings.length ? el('ul', { class: 'changes' }, warnings.map((w) => el('li', { text: w }))) : null,
@@ -241,7 +251,7 @@ export function foundView({ level, summary, fromDevice, actions }) {
     el('p', { class: 'level-label', text: level.label }),
   ]);
   const section = el('section', { class: 'screen found' }, [
-    el('h1', { text: 'What the AI found' }),
+    el('h1', { text: marked ? 'Your room, from your marks' : 'What the AI found' }),
     el('div', { class: 'found-grid' }, [
       pic,
       info,
@@ -342,20 +352,70 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
     panel,
     shown,
   ]);
-  return { section, panel, shown };
+  return { section, panel, shown, choose, onward };
+}
+
+// The way on from a photo no model can read here: the player marks it.
+export function markButton(actions) {
+  return el('button', {
+    type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: 'Mark your room',
+    tip: 'Draw a box over each object and say what it is; code traces the outlines. Nothing is sent', onclick: actions.mark,
+  });
 }
 
 // What became of a photo that made no room: kept here (MOCK), the photo
-// shown on this device only; refused, why, in words.
-export function ownResult(r) {
-  if (r.kind !== 'kept') return [el('p', { class: 'error', role: 'alert', text: r.words })];
+// shown on this device only; refused, why, in words. actions: { mark }
+// when the photo can be marked by hand instead (MOCK, or a read refused or
+// failed), or null.
+export function ownResult(r, actions = null) {
+  const mark = actions ? el('div', { class: 'actions' }, [markButton(actions)]) : null;
+  if (r.kind !== 'kept') return [el('p', { class: 'error', role: 'alert', text: r.words }), mark];
   if (!r.picture) return [];
   r.picture.setAttribute('role', 'img');
   r.picture.setAttribute('aria-label', 'Your photo');
   return [el('figure', { class: 'own-pic' }, [
     r.picture,
     el('figcaption', { text: 'Your photo, on this device only. Nothing was sent, and no level was made from it.' }),
-  ])];
+  ]), mark];
+}
+
+// ---- your marks ----
+// The marking screen: the photo on the left (above, when narrow), sized
+// like the reveal, and beside it what a box is, what the room still needs,
+// the ways on and the boxes so far. The board itself is src/marker.js.
+export const MARK_HELP = [
+  'Mouse, pen or touch: pick what the box is, then drag over the object to draw it. Press a box to select it: a pick then changes it, and dragging it moves it.',
+  'Keyboard: Tab to the photo. The arrow keys move the box cursor, Shift with an arrow makes it larger or smaller, and Enter adds it. Space selects the box under the cursor; the arrows then move it and Shift with an arrow resizes it. Delete removes it, Escape lets it go, 1 to 4 pick Coin, Obstacle, Hazard or Exit, and Ctrl+Z undoes.',
+];
+// actions: { role(role), make, undo, remove, keep (a made room: leave it as it was), or null }
+export function markView({ actions }) {
+  const pic = el('div', { class: 'found-pic mark-pic' });
+  const roles = MARK_ROLES.map((r) => el('button', {
+    type: 'button', class: 'btn', 'data-role': r.role, 'aria-pressed': 'false', text: r.button,
+    tip: `A new box, or the selected one, is ${r.words} (key ${r.key})`, onclick: () => actions.role(r.role),
+  }));
+  const needsLine = el('p', { class: 'needs', 'aria-live': 'polite' });
+  const make = el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: 'Make the room', tip: 'Code traces each outline inside your box, builds the room and proves it can be won', onclick: actions.make });
+  const undo = el('button', { type: 'button', class: 'btn', text: 'Undo', tip: 'Undoes your last change to the boxes', onclick: actions.undo });
+  const remove = el('button', { type: 'button', class: 'btn', text: 'Remove the box', tip: 'Removes the selected box', onclick: actions.remove });
+  const keep = actions.keep ? el('button', { type: 'button', class: 'btn', text: 'Keep the room as it was', tip: 'Back to the room made from your marks, unchanged', onclick: actions.keep }) : null;
+  const chips = el('div', { class: 'chips', role: 'group', 'aria-label': 'Your boxes' });
+  // the list grows with every box, so it is folded; the boxes themselves are
+  // on the photo
+  const boxes = more('Your boxes (0)', [chips]);
+  const info = el('div', { class: 'found-info' }, [
+    el('p', { class: 'summary', text: 'Pick what a box is, then drag one over each object. Nothing is sent.' }),
+    el('div', { class: 'actions', role: 'group', 'aria-label': 'What a box is' }, roles),
+    needsLine,
+    el('div', { class: 'actions' }, [make, undo, remove, keep]),
+    boxes,
+    more('Keyboard and touch', MARK_HELP.map((t) => el('p', { text: t }))),
+  ]);
+  const section = el('section', { class: 'screen found marking' }, [
+    el('h1', { text: 'Your marks' }),
+    el('div', { class: 'found-grid' }, [pic, info]),
+  ]);
+  return { section, pic, info, roles, needsLine, make, undo, remove, chips, boxesSummary: boxes.children[0] };
 }
 
 // ---- the closing screen ----
@@ -370,7 +430,8 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
     const ref = road.rooms[slot] || null;
     const heading = ['First room', 'Second room', 'Your own room'][slot];
     // made means its slot holds a room; passing it by never unmakes it
-    if (slot === 2 && !ref) {
+    // marks not made into a room yet are not a room
+    if (slot === 2 && (!ref || (ref.kind === 'marked' && !ref.made))) {
       return {
         slot, heading, title: null, ref: null, playable: false,
         result: 'Not made',
@@ -382,7 +443,7 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
     }
     return {
       slot, heading, ref, playable: !!level,
-      title: level ? level.title : null,
+      title: ref && ref.kind === 'marked' ? 'marked by you' : level ? level.title : null,
       result: resultLine(road, slot),
       ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode, room, kept[slot] || null),
     };
@@ -396,6 +457,8 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
 // null; one from the other mode cannot load here.
 export function missingLine(slot, ref, mode, room = null, kept = null) {
   const gone = 'Its level is not in memory on this visit';
+  // marked by hand: any mode makes it again from the marks on this device
+  if (ref && ref.kind === 'marked') return `${gone}; choose the same photo again on Step ${OWN_STEP + 1} to load it from your marks on this device.`;
   const otherMode = kept && kept !== mode;
   if (ref && ref.kind === 'photo' && mode === 'live' && !otherMode) {
     return `${gone}; pick the same photo again on Step ${PICK_STEPS[slot]} to see it.`;
@@ -421,6 +484,7 @@ export function aiLine(level, summary) {
   const n = level.objects.length;
   const things = (k) => `${k} ${k === 1 ? 'thing' : 'things'}`;
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
+  if (level.origin === 'marked') return `${markedWords(level)} Code proved the room can be won.`;
   if (level.origin === 'rehearsal') return `The local stand-in (not Meta) answered for its sample picture; code ${tracedWords(level)}, and proved the room can be won.`;
   const named = summary ? summary.named : n;
   return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
@@ -451,9 +515,9 @@ export function closingView({ rooms, mode, primaryLabel, actions }) {
     ]))),
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),
-      sends ? el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own`, onclick: actions.ownRoom }) : null,
+      el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own`, onclick: actions.ownRoom }),
       el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
     ]),
-    sends ? null : el('p', { class: 'why', text: 'Your own room needs the live AI (Meta’s models). This copy runs without it.' }),
+    sends || rooms[2].ref ? null : el('p', { class: 'why', text: 'In MOCK no model reads a photo: your own room is a photo you mark yourself.' }),
   ]);
 }

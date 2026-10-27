@@ -181,7 +181,7 @@ test('a room not in memory names its own step, and only what this mode can do', 
   const mock = closingRooms({ road: endRoad(false), mode: 'mock', levels: [MOCK_DESK, MOCK_LIVING, null] });
   const mockText = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {} }));
   assert.match(mockText, /That is the whole road: two rooms, and how each was made\./, 'MOCK: no AI did anything');
-  assert.equal((mockText.match(/live AI/g) || []).length, 1, 'one live-AI sentence');
+  assert.equal((mockText.match(/no model reads a photo/g) || []).length, 1, 'one sentence on why, and what your own room is in MOCK');
 });
 
 function view(mode, own) {
@@ -195,7 +195,7 @@ function view(mode, own) {
   return { section: closingView({ rooms, mode, primaryLabel: 'Free play', actions }), calls };
 }
 
-test('one heading, one primary, real buttons for every way on; MOCK says why there is no own room', () => {
+test('one heading, one primary, real buttons for every way on; MOCK says what your own room is there', () => {
   const { section, calls } = view('mock', false);
   const h1 = all(section).filter((e) => e.tagName === 'H1');
   assert.equal(h1.length, 1);
@@ -204,20 +204,21 @@ test('one heading, one primary, real buttons for every way on; MOCK says why the
   const primary = buttons.filter((b) => b.hasAttribute('data-primary'));
   assert.deepEqual(primary.map((b) => b.textContent), ['Free play']);
   // the accessible name starts with the visible words (label in name)
-  assert.deepEqual(buttons.map(nameOf), ['Play again: The Desk Top', 'Play again: The Living Room', 'Free play', 'Start over']);
+  assert.deepEqual(buttons.map(nameOf), ['Play again: The Desk Top', 'Play again: The Living Room', 'Free play', 'Try your own room', 'Start over']);
   assert.ok(buttons.every((b) => !b.hasAttribute('aria-label')), 'no label that hides the visible words');
   assert.ok(buttons.every((b) => b.getAttribute('type') === 'button' && b.dataset.tip && b.getAttribute('aria-describedby')), 'keyboard buttons with words for screen readers');
-  assert.match(texts(section), /Your own room needs the live AI \(Meta’s models\)\. This copy runs without it\./);
-  assert.doesNotMatch(texts(section), /Try your own room/);
+  // in MOCK your own room is a photo you mark yourself, so it is offered too
+  assert.match(texts(section), /In MOCK no model reads a photo: your own room is a photo you mark yourself\./);
+  assert.doesNotMatch(texts(section), /needs the live AI/);
   const list = all(section).find((e) => e.tagName === 'UL');
   assert.equal(list.getAttribute('aria-label'), 'The rooms you played');
   assert.equal(list.children.length, 3);
   for (const b of buttons) b.click();
-  assert.deepEqual(calls, [['again', desk, 'The Desk Top'], ['again', living, 'The Living Room'], 'free', 'over']);
+  assert.deepEqual(calls, [['again', desk, 'The Desk Top'], ['again', living, 'The Living Room'], 'free', 'own', 'over']);
 });
 
-test('LIVE and REHEARSAL offer Try your own room', () => {
-  for (const mode of ['live', 'rehearsal']) {
+test('every mode offers Try your own room (in MOCK it is marked by hand)', () => {
+  for (const mode of ['live', 'rehearsal', 'mock']) {
     const { section, calls } = view(mode, true);
     const b = all(section).find((e) => e.tagName === 'BUTTON' && e.textContent === 'Try your own room');
     assert.ok(b, mode);

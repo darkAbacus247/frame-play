@@ -12,12 +12,14 @@ import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveH
 import * as R from './src/road.js';
 import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway } from './src/words.js';
-import { acceptReply } from './src/reply.js';
-import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
+import { acceptReply, photoRefusal } from './src/reply.js';
+import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
+import { makeMarkedRoom, keptMarkedEntry, sanitizeMarks, needs } from './src/marks.js';
+import { mountMarker } from './src/marker.js';
 import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal, NOT_SAME_WORDS } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS,
+  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView,
 } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
@@ -36,7 +38,9 @@ const A = {
   modeWhy: '',
   road: R.newRoad(),
   samples: new Map(),
-  live: new Map(), // levels made through the live path this visit, by refKey
+  live: new Map(), // levels made through the live path (or from marks) this visit, by refKey
+  marking: new Map(), // photos being marked this visit, by sha256: { picture, marks }
+  remark: null, // the sha256 of a made room whose marks are open again
   busy: false,
   view: null,
   reveals: [],
@@ -124,7 +128,7 @@ function keptOrigin(ref) {
 }
 
 function refKey(ref) {
-  return ref.kind === 'photo' ? `photo:${ref.sha256}` : `${ref.kind}:${ref.id}`;
+  return ref.kind === 'photo' || ref.kind === 'marked' ? `${ref.kind}:${ref.sha256}` : `${ref.kind}:${ref.id}`;
 }
 
 async function levelFor(ref) {
@@ -267,6 +271,7 @@ function setRoad(next, { push = true } = {}) {
   saveRoad();
   progress();
   if (changed) {
+    A.remark = null;
     if (push) try { history.pushState({ step: next.step }, '', `#step-${next.step}`); } catch { /* history blocked */ }
     render();
   } else {
@@ -501,7 +506,16 @@ async function missingRoom(main, slot, token) {
   const kept = keptOrigin(ref);
   const otherMode = kept && kept !== A.mode;
   let why = null;
-  if (ref && ref.kind === 'photo' && slot === 2 && sends && !otherMode) {
+  if (ref && ref.kind === 'marked') {
+    // marked by hand: made again in any mode from the marks kept here,
+    // and nothing is sent
+    if (A.marking.has(ref.sha256)) return screenMarking(main, ref);
+    kids.push(el('h1', { text: 'Pick your photo again' }),
+      el('p', { text: 'The photo itself is never stored. Choose the same photo: your marks, and the room made from them, load from this device. Nothing is sent.' }),
+      chooseAgain((f) => restoreMarked(f, shown), 'Pick the same photo you marked; it stays on this device', onward(false)),
+      shown);
+    why = 'Pick the same photo to see your marks';
+  } else if (ref && ref.kind === 'photo' && slot === 2 && sends && !otherMode) {
     // your own room, with every check its mode makes (src/own.js)
     kids.push(el('h1', { text: 'Pick your photo again' }),
       el('p', { text: A.mode === 'live'
@@ -562,7 +576,12 @@ function describeSection(section, level, rt, state, button) {
 }
 
 async function screenFound(main, slot, token) {
-  const entry = await levelFor(A.road.rooms[slot]);
+  const ref = A.road.rooms[slot];
+  // marks not made into a room yet, or opened again: the marking board
+  if (ref && ref.kind === 'marked' && A.marking.has(ref.sha256) && (A.remark === ref.sha256 || !A.live.has(refKey(ref)))) {
+    return screenMarking(main, ref);
+  }
+  const entry = await levelFor(ref);
   if (token !== A.renderToken) return;
   if (!entry) return missingRoom(main, slot, token);
   if (entry.built.error) {
@@ -576,6 +595,11 @@ async function screenFound(main, slot, token) {
       play: () => setRoad(R.startPlay(A.road)),
       describe: (desc, button) => describeSection(desc, level, rt, null, button),
       walls: (on) => { for (const r of A.reveals) r.setWalls(on); },
+      remark: ref.kind === 'marked' ? () => {
+        if (!A.marking.has(ref.sha256)) A.marking.set(ref.sha256, { picture: entry.picture, marks: entry.marks || [] });
+        A.remark = ref.sha256;
+        render();
+      } : null,
     },
   });
   main.replaceChildren(section);
@@ -683,8 +707,10 @@ async function screenFree(main, token) {
   const ownEntry = R.ownMade(A.road) ? await levelFor(own) : null;
   if (token !== A.renderToken) return;
   // titled by its row: in REHEARSAL it carries the sample's own title
-  if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { title: `Your own room: ${ownEntry.built.level.title}`, onPick: () => { A.free = own; render(); } }));
+  if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { title: ownTitle(ownEntry.built.level), onPick: () => { A.free = own; render(); } }));
 }
+
+const ownTitle = (level) => `Your own room: ${level.origin === 'marked' ? 'marked by you' : level.title}`;
 
 // ---- the closing screen ----
 // The last step of the road: the circuit is complete, each room with what
@@ -727,6 +753,14 @@ function ownDeps() {
     send: (blob, onWords) => sendPhoto(blob, (m) => onWords(m.words)),
     samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
     stored: storedEntry,
+    // the photo of your own room marked by hand: made again from the marks
+    // kept here, never read again
+    marked: (photo) => {
+      const own = A.road.rooms[2];
+      if (!own || own.kind !== 'marked' || !own.made || own.sha256 !== photo.sha256) return null;
+      const entry = A.live.get(refKey(own)) || keptMarkedEntry(S.loadMarks(photo.sha256), photo.sha256, photo.picture);
+      return entry ? { ref: own, entry } : null;
+    },
   };
 }
 
@@ -768,6 +802,8 @@ async function screenOwn(main, token) {
 // missing (missingRoom): made again on this same step, and
 // only from the same photo.
 const IN_PLACE_WAYS = 'Pick the same photo, or continue to the end.';
+// after a photo no model can read here (MOCK, or a read refused or failed)
+const MARK_WAYS = 'You can mark the room yourself instead, try another photo, or continue to the end.';
 async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   if (A.busy) return;
   setBusy(true);
@@ -775,6 +811,9 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   let step = 0;
   shown.hidden = true;
   if (sends) progressPanel(panel, LIVE_LINES, step);
+  // the photo can be marked by hand instead (never in place: that is a
+  // room read from this photo, made again)
+  const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
   try {
     // the samples' fingerprints, for a rehearsal's check (a return visit
     // may reach this without any sample room drawn yet)
@@ -790,7 +829,8 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     setBusy(false);
     if (r.notSame) r.words = `${r.words} ${IN_PLACE_WAYS}`;
     if (r.kind === 'built') {
-      if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
+      if (r.ref.kind === 'marked') say('Your marks for this photo were on this device: nothing was sent.');
+      else if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
       else S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
       A.live.set(refKey(r.ref), r.entry);
       if (inPlace) render();
@@ -798,25 +838,184 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
       return;
     }
     panel.hidden = true;
-    showOwnResult(shown, r);
-    say(r.kind === 'kept' ? 'Your photo is shown here and stays on this device. Nothing was sent.' : r.words);
+    const onMark = r.markable ? marking(r.picture, r.sha256 || null) : null;
+    if (onMark && r.kind === 'refused') r.words = `${r.words} ${MARK_WAYS}`;
+    showOwnResult(shown, r, onMark);
+    say(r.kind === 'kept' ? 'Your photo is shown here and stays on this device. Nothing was sent. You can mark your room.' : r.words);
   } catch (e) {
     setBusy(false);
+    // a read that failed after the photo was read here (src/own.js): it
+    // can be marked instead
+    const onMark = e.photo ? marking(e.photo.picture, e.photo.sha256) : null;
     // only the ways this screen offers
-    const words = `${e.message} ${inPlace ? IN_PLACE_WAYS : 'You can try another photo, or continue to the end.'}`;
-    // MOCK sends nothing, so it shows no progress lines: only the words
-    if (sends) progressPanel(panel, LIVE_LINES, step, words);
-    else showOwnResult(shown, { kind: 'refused', words });
+    const words = `${e.message} ${inPlace ? IN_PLACE_WAYS : onMark ? MARK_WAYS : 'You can try another photo, or continue to the end.'}`;
+    // MOCK sends nothing, so it shows no progress lines: only the words;
+    // a read that can be marked instead says why, then the way on, as a
+    // refusal does
+    if (sends && !onMark) progressPanel(panel, LIVE_LINES, step, words);
+    else {
+      panel.hidden = true;
+      showOwnResult(shown, { kind: 'refused', words }, onMark);
+    }
     say(e.message);
   }
 }
 
-function showOwnResult(box, r) {
-  box.replaceChildren(...ownResult(r).filter(Boolean));
+// onMark: the photo can be marked instead; its button becomes the one
+// primary on the screen, right under the photo or the words
+function showOwnResult(box, r, onMark = null) {
+  if (onMark) {
+    for (const p of $('main').querySelectorAll('[data-primary]')) {
+      p.removeAttribute('data-primary');
+      p.classList.remove('primary');
+      if (p.getAttribute('data-tour') === 'primary') p.removeAttribute('data-tour');
+    }
+    A.missingWhy = 'Mark your room, or continue to the end';
+    renderHeader();
+  }
+  box.replaceChildren(...ownResult(r, onMark ? { mark: () => onMark() } : null).filter(Boolean));
   box.hidden = false;
 }
 
+// Mark a photo: from Step 9 on to Step 10 (Your marks), with the photo and
+// any marks kept on this device for it. The fingerprint is taken here, on
+// this device, only to keep the marks with it; nothing is sent. When a room
+// was made from this photo's marks before, it is back as it was.
+// photo: { file, picture, sha256 (when the photo was read already) }
+async function markPhoto(photo) {
+  if (A.busy) return;
+  setBusy(true);
+  try {
+    const sha = photo.sha256 || await sha256Hex(await photo.file.arrayBuffer());
+    const { width, height } = photo.picture;
+    const kept = S.loadMarks(sha);
+    const ref = { kind: 'marked', sha256: sha };
+    const entry = keptMarkedEntry(kept, sha, photo.picture) || A.live.get(refKey(ref)) || null;
+    const marks = (kept && sanitizeMarks(kept.marks, width, height)) || (entry && entry.marks) || [];
+    A.marking.set(sha, { picture: photo.picture, marks });
+    if (entry) {
+      A.live.set(refKey(ref), entry);
+      say('Your marks for this photo were on this device: the room made from them is back. Nothing was sent.');
+    }
+    setBusy(false);
+    setRoad(R.chooseRoom(A.road, 2, { ...ref, made: !!entry }));
+  } catch (e) {
+    setBusy(false);
+    say(e.message);
+    const box = $('main').querySelector('.own-result');
+    if (box) box.prepend(el('p', { class: 'error', role: 'alert', text: e.message }));
+  }
+}
+
+// The marking board: on Step 10, or in place on Step 11 when the level made
+// from the marks is missing. Making the room keeps the step: the reveal (or
+// the round) follows on the same step.
+function screenMarking(main, ref) {
+  const m = A.marking.get(ref.sha256);
+  const made = A.live.get(refKey(ref)) || null;
+  let marker = null;
+  const view = markView({
+    actions: {
+      role: (role) => marker && marker.setRole(role),
+      make: () => makeFromMarks(ref, marker),
+      undo: () => marker && marker.undo(),
+      remove: () => marker && marker.remove(),
+      keep: made && R.ownMade(A.road) ? () => { A.remark = null; render(); } : null,
+    },
+  });
+  main.replaceChildren(view.section);
+  const section = view.section;
+  // the heading, the board and the panel's first lines fit main together,
+  // as the reveal's do (src/screens.js revealHeight)
+  const maxHeight = () => revealHeight({
+    width: floorW(view.pic), aspect: m.picture.height / m.picture.width,
+    spaceH: spaceH($('main')), headH: ceilH(section.querySelector('h1')),
+    gap: parseFloat(getComputedStyle(section).rowGap) || 0,
+    infoH: ceilH(view.info), beside: view.info.getBoundingClientRect().left > view.pic.getBoundingClientRect().left + 1,
+  });
+  marker = mountMarker(view, {
+    picture: m.picture, marks: m.marks, say, maxHeight, busy: () => A.busy,
+    // every change is kept on this device under the photo's fingerprint
+    // (never the photo), beside the room made from earlier marks
+    onChange: (marks) => { m.marks = marks; S.saveMarks(ref.sha256, marks, made ? made.built.level : null); progress(); },
+  });
+  A.reveals.push(marker);
+  if (A.busy) setBusy(true);
+}
+
+async function makeFromMarks(ref, marker) {
+  if (A.busy || !marker) return;
+  const m = A.marking.get(ref.sha256);
+  const marks = marker.marks;
+  const need = needs(marks);
+  if (!need.ready) {
+    marker.showError(`Not yet: ${need.line}`);
+    say(need.line);
+    return;
+  }
+  setBusy(true);
+  marker.status('Tracing the outlines inside your boxes…');
+  say('Tracing the outlines inside your boxes');
+  await new Promise((r) => setTimeout(r, 0)); // let the words show
+  let r;
+  try {
+    r = await makeMarkedRoom({ marks, picture: m.picture, pixels: pixelsOf(m.picture), sha256: ref.sha256 });
+  } catch (e) {
+    r = { ok: false, words: e.message };
+  }
+  setBusy(false);
+  if (!r.ok) {
+    marker.showError(r.words);
+    say(r.words);
+    return;
+  }
+  m.marks = r.entry.marks;
+  S.saveMarks(ref.sha256, r.entry.marks, r.entry.built.level);
+  A.live.set(refKey(ref), r.entry);
+  A.remark = null;
+  A.road = R.makeMarked(A.road);
+  saveRoad();
+  progress();
+  say('The room is made from your marks.');
+  render();
+}
+
+// Your marked room's photo picked again (its level is not in memory): only
+// the very photo, known by its fingerprint taken on this device. Nothing is
+// sent, in any mode.
+const MARKED_NOT_SAME = 'That is not the photo you marked. Nothing was sent.';
+async function restoreMarked(file, shown) {
+  if (A.busy) return;
+  const ref = A.road.rooms[2];
+  setBusy(true);
+  try {
+    const why = photoRefusal(file);
+    if (why) throw new Error(why);
+    const sha = await sha256Hex(await file.arrayBuffer());
+    if (sha !== ref.sha256) throw new Error(MARKED_NOT_SAME);
+    const { picture } = await previewPhoto(file);
+    const kept = S.loadMarks(sha);
+    const entry = ref.made ? keptMarkedEntry(kept, sha, picture) : null;
+    A.marking.set(sha, { picture, marks: (kept && sanitizeMarks(kept.marks, picture.width, picture.height)) || [] });
+    if (entry) A.live.set(refKey(ref), entry);
+    setBusy(false);
+    say(entry ? 'Your marks, and the room made from them, were on this device. Nothing was sent.' : 'Your photo is back, with the marks kept on this device. Nothing was sent.');
+    render();
+  } catch (e) {
+    setBusy(false);
+    showOwnResult(shown, { kind: 'refused', words: `${e.message} ${IN_PLACE_WAYS}` });
+    say(e.message);
+  }
+}
+
 // ---- the tour ----
+// this step's line: your own room marked by hand has its own on Step 10
+function tourNow() {
+  const own = A.road.rooms[2];
+  const marked = own && own.kind === 'marked' ? (document.querySelector('#main .marking') ? 'marking' : 'made') : null;
+  return tourStep(A.road.step, marked);
+}
+
 let veil = [];
 function clearVeil() {
   for (const v of veil) v.remove();
@@ -827,7 +1026,7 @@ function clearVeil() {
 function lightControl() {
   if (!A.tour.on) { clearVeil(); return; }
   if (cardOpen()) { clearVeil(); return; }
-  const t = tourStep(A.road.step);
+  const t = tourNow();
   if (!t) return;
   const sel = t.target === 'primary' ? '#main [data-primary]' : `#main [data-tour="${t.target}"]:not([disabled])`;
   const c = document.querySelector(sel);
@@ -852,7 +1051,7 @@ function updateTour() {
     clearVeil();
     return;
   }
-  const t = tourStep(A.road.step);
+  const t = tourNow();
   strip.replaceChildren(el('div', { class: 'inner' }, [
     el('p', { class: 'tour-line', text: t ? t.line : '' }),
     el('button', { type: 'button', class: 'btn', text: 'Speak this line', tip: 'Reads this line aloud', onclick: () => { if (!speak(t.line)) say(t.line); } }),
@@ -867,7 +1066,7 @@ function startTour() {
   hideOffer();
   renderHeader();
   updateTour();
-  say('Tour on. ' + (tourStep(A.road.step) || { line: '' }).line);
+  say('Tour on. ' + (tourNow() || { line: '' }).line);
 }
 
 function stopTour() {
