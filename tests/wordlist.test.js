@@ -27,8 +27,20 @@ function repoFiles(dir = ROOT, out = []) {
   return out;
 }
 
-function hits(text) {
-  const low = text.toLowerCase();
+// The one exception, and it is narrow on purpose: the SAM License is a
+// third-party text kept verbatim (README, NOTICE), and its date line names
+// the eleventh month, an innocent word that happens to hold a banned one.
+// Only in that one file, only that exact word, whole and capitalised as
+// written, is skipped (it is spelt in pieces here so this file still holds
+// no banned word); every other check stays as strict, and the license file
+// is still scanned for everything else.
+const EXCEPTIONS = new Map([
+  ['LICENSES/SAM_LICENSE.txt', new RegExp('\\bNov' + BANNED[4] + '\\b', 'g')],
+]);
+
+function hits(text, rel = '') {
+  const allowed = EXCEPTIONS.get(rel);
+  const low = (allowed ? text.replace(allowed, ' ') : text).toLowerCase();
   return BANNED.filter((w) => low.includes(w));
 }
 
@@ -47,8 +59,33 @@ test('no file name or file content in the repo holds a banned word', () => {
     for (const w of hits(rel)) found.push(`${rel}: file name holds "${w}"`);
     const lines = readFileSync(f, 'latin1').split('\n');
     lines.forEach((line, i) => {
-      for (const w of hits(line)) found.push(`${rel}:${i + 1}: "${w}"`);
+      for (const w of hits(line, rel)) found.push(`${rel}:${i + 1}: "${w}"`);
     });
   }
   assert.deepEqual(found, []);
+});
+
+test('the one exception cannot hide a banned word anywhere else', () => {
+  const lic = 'LICENSES/SAM_LICENSE.txt';
+  const word = 'Nov' + BANNED[4];
+  // the exact word, in that file only
+  assert.deepEqual(hits(`Last Updated: ${word} 19, 2025`, lic), []);
+  // the same word in any other file, or a file name, is still found
+  for (const rel of ['README.md', 'LICENSES/OTHER.txt', 'src/SAM_LICENSE.txt', 'licenses/sam_license.txt', '']) {
+    assert.deepEqual(hits(`Last Updated: ${word} 19, 2025`, rel), [BANNED[4]], rel);
+  }
+  // in that file, every banned word outside the exact word is still found
+  for (const w of BANNED) {
+    assert.ok(hits(`${word} ${w}`, lic).includes(w), w);
+    assert.ok(hits(w.toUpperCase(), lic).includes(w), w);
+  }
+  // only the whole word as written: other cases, prefixes and suffixes are found
+  for (const near of [word.toUpperCase(), word.toLowerCase(), 'De' + word.slice(3), word + 's', 'X' + word, word + BANNED[4]]) {
+    assert.deepEqual(hits(near, lic), [BANNED[4]], near);
+  }
+  // the license file is scanned like any other, and holds the word only on its date line
+  const text = readFileSync(join(ROOT, lic), 'utf8');
+  const lines = text.split('\n').filter((l) => l.toLowerCase().includes(BANNED[4]));
+  assert.deepEqual(lines, [`Last Updated: ${word} 19, 2025`]);
+  assert.equal(EXCEPTIONS.size, 1);
 });

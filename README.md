@@ -332,5 +332,5 @@ MIT. See [LICENSE](LICENSE).
 (its mask codec, and the contour tracing of its mask conversion): it is a
 port written for this repository, and it is distributed under the SAM
 License, not MIT. The license text is in
-[LICENSES/SAM_LICENSE.txt](LICENSES/SAM_LICENSE.txt), verbatim (stored as
-UTF-16 text). Everything else in this repository is MIT.
+[LICENSES/SAM_LICENSE.txt](LICENSES/SAM_LICENSE.txt), verbatim, as plain
+UTF-8 text. Everything else in this repository is MIT.

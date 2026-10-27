@@ -166,9 +166,12 @@ class Licence(unittest.TestCase):
     ORIGINAL_SHA256 = '4dea99bfaa016e21bc860d73f344236bd1e5c4977d1a9a8fd32f822b500ae1be'
 
     def test_the_license_file_is_the_original_text(self):
-        text = (REPO / 'LICENSES' / 'SAM_LICENSE.txt').read_bytes().decode('utf-16')
-        self.assertTrue(text.startswith('SAM License\n'))
-        self.assertEqual(hashlib.sha256(text.encode('utf-8')).hexdigest(), self.ORIGINAL_SHA256)
+        # stored as plain UTF-8, byte for byte the original: no BOM, no CR
+        data = (REPO / 'LICENSES' / 'SAM_LICENSE.txt').read_bytes()
+        self.assertTrue(data.startswith(b'SAM License\n'))
+        self.assertNotIn(b'\r', data)
+        self.assertEqual(hashlib.sha256(data).hexdigest(), self.ORIGINAL_SHA256)
+        data.decode('utf-8')
 
     def test_the_derived_file_says_so(self):
         head = Path(sam_mask.__file__).read_text(encoding='utf-8')[:600]
