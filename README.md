@@ -53,8 +53,11 @@ so before you choose one.
   and the stand-in then answers with its sample's own places, in the very
   grammar sam-3.1 answers in, so the same reader, match choice and point
   fallback run (its zero_matches drill makes the whole room from Muse
-  Spark's points). A refused photo, or a read that fails, can be marked as
-  in MOCK.
+  Spark's points; its sam_busy drill answers every SAM call as busy, so the
+  page shows the busy words and Try this photo again; its 401 drill refuses
+  the key, and the page turns the picker off with Check again, as LIVE does
+  after an account problem). A refused photo, or a read that fails, can be
+  marked as in MOCK.
 
 The people refusal (a person in the photo) and Muse Spark declining to
 read a photo for its content are the refusals with no marking after them:

@@ -252,6 +252,7 @@ function failureOf(e, reply = null) {
   return {
     code: er.code || (e && e.code) || null,
     retrySame: !!(er.retry_same || (e && (e.retry_same || e.retrySame))),
+    keyRefused: er.status === 401,
   };
 }
 
@@ -552,7 +553,7 @@ function screenWelcome(main) {
 
 function photoOffWords() {
   if (A.mode === 'live') return liveOff();
-  if (A.mode === 'rehearsal') return OFF_WORDS.rehearsal;
+  if (A.mode === 'rehearsal') return liveOff() || OFF_WORDS.rehearsal;
   if (!A.health) return `Off: ${A.modeWhy}`;
   return OFF_WORDS.mock;
 }
@@ -573,7 +574,8 @@ async function screenRoom(main, slot, token) {
   const rehearsal = A.mode === 'rehearsal' && A.health && A.health.rehearsal ? A.health.rehearsal.room : null;
   const view = pickView({
     slot, off: photoOffWords(), onFile: (f) => choosePhoto(slot, f, view.panel),
-    rehearse: rehearsal && SAMPLES.some((x) => x.id === rehearsal) ? {
+    // not while the stand-in's key drill holds the picker off
+    rehearse: rehearsal && !liveOff() && SAMPLES.some((x) => x.id === rehearsal) ? {
       label: 'Rehearse the live path',
       tip: `Sends the ${rehearsal} sample picture to the local stand-in, not Meta, and builds its level the live way`,
       onClick: () => rehearseRoom(slot, rehearsal, view.panel),
@@ -925,12 +927,25 @@ async function screenOwn(main, token) {
   });
   // the live AI unavailable: said in place of MOCK's notice; a photo is
   // shown here and can be marked, and nothing is sent
-  const notice = view.section.querySelector('.notice');
-  if (off && notice) notice.textContent = sentences('LIVE, but the live AI is unavailable on this server right now', A.liveDown.reason, 'A photo you choose stays on this device and you can mark your room yourself; nothing is sent. The sample rooms still work.');
-  const check = checkAgainButton();
-  if (check) view.section.querySelector('.actions').append(check);
+  if (off) ownOffInPlace(view.section);
   main.replaceChildren(view.section);
   if (A.busy) setBusy(true);
+}
+
+// Your own room's screen with the live AI unavailable: the notice says so
+// and Check again is offered, without drawing the screen again (a refusal
+// just shown, and its Mark your room, stay).
+function ownOffInPlace(section) {
+  const notice = section.querySelector('.notice');
+  if (notice) {
+    notice.textContent = sentences(A.mode === 'rehearsal'
+      ? 'REHEARSAL, but the local stand-in answered as the live AI does for an account or model problem'
+      : 'LIVE, but the live AI is unavailable on this server right now', A.liveDown.reason, 'A photo you choose stays on this device and you can mark your room yourself; nothing is sent. The sample rooms still work.');
+  }
+  const actions = section.querySelector('.actions');
+  const has = actions && [...actions.querySelectorAll('button')].some((b) => b.textContent === 'Check again');
+  const check = has ? null : checkAgainButton();
+  if (check && actions) actions.append(check);
 }
 
 // inPlace: your own room is already on the road and only its level is
@@ -1316,13 +1331,15 @@ async function detectMode() {
 
 // LIVE, but the live AI is unavailable (an account or model problem the
 // owner must fix): the words for an off picker, or null. Health says so
-// (live_state), or a send was answered live_unavailable.
+// (live_state), or a send was answered live_unavailable. In REHEARSAL the
+// same, when the stand-in refused the key (its drill): the server does not
+// latch on a drill, so the page does, until Check again.
 function liveOff() {
-  if (A.mode !== 'live' || !A.liveDown) return null;
+  if ((A.mode !== 'live' && A.mode !== 'rehearsal') || !A.liveDown) return null;
   const { reason, wait } = A.liveDown;
   const mins = wait > 0 ? Math.max(1, Math.round(wait / 60)) : 0;
   return sentences(
-    'Off: the live AI is unavailable on this server right now',
+    A.mode === 'rehearsal' ? 'Off: the local stand-in answered as the live AI does for an account or model problem' : 'Off: the live AI is unavailable on this server right now',
     reason,
     'The sample rooms still work, and on Step 9 you can mark your own room by hand; nothing is sent',
     mins ? `The server tries again in about ${mins} minute${mins === 1 ? '' : 's'}: press Check again then.` : 'Press Check again to ask the server once more.',
@@ -1338,22 +1355,34 @@ function ownMode() {
 // After a failed live read: a live_unavailable answer turns the picker off
 // at once; a send that failed without a reply (e: no e.reply) asks health
 // again, quietly, in case the server's latch closed (its 503 may not reach
-// the page with its code).
+// the page with its code). In REHEARSAL a refused key (the stand-in's 401
+// drill) turns the picker off the same way.
+const DRILL_KEY_REASON = 'The local stand-in refused this server’s key, as a rehearsal of a refused key.';
 function liveFailed(e, f) {
-  if (A.mode !== 'live') return;
-  if (f.code === 'live_unavailable') {
-    A.liveDown = { reason: '', wait: 0 };
-    render();
+  if (A.mode !== 'live' && A.mode !== 'rehearsal') return;
+  const keyDrill = A.mode === 'rehearsal' && f.keyRefused;
+  if (f.code === 'live_unavailable' || keyDrill) {
+    A.liveDown = { reason: keyDrill ? DRILL_KEY_REASON : '', wait: 0 };
+    offNow();
     return;
   }
-  if (!e || e.reply) return;
+  if (A.mode !== 'live' || !e || e.reply) return;
   const step = A.road.step;
   healthOnce(HEALTH_WAITS[0]).then((h) => {
     if (h.mode !== 'live' || h.live_state !== 'unavailable' || A.liveDown) return;
     A.health = h;
     A.liveDown = { reason: h.live_reason || '', wait: h.live_check_again_s || 0 };
-    if (!A.busy && A.road.step === step) render();
+    if (!A.busy && A.road.step === step) offNow();
   }).catch(() => { /* the failure's own words stay */ });
+}
+
+// The picker just went off: your own room's screen says so in place (what
+// the failed read showed, and its Mark your room, stay); other screens are
+// drawn again.
+function offNow() {
+  const main = $('main');
+  if (A.road.step === R.OWN_STEP && main.querySelector('.notice')) ownOffInPlace(main);
+  else render();
 }
 
 // Check again: health asked once more (3 tries); the screen drawn again
@@ -1364,6 +1393,7 @@ async function checkAgain(button) {
   if (button) { button.disabled = true; button.textContent = 'Checking…'; }
   say('Checking the server again');
   const was = A.mode;
+  const wasOff = !!liveOff();
   try {
     await detectMode();
   } finally {
@@ -1373,7 +1403,9 @@ async function checkAgain(button) {
   await render();
   say(A.mode === 'live' && !liveOff() ? 'The live AI is on: you can choose a photo.'
     : A.mode === 'live' ? 'The live AI is still unavailable.'
-      : A.mode !== was ? `This page now runs in ${A.mode.toUpperCase()}.` : A.health ? 'The server answered: no change.' : 'The server still did not answer.');
+      : A.mode !== was ? `This page now runs in ${A.mode.toUpperCase()}.`
+        : A.mode === 'rehearsal' && wasOff ? 'The stand-in is answering again: you can send its picture.'
+          : A.health ? 'The server answered: no change.' : 'The server still did not answer.');
 }
 
 // LIVE off (no server answered, or the live AI unavailable): a way to ask

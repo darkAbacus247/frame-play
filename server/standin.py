@@ -17,7 +17,9 @@ shapes:
 
 Drills on demand (--drill, or POST /drill {"name": ...} from this machine):
 401, 404 (model_not_found), 429 (once, with Retry-After), 503,
-content_filter, zero_matches, malformed_record, people.
+content_filter, zero_matches, malformed_record, people, and sam_busy (the
+room read is answered; every SAM call is answered 429, Retry-After 0, as
+long as the drill holds).
 
   python server/standin.py --room desk --port 8192
 """
@@ -39,7 +41,7 @@ from server import config, samtext  # noqa: E402
 from server.imageinfo import ImageError, size, sniff  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-DRILLS = ('401', '404', '429', '503', 'content_filter', 'zero_matches', 'malformed_record', 'people')
+DRILLS = ('401', '404', '429', '503', 'content_filter', 'zero_matches', 'malformed_record', 'people', 'sam_busy')
 
 
 # ---- the room's shapes, read the same way the page reads them ----
@@ -194,6 +196,8 @@ class StandIn:
             return 401, {}, {'error': {'code': 'invalid_api_key', 'type': 'authentication_error', 'message': 'Invalid credential'}}
         if drill == '429' and first:
             return 429, {'Retry-After': '1'}, {'error': {'code': 'rate_limited', 'type': 'rate_limit_error', 'message': 'Slow down'}}
+        if drill == 'sam_busy' and path == '/v1/responses':
+            return 429, {'Retry-After': '0'}, {'error': {'code': 'rate_limited', 'type': 'rate_limit_error', 'message': 'Slow down'}}
         if drill == '503':
             return 503, {}, {'error': {'code': 'unavailable', 'type': 'server_error', 'message': 'Unavailable'}}
         if not isinstance(body, dict):

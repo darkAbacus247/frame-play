@@ -186,7 +186,14 @@ class Rehearsal(unittest.TestCase):
         self.assertEqual(r['status'], 'ok')
         diags = [d for c in r['provenance']['calls'] for d in c.get('diagnostics', [])]
         self.assertIn('malformed_record', diags)
-        self.assertEqual(set(expect) | {'429', 'malformed_record'}, set(DRILLS))
+        # SAM busy on every call: the honest busy words and retry_same,
+        # never "found none"
+        self.drill('sam_busy')
+        r = self.post()
+        self.assertEqual((r['status'], r['error']['code']), ('error', 'sam_busy'), r.get('error'))
+        self.assertTrue(r['error']['retry_same'])
+        self.assertNotIn('found none', r['error']['message'])
+        self.assertEqual(set(expect) | {'429', 'malformed_record', 'sam_busy'}, set(DRILLS))
 
     def test_the_stand_in_wants_the_contract(self):
         status, _, obj = self.standin.answer('/v1/responses', {'Authorization': 'Bearer ' + config.REHEARSAL_CREDENTIAL},
