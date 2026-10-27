@@ -14,10 +14,12 @@ may end the text:
   half-open here: [x1, y1, x2 + 1, y2 + 1]); w and h, the picture's size,
   which must equal the copy that was sent; c, the confidence.
 - mask: x and y (offsets), c, and data = rows,cols,PAYLOAD, where rows and
-  cols are the box's own height and width. The payload is Meta's opaque
-  one_bit encoding in an 85-character alphabet; it is checked (alphabet,
-  shape) and its size noted, and it is not decoded or kept: the page traces
-  inside the box instead.
+  cols are the box's own height and width. The payload's first character
+  is its encoding: '!' one_bit (what this app asks for), '~' lossless (the
+  API's default); the rest is in an 85-character alphabet. It is checked
+  (alphabet, shape) here and kept on the record; mask_shape() decodes it
+  with server/sam_mask.py, once, when the pipeline needs it: the mask's
+  pixel (c, r) is the picture's pixel (x1 + x + c, y1 + y + r).
 - No match at all is the frame marker alone ('<0f>', perhaps with a
   newline).
 
@@ -27,10 +29,14 @@ empty_answer (no text at all, read as no match), ignored_token (text the
 grammar does not have), ignored_field (an unknown key or token),
 ignored_confidence (out of range, or the mask's differs from the box's),
 no_mask (a record without its mask token; kept), mask_shape (the mask's
-rows and cols are not the box's; the record is kept).
-The parser never raises on bad input.
+rows and cols are not the box's; the record is kept). Decoding adds one
+more, mask_undecodable: the payload did not decode (the record is kept,
+and its outline is traced inside its box instead).
+The parser and mask_shape() never raise on bad input.
 """
 import re
+
+from server import sam_mask
 
 FRAME = '<0f>'
 # the payload alphabet, as the recorded answers use it: the printable ASCII
@@ -39,6 +45,8 @@ ALPHABET = ''.join(ch for ch in map(chr, range(33, 127)) if ch not in '",;<>\\|}
 _ALPHABET_SET = frozenset(ALPHABET)
 BOX_KEYS = ('x1', 'y1', 'x2', 'y2', 'w', 'h', 'c')
 MASK_KEYS = ('x', 'y', 'c', 'data')
+# the payload's first character says how it is encoded
+MARKERS = {'!': 'one_bit', '~': 'lossless'}
 
 _SEP = re.compile(r'[\s,]*')
 _RECORD = re.compile(r'(\d{1,6})?<\|box;([^|<>]*)\|>(?:<\|mask;([^|<>]*)\|>)?')
@@ -108,9 +116,10 @@ def _record(rid, box_body, mask_body, out):
     else:
         m = _fields(mask_body, MASK_KEYS, out)
         data = (m or {}).get('data', '').split(',', 2)
+        payload = data[2] if len(data) == 3 else ''
         if m is None or len(data) != 3 or not all(_INT.fullmatch(v) for v in data[:2]) \
                 or not all(_INT.fullmatch(m.get(k, '')) for k in ('x', 'y')) \
-                or not data[2] or any(ch not in _ALPHABET_SET for ch in data[2]):
+                or not payload or any(ch not in _ALPHABET_SET for ch in payload[payload[0] == '~':]):
             out.errors.append('malformed_record')
             return None
         rows, cols = int(data[0]), int(data[1])
@@ -118,8 +127,9 @@ def _record(rid, box_body, mask_body, out):
             out.warn_once('mask_shape')
         if 'c' in m and _confidence(m['c']) != c:
             out.warn_once('ignored_confidence')
-        mask = {'encoding': 'one_bit', 'rows': rows, 'cols': cols, 'x': int(m['x']), 'y': int(m['y']),
-                'payload_chars': len(data[2])}
+        mask = {'encoding': MARKERS.get(payload[0], 'unknown'), 'rows': rows, 'cols': cols,
+                'x': int(m['x']), 'y': int(m['y']), 'payload_chars': len(payload),
+                'left': x1, 'top': y1, 'payload': payload}
     return {'id': int(rid), 'box': [x1, y1, x2 + 1, y2 + 1], 'confidence': c, 'mask': mask, 'w': w, 'h': h}
 
 
@@ -186,15 +196,61 @@ def parse(text, expect_w=None, expect_h=None):
     return out
 
 
+def mask_shape(record, picture=None):
+    """The game's view of a record's mask (sam_mask.mask_shape: rings with
+    holes, area, bounds and occupancy grid, in picture pixels), decoded once
+    and kept on the record's mask; None when there is no mask, or it does not
+    decode (then mask['error'] holds the decoder's words and the caller
+    notes mask_undecodable). picture, (W, H), clips the mask to it."""
+    mask = record.get('mask') if isinstance(record, dict) else None
+    if not mask or 'payload' not in mask:
+        return None
+    if 'shape' in mask:
+        return mask['shape']
+    shape = None
+    try:
+        raster = sam_mask.decode_mask(mask['encoding'], mask['payload'], mask['cols'], mask['rows'])
+        width, height = mask['cols'], mask['rows']
+        left, top = mask['left'] + mask['x'], mask['top'] + mask['y']
+        if picture:
+            raster, width, height, left, top = _clipped(raster, width, height, left, top, *picture)
+        if raster is not None and any(raster):
+            shape = sam_mask.mask_shape(raster, width, height, left, top)
+            shape['raster'] = {'left': left, 'top': top, 'width': width, 'height': height, 'data': raster}
+        else:
+            mask['error'] = 'The mask holds no pixel of the picture.'
+    except sam_mask.InvalidMaskError as e:
+        mask['error'] = str(e)
+    except (MemoryError, ValueError, TypeError, KeyError) as e:   # never raise on bad input
+        mask['error'] = f'The mask could not be read ({type(e).__name__}).'
+    mask['shape'] = shape
+    return shape
+
+
+def _clipped(raster, width, height, left, top, W, H):
+    """The part of a mask that lies on the picture."""
+    x0, y0 = max(0, -left), max(0, -top)
+    x1, y1 = min(width, W - left), min(height, H - top)
+    if x1 <= x0 or y1 <= y0:
+        return None, 0, 0, left, top
+    if (x0, y0, x1, y1) == (0, 0, width, height):
+        return raster, width, height, left, top
+    w = x1 - x0
+    out = b''.join(raster[r * width + x0:r * width + x1] for r in range(y0, y1))
+    return out, w, y1 - y0, left + x0, top + y0
+
+
 def compose(matches, W, H, newline=True):
     """An answer text in this grammar, for the stand-in and tests. matches:
-    dicts with box (inclusive [x1, y1, x2, y2]), confidence and payload."""
+    dicts with box (inclusive [x1, y1, x2, y2]), confidence and payload (a
+    real one_bit or lossless payload, marker first, or any text in the
+    alphabet when the test does not decode it)."""
     parts = []
     for i, m in enumerate(matches):
         x1, y1, x2, y2 = m['box']
         c = m['confidence']
         payload = m['payload']
-        if any(ch not in _ALPHABET_SET for ch in payload) or not payload:
+        if not payload or any(ch not in _ALPHABET_SET for ch in payload[payload[0] == '~':]):
             raise ValueError('payload outside the alphabet')
         parts.append(f'{i}<|box;x1={x1};y1={y1};x2={x2};y2={y2};w={W};h={H};c={c}|>'
                      f'<|mask;x=0;y=0;c={c};data={y2 - y1 + 1},{x2 - x1 + 1},{payload}|>')

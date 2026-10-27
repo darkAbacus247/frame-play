@@ -277,11 +277,15 @@ picture through them.
   (`server/tests/fixtures/desk_1027.json`); a photo unlike the desk may
   still bring a surprise, which the reader reports as a diagnostic instead
   of guessing.
-- SAM's mask payload (Meta's opaque one_bit encoding) is checked for its
-  alphabet and its shape and not decoded; outlines are traced by code
-  inside SAM's boxes instead. A strict decoder for it
-  (`server/sam_mask.py`, see NOTICE) is built and tested against the
-  recorded answers, and is not wired into the pipeline yet.
+- SAM's mask payloads ('!' one_bit, which this app asks for, or '~'
+  lossless, the API's default) are read by a strict decoder
+  (`server/sam_mask.py`, see NOTICE), each mask once per photo and only
+  for the matches kept, while the photo has time left; the reply says of
+  each mask whether it decoded, and a call whose mask did not decode
+  carries the diagnostic `mask_undecodable` (`mask_time` when the photo
+  ran out of time). Outlines are still traced by code inside SAM's boxes.
+  The desk surface's mask, 1024 x 368, the largest recorded, decodes and
+  is outlined in about 0.5 s in pure Python.
 - Muse Spark names each kind of thing once, with the plain word SAM finds
   every one of ("chair", not "wooden chair" and "armchair"), and says how
   many it sees, up to 11 kinds. When SAM gives several matches for one

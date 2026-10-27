@@ -305,51 +305,114 @@ def _count(counts, slot, bit):
         counts[slot + 1] = counts[slot + 1] >> 1 or 1
 
 
+# The hot loops below keep the coder's state in locals and move the context
+# along a row instead of reading all twelve pixels again: one step right, the
+# two left pixels become the new pixel and the old b0, and each row above
+# slides down by one bit with the pixel at x+3 coming in (its bits 3..6 and
+# 8..11 move to 2..5 and 7..10). The arithmetic is the coder's own, step for
+# step; RangeEncoder and RangeDecoder above say the same thing more slowly.
+_SLIDE = 0b011110111100
+
+
 def encode_one_bit(raster, width, height):
     """A binary raster -> its canonical one_bit payload (with the '!' marker)."""
-    encoder = RangeEncoder()
     counts = array('H', [1]) * (_CONTEXTS * 2)
     pw = width + 2 * _PADDING
     padded = bytearray(pw * (height + _PADDING))
+    out = bytearray()
+    low, rng = 0, _U32
     for y in range(height):
         row = (y + _PADDING) * pw + _PADDING
+        base = y * width
+        ctx = _context(padded, row, pw)
         for x in range(width):
             at = row + x
-            slot = _context(padded, at, pw) << 1
-            zero, one = counts[slot], counts[slot + 1]
-            bit = raster[y * width + x]
+            slot = ctx << 1
+            zero = counts[slot]
+            one = counts[slot + 1]
+            bit = raster[base + x]
+            scaled = rng // (zero + one)
             if bit == 0:
-                encoder.encode(0, zero, zero + one)
+                rng = scaled * zero
             elif bit == 1:
-                encoder.encode(zero, one, zero + one)
+                low = (low + scaled * zero) & _U32
+                rng = scaled * one
             else:
                 raise InvalidMaskError('Decoded mask is not binary.')
+            while True:
+                if (low ^ ((low + rng) & _U32)) >= _TOP:
+                    if rng >= _BOTTOM:
+                        break
+                    rng = (-low) & (_BOTTOM - 1)
+                out.append(low >> 24)
+                low = (low << 8) & _U32
+                rng = (rng << 8) & _U32
             padded[at] = bit
-            _count(counts, slot, bit)
-    return '!' + pack(encoder.finish())
+            n = counts[slot + bit] + _INCREMENT
+            counts[slot + bit] = n
+            if zero + one + _INCREMENT >= _COUNT_LIMIT:
+                counts[slot] = counts[slot] >> 1 or 1
+                counts[slot + 1] = counts[slot + 1] >> 1 or 1
+            ctx = (bit | (ctx & 1) << 1 | (ctx >> 1) & _SLIDE
+                   | padded[at - pw + 3] << 6 | padded[at - 2 * pw + 3] << 11)
+    for _ in range(4):
+        out.append(low >> 24)
+        low = (low << 8) & _U32
+    return '!' + pack(bytes(out))
 
 
 def _decode_one_bit(payload, width, height):
-    decoder = RangeDecoder(unpack(payload[1:]))
+    data = unpack(payload[1:])
+    if len(data) < 4:
+        raise InvalidMaskError('Mask payload is missing its finalization.')
+    size = len(data)
+    code = int.from_bytes(data[:4], 'big')
+    at_byte = 4
+    low, rng = 0, _U32
     counts = array('H', [1]) * (_CONTEXTS * 2)
     pw = width + 2 * _PADDING
     padded = bytearray(pw * (height + _PADDING))
     out = bytearray(width * height)
     for y in range(height):
         row = (y + _PADDING) * pw + _PADDING
+        base = y * width
+        ctx = _context(padded, row, pw)
         for x in range(width):
             at = row + x
-            slot = _context(padded, at, pw) << 1
-            zero, one = counts[slot], counts[slot + 1]
-            if decoder.frequency(zero + one) < zero:
+            slot = ctx << 1
+            zero = counts[slot]
+            one = counts[slot + 1]
+            scaled = rng // (zero + one)
+            if scaled == 0:
+                raise InvalidMaskError('Mask payload has invalid coding state.')
+            if ((code - low) & _U32) // scaled < zero:
                 bit = 0
-                decoder.decode(0, zero)
+                rng = scaled * zero
             else:
                 bit = 1
-                decoder.decode(zero, one)
-            padded[at] = bit
-            out[y * width + x] = bit
-            _count(counts, slot, bit)
+                low = (low + scaled * zero) & _U32
+                rng = scaled * one
+            while True:
+                if (low ^ ((low + rng) & _U32)) >= _TOP:
+                    if rng >= _BOTTOM:
+                        break
+                    rng = (-low) & (_BOTTOM - 1)
+                if at_byte >= size:
+                    raise InvalidMaskError('Mask payload ended before decoding completed.')
+                code = ((code << 8) | data[at_byte]) & _U32
+                at_byte += 1
+                low = (low << 8) & _U32
+                rng = (rng << 8) & _U32
+            if bit:
+                padded[at] = 1
+                out[base + x] = 1
+            n = counts[slot + bit] + _INCREMENT
+            counts[slot + bit] = n
+            if zero + one + _INCREMENT >= _COUNT_LIMIT:
+                counts[slot] = counts[slot] >> 1 or 1
+                counts[slot + 1] = counts[slot + 1] >> 1 or 1
+            ctx = (bit | (ctx & 1) << 1 | (ctx >> 1) & _SLIDE
+                   | padded[at - pw + 3] << 6 | padded[at - 2 * pw + 3] << 11)
     return bytes(out)
 
 
@@ -560,22 +623,36 @@ _SEGMENTS = {
 }
 
 
+_BITS = bytes.maketrans(bytes([0, 1]), b'01')
+
+
+def _row_bits(raster, width, r):
+    """Row r of the mask as an int: bit c + 1 is pixel c (bits 0 and width + 1 are 0)."""
+    row = bytes(raster[r * width:(r + 1) * width])
+    return int(row.translate(_BITS)[::-1], 2) << 1 if 1 in row else 0
+
+
 def _contours(raster, width, height):
     """Closed rings of doubled mask coordinates, one per boundary, outer or hole."""
-    def pixel(r, c):
-        return raster[r * width + c] if 0 <= r < height and 0 <= c < width else 0
-
+    # Only the grid points where the four pixels around them differ draw
+    # anything; they are found a row at a time with the rows as bit sets.
     neighbours = {}
+    above = 0
     for row in range(height + 1):
-        for col in range(width + 1):
-            case = pixel(row - 1, col - 1) << 3 | pixel(row - 1, col) << 2 | pixel(row, col) << 1 | pixel(row, col - 1)
-            if case in (0, 15):
-                continue
+        below = _row_bits(raster, width, row) if row < height else 0
+        mixed = (above ^ (above >> 1)) | (below ^ (below >> 1)) | (above ^ below)
+        while mixed:
+            low = mixed & -mixed
+            mixed ^= low
+            col = low.bit_length() - 1
+            case = ((above >> col) & 1) << 3 | ((above >> col >> 1) & 1) << 2 \
+                | ((below >> col >> 1) & 1) << 1 | ((below >> col) & 1)
             sides = {'top': (2 * col - 1, 2 * row - 2), 'bottom': (2 * col - 1, 2 * row),
                      'left': (2 * col - 2, 2 * row - 1), 'right': (2 * col, 2 * row - 1)}
             for a, b in _SEGMENTS[case]:
                 neighbours.setdefault(sides[a], []).append(sides[b])
                 neighbours.setdefault(sides[b], []).append(sides[a])
+        above = below
 
     # Every midpoint lies between exactly two cells, so each has two neighbours
     # and the segments join into simple closed rings.
@@ -694,12 +771,16 @@ def occupancy_grid(raster, width, height, left=0, top=0, x=0, y=0, cell=8, thres
     cols = (dx + width - 1) // cell - col0 + 1
     rows = (dy + height - 1) // cell - row0 + 1
     counts = [[0] * cols for _ in range(rows)]
+    # where each square's columns start and end in the raster
+    spans = [(max(0, (col0 + i) * cell - dx), min(width, (col0 + i + 1) * cell - dx)) for i in range(cols)]
+    data = bytes(raster)
     for r in range(height):
-        line = counts[(dy + r) // cell - row0]
         base = r * width
-        for c in range(width):
-            if raster[base + c]:
-                line[(dx + c) // cell - col0] += 1
+        if 1 not in data[base:base + width]:
+            continue
+        line = counts[(dy + r) // cell - row0]
+        for i, (c0, c1) in enumerate(spans):
+            line[i] += sum(data[base + c0:base + c1])
     need = threshold * cell * cell
     return {'cell': cell, 'col0': col0, 'row0': row0, 'cols': cols, 'rows': rows,
             'cells': [[int(n > 0 and n >= need) for n in line] for line in counts]}
@@ -707,12 +788,14 @@ def occupancy_grid(raster, width, height, left=0, top=0, x=0, y=0, cell=8, thres
 
 def mask_bounds(raster, width, height, left=0, top=0, x=0, y=0):
     """The half-open picture box [x0, y0, x1, y1] of the mask's pixels, or None."""
-    xs = [i % width for i, v in enumerate(raster) if v]
-    if not xs:
+    data = bytes(raster)
+    lit = [r for r in range(height) if 1 in data[r * width:(r + 1) * width]]
+    if not lit:
         return None
-    ys = [i // width for i, v in enumerate(raster) if v]
+    x0 = min(data.find(1, r * width, (r + 1) * width) - r * width for r in lit)
+    x1 = max(data.rfind(1, r * width, (r + 1) * width) - r * width for r in lit)
     dx, dy = left + x, top + y
-    return [dx + min(xs), dy + min(ys), dx + max(xs) + 1, dy + max(ys) + 1]
+    return [dx + x0, dy + lit[0], dx + x1 + 1, dy + lit[-1] + 1]
 
 
 def mask_shape(raster, width, height, left=0, top=0, x=0, y=0, tolerance=0.75, cell=8, threshold=0.5):

@@ -711,6 +711,21 @@ class Pipeline:
         lock = threading.Lock()
         stages = {}
         found = {}
+        # each mask is decoded once, and only while the photo has time left;
+        # one that does not decode (or has no time) is noted on its call and
+        # the page traces inside the box instead
+        mask_notes = {}
+
+        def shape_of(record, noun):
+            if record.get('mask') is None:
+                return None
+            if 'shape' not in record['mask'] and self.clock() >= deadline:
+                mask_notes.setdefault(noun, set()).add('mask_time')
+                return None
+            shape = samtext.mask_shape(record, (W, H))
+            if shape is None:
+                mask_notes.setdefault(noun, set()).add('mask_undecodable')
+            return shape
 
         def reply(status, error=None, scene=None, surface=None, objects=None, floor=None):
             r = {
@@ -988,6 +1003,8 @@ class Pipeline:
                 counts[o['name']] = counts.get(o['name'], 0) + 1
                 x0, y0, x1, y1 = m['box']
                 seeds = [p for p in o['seeds'] if x0 <= p[0] < x1 and y0 <= p[1] < y1]
+                shape = shape_of(m, o['name'])
+                mask = m['mask'] or {}
                 objects.append({
                     'id': f'o{len(objects) + 1}',
                     'name': o['name'],
@@ -999,9 +1016,13 @@ class Pipeline:
                     'box': m['box'],
                     'confidence': m['confidence'],
                     'seeds': seeds,
-                    'mask': {'height': y1 - y0, 'width': x1 - x0, 'encoding': 'one_bit', 'decoded': False,
-                             'payload_chars': (m['mask'] or {}).get('payload_chars')},
+                    'mask': {'height': mask.get('rows', y1 - y0), 'width': mask.get('cols', x1 - x0),
+                             'encoding': mask.get('encoding'), 'decoded': shape is not None,
+                             'payload_chars': mask.get('payload_chars')},
                 })
+        for c in calls:
+            if c['stage'] == 'find' and c.get('noun') in mask_notes and not c.get('surface'):
+                c['diagnostics'] = c.get('diagnostics', []) + sorted(mask_notes[c['noun']])
         by_sam = sum(1 for o in objects if o['found_by'] == 'sam')
         sent = [answers[('object', n)] for n in nouns]
         errs = [e for _, e in sent if e is not None]

@@ -16,6 +16,7 @@ from server.samtext import compose
 from server.server import Log
 from server.tests import images, recorded
 from server.tests.fakemeta import FakeMeta, ok_json, sam_answer, spark_answer
+from server.tests.masks import payload_for
 from server.tests.test_config import TEST_VALUE
 from server.tests.test_server import Running
 
@@ -41,7 +42,7 @@ READ = {
 
 def ans(*matches):
     """An answer text in sam-3.1's grammar: matches of (x1, y1, x2, y2, c)."""
-    return compose([{'box': m[:4], 'confidence': m[4], 'payload': 'abc'} for m in matches], W, H)
+    return compose([{'box': m[:4], 'confidence': m[4], 'payload': payload_for(m[:4])} for m in matches], W, H)
 
 
 ANSWERS = {
@@ -100,7 +101,8 @@ class Reads(WithFake):
         mug = r['objects'][0]
         self.assertEqual(mug['box'], [5, 20, 15, 31], 'half-open boxes')
         self.assertEqual(mug['seeds'], [[12.8, 24.0]], 'seeds in pixels, inside the box')
-        self.assertEqual(mug['mask'], {'height': 11, 'width': 10, 'encoding': 'one_bit', 'decoded': False, 'payload_chars': 3})
+        self.assertEqual(mug['mask'], {'height': 11, 'width': 10, 'encoding': 'one_bit', 'decoded': True,
+                                       'payload_chars': len(payload_for((5, 20, 14, 30)))})
         self.assertIn('not found: lamp', r['warnings'])
         self.assertTrue(any('left hand' in w for w in r['warnings']), 'a body word is dropped')
         self.assertEqual(r['usage']['spark_calls'], 1)
@@ -237,7 +239,7 @@ class Reads(WithFake):
         self.assertEqual(line['event'], 'photo')
         self.assertEqual(line['request_id'], r['request_id'])
         self.assertEqual(line['sha256'], r['provenance']['image_sha256'])
-        for word in ('Spiky', 'You are reading', 'base64', '<0f>', 'abc', '[5, 20', '0.91', '12.8'):
+        for word in ('Spiky', 'You are reading', 'base64', '<0f>', payload_for((5, 20, 14, 30))[:12], '[5, 20', '0.91', '12.8'):
             self.assertNotIn(word, self.lines[-1], 'no prompt, no reason, no answer text, no box, no point, no photo in the log')
         # per name sent to SAM: how many matches it gave and how many were kept
         self.assertEqual(line['found'], [
@@ -552,8 +554,9 @@ class RecordedDesk(unittest.TestCase):
 
     def test_a_surface_in_two_matches_is_one_box(self):
         # A3, through the pipeline: the desk answered as two patches
-        two = samtext.compose([{'box': [0, 400, 499, 767], 'confidence': 0.8, 'payload': 'abc'},
-                               {'box': [500, 380, 1023, 767], 'confidence': 0.7, 'payload': 'abc'}], recorded.W, recorded.H)
+        two = samtext.compose([{'box': [0, 400, 499, 767], 'confidence': 0.8, 'payload': payload_for([0, 400, 499, 767], 'full')},
+                               {'box': [500, 380, 1023, 767], 'confidence': 0.7, 'payload': payload_for([500, 380, 1023, 767], 'full')}],
+                              recorded.W, recorded.H)
         r = recorded.run({'desk': two})
         self.assertEqual(r['status'], 'ok')
         self.assertEqual(r['surface'], {'name': 'desk', 'box': [0, 380, 1024, 768], 'confidence': 0.8})
@@ -596,7 +599,7 @@ def run_desk(change, answers=None):
 
 
 def desk_answer(*matches):
-    return samtext.compose([{'box': m[:4], 'confidence': m[4], 'payload': 'abc'} for m in matches], recorded.W, recorded.H)
+    return samtext.compose([{'box': m[:4], 'confidence': m[4], 'payload': payload_for(m[:4])} for m in matches], recorded.W, recorded.H)
 
 
 def with_thing(name, seeds=()):

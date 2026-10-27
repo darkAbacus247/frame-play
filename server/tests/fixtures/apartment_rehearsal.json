@@ -19,7 +19,10 @@
      "noun": "bed",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -29,7 +32,10 @@
      "noun": "cabinet",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -39,7 +45,10 @@
      "noun": "cactus",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -49,7 +58,10 @@
      "noun": "chair",
      "matches": 2,
      "usd": 0.0025,
-     "kept": 2
+     "kept": 2,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -59,7 +71,10 @@
      "noun": "coffee table",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -69,7 +84,10 @@
      "noun": "coin",
      "matches": 3,
      "usd": 0.0025,
-     "kept": 3
+     "kept": 3,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -79,7 +97,10 @@
      "noun": "dining table",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -89,7 +110,10 @@
      "noun": "door",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -110,7 +134,10 @@
      "noun": "rug",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",
@@ -120,7 +147,10 @@
      "noun": "sofa",
      "matches": 1,
      "usd": 0.0025,
-     "kept": 1
+     "kept": 1,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "read",
@@ -240,7 +270,7 @@
     "mask": {
      "height": 158,
      "width": 188,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 495
     }
@@ -269,7 +299,7 @@
     "mask": {
      "height": 230,
      "width": 74,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 283
     }
@@ -298,7 +328,7 @@
     "mask": {
      "height": 70,
      "width": 116,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 135
     }
@@ -327,7 +357,7 @@
     "mask": {
      "height": 24,
      "width": 24,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 16
     }
@@ -356,7 +386,7 @@
     "mask": {
      "height": 24,
      "width": 24,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 16
     }
@@ -385,7 +415,7 @@
     "mask": {
      "height": 24,
      "width": 24,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 16
     }
@@ -414,7 +444,7 @@
     "mask": {
      "height": 90,
      "width": 150,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 225
     }
@@ -443,7 +473,7 @@
     "mask": {
      "height": 38,
      "width": 40,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 25
     }
@@ -472,7 +502,7 @@
     "mask": {
      "height": 38,
      "width": 40,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 25
     }
@@ -501,7 +531,7 @@
     "mask": {
      "height": 44,
      "width": 44,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 32
     }
@@ -530,7 +560,7 @@
     "mask": {
      "height": 232,
      "width": 150,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 580
     }
@@ -559,7 +589,7 @@
     "mask": {
      "height": 18,
      "width": 96,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 28
     }
@@ -588,7 +618,7 @@
     "mask": {
      "height": 42,
      "width": 112,
-     "encoding": "one_bit",
+     "encoding": "unknown",
      "decoded": false,
      "payload_chars": 78
     }

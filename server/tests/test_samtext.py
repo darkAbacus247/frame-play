@@ -2,7 +2,11 @@ import json
 import unittest
 from pathlib import Path
 
-from server.samtext import ALPHABET, compose, parse
+from unittest import mock
+
+from server import sam_mask
+from server.samtext import ALPHABET, compose, mask_shape, parse
+from server.tests.lossless_encoder import encode_lossless_raster
 
 FIXTURE = json.loads((Path(__file__).parent / 'fixtures' / 'desk_1027.json').read_text(encoding='utf-8'))
 REAL = FIXTURE['answers']
@@ -35,7 +39,9 @@ class RealAnswers(unittest.TestCase):
         self.assertEqual(r['id'], 0)
         self.assertEqual(r['box'], [560, 383, 670, 482], 'inclusive corners made half-open')
         self.assertAlmostEqual(r['confidence'], 0.949367105960846)
-        self.assertEqual(r['mask'], {'encoding': 'one_bit', 'rows': 99, 'cols': 110, 'x': 0, 'y': 0, 'payload_chars': 98})
+        payload = REAL['coffee mug'].split('data=99,110,')[1].split('|>')[0]
+        self.assertEqual(r['mask'], {'encoding': 'one_bit', 'rows': 99, 'cols': 110, 'x': 0, 'y': 0, 'payload_chars': 98,
+                                     'left': 560, 'top': 383, 'payload': payload})
 
     def test_several_matches_in_order(self):
         p = parse(REAL['gold coin'], 1024, 768)
@@ -72,6 +78,88 @@ class RealAnswers(unittest.TestCase):
         self.assertEqual(parse(text, 1024, 768).records[0]['box'], [560, 383, 670, 482])
         with self.assertRaises(ValueError):
             compose([{'box': [0, 0, 1, 1], 'confidence': 0.5, 'payload': 'a|b'}], 8, 8)
+
+
+class Masks(unittest.TestCase):
+    """The masks are read: both markers, decoded once, placed on the picture."""
+
+    def test_every_recorded_mask_decodes_onto_its_box(self):
+        for noun, text in REAL.items():
+            for r in parse(text, 1024, 768).records:
+                shape = mask_shape(r, (1024, 768))
+                self.assertIsNotNone(shape, noun)
+                x0, y0, x1, y1 = r['box']
+                bx0, by0, bx1, by1 = shape['bounds']
+                self.assertTrue(x0 <= bx0 < bx1 <= x1 and y0 <= by0 < by1 <= y1, noun)
+                self.assertGreater(shape['area'], 0.3 * (x1 - x0) * (y1 - y0) if noun != 'desk' else 0)
+
+    def test_the_mug_keeps_its_handle_hole(self):
+        shape = mask_shape(parse(REAL['coffee mug'], 1024, 768).records[0])
+        self.assertEqual(len(shape['rings']), 2, 'an outline and the hole inside the handle')
+        areas = sorted(sam_mask._signed_area(ring) for ring in shape['rings'])
+        self.assertLess(areas[0], 0, 'the hole runs the other way')
+        self.assertGreater(areas[1], 0)
+        for ring in shape['rings']:
+            for x, y in ring:
+                self.assertTrue(560 <= x <= 670 and 383 <= y <= 482)
+
+    def test_each_mask_is_decoded_once(self):
+        r = parse(REAL['potted cactus'], 1024, 768).records[0]
+        copy = {**r, 'box': list(r['box'])}       # a held copy shares the mask
+        with mock.patch.object(sam_mask, 'decode_mask', wraps=sam_mask.decode_mask) as decode:
+            first = mask_shape(r)
+            self.assertIs(mask_shape(copy), first)
+            self.assertIs(mask_shape(r), first)
+        self.assertEqual(decode.call_count, 1)
+
+    def test_the_offsets_place_the_mask(self):
+        raster = bytes([0, 1, 1, 0,
+                        1, 1, 1, 1,
+                        0, 1, 1, 0])
+        payload = sam_mask.encode_one_bit(raster, 4, 3)
+        text = (f'<0f>0<|box;x1=10;y1=20;x2=13;y2=22;w=64;h=64;c=0.9|>'
+                f'<|mask;x=2;y=1;c=0.9;data=3,4,{payload}|>')
+        shape = mask_shape(parse(text, 64, 64).records[0], (64, 64))
+        self.assertEqual(shape['bounds'], [12, 21, 16, 24], 'box corner plus the mask token\'s x and y')
+        self.assertEqual(shape['area'], 8)
+        # held to the picture: what lies past its edge is cut off
+        shape = mask_shape(parse(text, 64, 64).records[0], (14, 23))
+        self.assertEqual(shape['bounds'], [12, 21, 14, 23])
+        self.assertEqual(shape['area'], 3)
+
+    def test_the_lossless_marker_is_read_too(self):
+        raster = bytes(int((x - 9) ** 2 + (y - 6) ** 2 < 30) for y in range(13) for x in range(19))
+        payload = encode_lossless_raster(raster, 19, 13)
+        self.assertEqual(payload[0], '~')
+        text = compose([{'box': [100, 50, 118, 62], 'confidence': 0.9, 'payload': payload}], 640, 480)
+        p = parse(text, 640, 480)
+        self.assertEqual((p.errors, p.warnings), ([], []))
+        r = p.records[0]
+        self.assertEqual(r['mask']['encoding'], 'lossless')
+        shape = mask_shape(r, (640, 480))
+        self.assertEqual(shape['area'], sum(raster))
+        self.assertEqual(shape['raster']['data'], raster)
+        # the reference's published lossless answer reads and decodes
+        published = ('<0f>0<|box;x1=211;y1=228;x2=270;y2=254;w=320;h=334|>'
+                     "<|mask;x=0;y=0;data=27,60,~!!!!M!0c[0o91w?q1!pIH4pPRVp2B3'7`e.ioeAf6-k/#Xd8%dX9x(|>\n")
+        p = parse(published, 320, 334)
+        self.assertEqual(p.errors, [])
+        self.assertEqual(mask_shape(p.records[0])['bounds'][:2], [211, 228])
+
+    def test_a_mask_that_does_not_decode_says_so_and_never_raises(self):
+        for data in ('8,8,!!!!!abc', '8,8,abc', '8,8,~!!!!!', '2,2,!!!!!(QO(0lu8?'):
+            text = f'<0f>0<|box;x1=1;y1=1;x2=8;y2=8;w=64;h=64;c=0.9|><|mask;x=0;y=0;c=0.9;data={data}|>'
+            p = parse(text, 64, 64)
+            self.assertEqual(len(p.records), 1, data)
+            self.assertIsNone(mask_shape(p.records[0]), data)
+            self.assertTrue(p.records[0]['mask']['error'], data)
+        self.assertIsNone(mask_shape(parse('<0f>' + rec(0, 1, 1, 8, 8, mask=''), 64, 64).records[0]))
+        self.assertIsNone(mask_shape({'mask': None}))
+        self.assertIsNone(mask_shape(None))
+
+    def test_a_tilde_is_only_a_marker(self):
+        p = parse('<0f>' + rec(0, 1, 1, 8, 8, data='8,8,!!~!!abc'), 64, 64)
+        self.assertEqual(p.errors, ['malformed_record'])
 
 
 class NoMatch(unittest.TestCase):
