@@ -2400,7 +2400,7 @@
    "exit": "o12"
   },
   "start": [
-   502,
+   506,
    698
   ],
   "proof": {
@@ -2410,7 +2410,7 @@
     "o4",
     "o12"
    ],
-   "route_length": 1692
+   "route_length": 1686
   },
   "changes_by_code": []
  }

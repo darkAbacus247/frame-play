@@ -199,14 +199,14 @@ test('the three sample rooms stay winnable, on the very same routes (their floor
     assert.deepEqual(b.level.changes_by_code, [], `${id}: no change by code`);
     routes[id] = b.level.proof.route_length;
   }
-  assert.deepEqual(routes, { desk: 851, living: 922, apartment: 1692 });
+  assert.deepEqual(routes, { desk: 851, living: 921, apartment: 1686 });
 });
 
 test('the apartment, rehearsed on its floor mask: its walls still block, and its route is the same', async () => {
   const { entry } = await replayApartment();
   const { level: apt, rt: art } = entry.built;
   assert.ok(apt.proof.winnable);
-  assert.equal(apt.proof.route_length, 1692);
+  assert.equal(apt.proof.route_length, 1686);
   // a wall between rooms, away from any doorway, is never walkable
   for (const [x, y] of [[527, 100], [527, 300], [600, 387], [900, 387], [100, 427], [400, 427]]) assert.equal(art.walk[y * art.W + x], 0, `a wall at ${x}, ${y}`);
   assert.equal(apt.surface.rooms, 4);

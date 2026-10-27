@@ -171,9 +171,10 @@ test('marks that cannot make a winnable room say exactly why, and nothing is mad
     { what: 'The coin is solid', why: 'Out of reach' },
     { what: 'The hazard became a collectible', why: 'Nothing else could be collected' },
   ]);
-  // the only coin drawn inside the exit's own footprint: nothing can repair it
+  // the only coin drawn inside the exit's own footprint, out of touch from
+  // either side of it: nothing can repair it
   const inside = [
-    { role: 'collect', box: [150, 180, 170, 198] },
+    { role: 'collect', box: [150, 176, 170, 190] },
     { role: 'exit', box: [100, 120, 220, 200] },
   ];
   const r = await M.makeMarkedRoom({ marks: inside, picture: null, pixels: grey(320, 240), sha256: SHA, yieldNow: quick });

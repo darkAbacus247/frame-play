@@ -34,21 +34,34 @@ export function buildNav(walk, hazard, w, h, p) {
   for (let i = 0; i < wall.length; i++) wall[i] = walk[i] ? 0 : 1;
   const field = edt(wall, w, h);
   const hfield = hazard ? edt(hazard, w, h) : null;
+  // A cell's clearance is the least the field reads anywhere in it: a point
+  // in a cell is sampled (bilinearly, pixel centres at +0.5) from the cell's
+  // pixels and the ring one pixel around them, and beyond the picture the
+  // field reads 0.
   const clear = new Float32Array(gw * gh).fill(Infinity);
   const hclear = new Float32Array(gw * gh).fill(Infinity);
-  for (let y = 0; y < h; y++) {
-    const cj = (y / cell) | 0;
-    for (let x = 0; x < w; x++) {
-      const ci = cj * gw + ((x / cell) | 0);
-      const v = field[y * w + x];
-      if (v < clear[ci]) clear[ci] = v;
-      if (hfield) {
-        const hv = hfield[y * w + x];
-        if (hv < hclear[ci]) hclear[ci] = hv;
+  for (let cj = 0; cj < gh; cj++) {
+    const y0 = cj * cell - 1, y1 = (cj + 1) * cell;
+    for (let ci = 0; ci < gw; ci++) {
+      const x0 = ci * cell - 1, x1 = (ci + 1) * cell;
+      const c = cj * gw + ci;
+      if (x0 < 0 || y0 < 0 || x1 >= w || y1 >= h) { clear[c] = 0; hclear[c] = hfield ? 0 : Infinity; continue; }
+      let m = Infinity, hm = Infinity;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const v = field[y * w + x];
+          if (v < m) m = v;
+          if (hfield) { const hv = hfield[y * w + x]; if (hv < hm) hm = hv; }
+        }
       }
+      clear[c] = m; hclear[c] = hm;
     }
   }
-  const planRadius = p.radius + p.planExtra;
+  // one clearance everywhere: a cell is free where the body that collides
+  // (bodyRadius) fits on every pixel of it, so a way over free cells is one
+  // the body walks, and no way it walks is left out. A hazard's halo keeps
+  // its margin (and a cell's slack) on top: that is a rule, not a fit.
+  const planRadius = p.radius;
   const margin = p.hazardMargin;
   const pass = new Uint8Array(gw * gh);
   for (let i = 0; i < pass.length; i++) {
