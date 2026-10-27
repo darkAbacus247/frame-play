@@ -146,7 +146,7 @@ test('a room not in memory names its own step, and only what this mode can do', 
         const at = `slot ${slot}, ${kind}, ${mode}: ${line}`;
         for (const m of line.matchAll(/Step (\d+)/g)) assert.equal(+m[1], R.PICK_STEPS[slot], at);
         if (/photo/.test(line)) assert.equal(kind, 'photo', at);
-        if (/stand-in/.test(line)) assert.equal(kind, 'rehearsal', at);
+        if (/through the stand-in/.test(line)) assert.equal(kind, 'rehearsal', at);
         const remakes = kind === 'photo' ? mode === 'live' || (slot === 2 && mode === 'rehearsal') : kind === 'rehearsal' && mode === 'rehearsal';
         if (!remakes) {
           assert.doesNotMatch(line, /pick|send|Step/, at);
@@ -166,6 +166,14 @@ test('a room not in memory names its own step, and only what this mode can do', 
   assert.match(one(1, { kind: 'rehearsal', id: 'living' }, 'rehearsal', 'living'), /send it through the stand-in again on Step 5/);
   assert.match(one(1, { kind: 'rehearsal', id: 'living' }, 'rehearsal', 'desk'), /this copy cannot make it again/, 'the desk’s stand-in cannot make the living room');
   assert.match(one(2, mine, 'live'), /pick the same photo again on Step 9/);
+  // a level kept here by the other mode cannot load, and this copy cannot
+  // make the room again; in REHEARSAL only the stand-in's own picture can
+  const own = (mode, kept) => closingRooms({ road: { ...endRoad(true), rooms: [desk, living, mine] }, mode, kept: [null, null, kept], levels: [null, null, null] })[2].ai;
+  assert.match(own('rehearsal', 'live'), /this copy cannot make it again\.$/);
+  assert.match(own('live', 'rehearsal'), /this copy cannot make it again\.$/);
+  assert.match(own('rehearsal', 'rehearsal'), /only the stand-in’s own sample picture can be made again/);
+  assert.match(own('rehearsal', null), /only the stand-in’s own sample picture can be made again/);
+  assert.match(own('live', 'live'), /pick the same photo again on Step 9 to see it\.$/);
   // the opening line counts the rooms on the road, not those in memory
   const photos = { ...endRoad(true), rooms: [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }, { kind: 'photo', sha256: 'ef'.repeat(32) }] };
   const rows = closingRooms({ road: photos, mode: 'live', levels: [null, null, null] });

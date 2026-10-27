@@ -182,11 +182,13 @@ export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNo
 //   samples: [{ id, title, sig, fine, boxes }], the sample pictures'
 //     fingerprints, fine grids and object boxes
 //   stored(photo) -> a level kept on this device for this photo, or null
+// sameAs: the sha256 a room made again in place must have, or null.
 // Returns one of:
 //   { kind: 'kept', picture, words }     MOCK: shown here, nothing sent
 //   { kind: 'refused', picture, words }  not made, and why
 //   { kind: 'built', ref, entry }        a playable room
-export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, onWords = () => {}, yieldNow }) {
+export const NOT_SAME_WORDS = 'That is not the photo this room was made from. Nothing was sent.';
+export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, sameAs = null, onWords = () => {}, yieldNow }) {
   const why = photoRefusal(file);
   if (why) return { kind: 'refused', picture: null, words: why };
   if (mode !== 'live' && mode !== 'rehearsal') {
@@ -194,6 +196,9 @@ export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, onWords = (
     return { kind: 'kept', picture: p.picture, words: MOCK_WORDS };
   }
   const photo = await deps.readPhoto(file);
+  // a room made again in place: only from the very photo it was made from,
+  // known by its sha256 before anything is looked up or sent
+  if (sameAs && photo.sha256 !== sameAs) return { kind: 'refused', picture: null, words: NOT_SAME_WORDS, notSame: true };
   let matched = null;
   if (mode === 'rehearsal') {
     matched = matchSample(signature(photo.pixels), deps.samples || []);

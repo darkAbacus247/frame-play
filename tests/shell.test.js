@@ -135,20 +135,67 @@ function buttonAttrs(src) {
   return out;
 }
 
-test('no primary button moves the counter back: none sets the step or calls back()', () => {
+// The text of an expression starting at i, up to its top-level ',' or the
+// bracket that closes around it.
+function exprAt(src, i) {
+  let depth = 0, j = i;
+  for (; j < src.length; j++) {
+    const c = src[j];
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) { if (!depth) break; depth--; } else if (c === ',' && !depth) break;
+  }
+  return src.slice(i, j).trim();
+}
+
+// What a primary's onclick runs: an inline function as it is; a name
+// (confirmStartOver, actions.play, onConsent) as every definition of it in
+// the page's script: its function, or each `name: ...` handed in.
+function handlerBodies(handler, app, seen = new Set()) {
+  if (/=>|^function\b/.test(handler)) return [handler];
+  const name = handler.split('.').pop();
+  if (!/^\w+$/.test(name) || seen.has(name)) return [];
+  seen.add(name);
+  const out = [];
+  const fn = app.indexOf(`function ${name}(`);
+  if (fn >= 0) out.push(exprAt(app, app.indexOf('{', fn)));
+  for (const m of app.matchAll(new RegExp(`[{,\\s]${name}: `, 'g'))) out.push(...handlerBodies(exprAt(app, m.index + m[0].length), app, seen));
+  return out;
+}
+
+function backwardPrimaries(files, app) {
+  const problems = [];
   let primaries = 0;
-  for (const f of ['../app.js', '../src/screens.js']) {
-    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+  for (const [f, src] of files) {
     for (const attrs of buttonAttrs(src)) {
       if (!/'data-primary':[^,]*'true'/.test(attrs)) continue;
       primaries++;
-      const onclick = attrs.slice(attrs.indexOf('onclick:'));
-      assert.ok(attrs.includes('onclick:'), `${f}: a primary with no action: ${attrs}`);
-      assert.doesNotMatch(onclick, /\bstep\s*:/, `${f}: a primary sets the step: ${onclick}`);
-      assert.doesNotMatch(onclick, /\bback\(\)/, `${f}: a primary goes back: ${onclick}`);
+      if (!attrs.includes('onclick:')) { problems.push(`${f}: a primary with no action: ${attrs}`); continue; }
+      const handler = exprAt(attrs, attrs.indexOf('onclick:') + 'onclick:'.length);
+      const bodies = handlerBodies(handler, app);
+      if (!bodies.length) problems.push(`${f}: the primary's handler ${handler} was not found`);
+      for (const b of bodies) {
+        if (/\bstep\s*:/.test(b)) problems.push(`${f}: a primary sets the step: ${handler}: ${b}`);
+        if (/\bback\(/.test(b)) problems.push(`${f}: a primary goes back: ${handler}: ${b}`);
+      }
     }
   }
+  return { problems, primaries };
+}
+
+test('no primary button moves the counter back: none sets the step or calls back(), named handlers too', () => {
+  const read = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const app = read('../app.js');
+  const { problems, primaries } = backwardPrimaries([['app.js', app], ['src/screens.js', read('../src/screens.js')]], app);
+  assert.deepEqual(problems, []);
   assert.ok(primaries >= 8, `the primaries were found (${primaries})`);
+  // the guard sees through a name: a named handler, or one handed in
+  const planted = `function goBack() { setRoad({ ...A.road, step: 2 }); }
+    const a = el('button', { 'data-primary': 'true', onclick: goBack });
+    const b = view({ actions: { onward: () => setRoad(R.back(A.road)) } });`;
+  const screens = `el('button', { 'data-primary': 'true', onclick: actions.onward })`;
+  const caught = backwardPrimaries([['planted', planted], ['planted screens', screens]], planted).problems.join('\n');
+  assert.match(caught, /sets the step: goBack/);
+  assert.match(caught, /goes back: actions\.onward/);
 });
 
 test('Escape and modifier keys never create the sound context; disclosure markers stay out of names', () => {

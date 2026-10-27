@@ -52,14 +52,18 @@ its place in Free play.
 The photo itself is never stored, so on a return visit a photo room's level
 may not be in memory. That room's screen then makes it again right there,
 on the same step: pick the same photo (its level loads from this device
-when it was kept here, or the photo is read again), or send a stand-in room
-through the stand-in again, only when the running stand-in answers for
-that same room (a stand-in started for another room would answer with its
-own room, so nothing is sent). Where this copy cannot make it (a LIVE or
-REHEARSAL room reopened in MOCK) the screen says so and the way on is
-forward. No primary button ever moves the step counter back. On the closing
-screen such a room says on which step it can be made again, or that this
-copy cannot make it again.
+when it was kept here, or the photo is read again; a different photo is
+known by its fingerprint and refused before anything is sent, so in LIVE it
+never reaches Meta), or send a stand-in room through the stand-in again,
+only when the running stand-in answers for that same room (a stand-in
+started for another room would answer with its own room, so nothing is
+sent). Your own room always offers Continue to the end; where this copy
+cannot make it (a LIVE or REHEARSAL room reopened in MOCK, or one whose
+level kept here was made in the other mode) the screen says so and that is
+the way on. A first or second room this copy cannot make is picked again on
+its own step, with ←. No primary button ever moves the step counter back.
+On the closing screen such a room says on which step it can be made again,
+or that this copy cannot make it again.
 
 Every screen is written to fit without scrolling at 100% zoom: one short
 line up front, short labelled facts, and the longer text (the full consent

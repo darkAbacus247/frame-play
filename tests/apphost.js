@@ -5,6 +5,7 @@
 // instance of app.js on a fresh page; the road may be saved beforehand.
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { installFakeDocument } from './fakedom.js';
 import { el } from '../src/ui.js';
 
@@ -38,6 +39,12 @@ function page(doc) {
   );
 }
 
+// A picked photo file: its bytes (and so its sha256) from a seed.
+export function photoFile(seed) {
+  const bytes = new Uint8Array(400).fill(seed);
+  return { type: 'image/jpeg', size: bytes.length, name: `photo${seed}.jpg`, arrayBuffer: async () => bytes.buffer.slice(0), sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
 export const nameOf = (e) => (e.children.length ? e.children.map(nameOf).join('') : e.textContent || '').trim();
 export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' ') : e.textContent || '').replace(/\s+/g, ' ').trim();
 
@@ -46,7 +53,8 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // reply api/room gives for a POST, or null for no server answer there. With
 // an answer, the page's canvases encode (an empty JPEG) and decode again, so
 // a send runs end to end.
-export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null } = {}) {
+// prefs: other saved preferences, by name (as src/store.js keeps them).
+export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {} } = {}) {
   const doc = installFakeDocument();
   if (answer) {
     const make = doc.createElement;
@@ -61,6 +69,7 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
   page(doc);
   const storage = memoryStorage();
   if (road) storage.setItem('frameplay.road', JSON.stringify(road));
+  for (const [k, v] of Object.entries(prefs)) storage.setItem(`frameplay.${k}`, JSON.stringify(v));
   const listeners = new Map();
   const history = [];
   const requests = [];
@@ -119,6 +128,9 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
     popstate: (state) => { for (const f of listeners.get('popstate') || []) f({ state }); },
     savedRoad: () => JSON.parse(storage.getItem('frameplay.road')),
     posts: () => requests.filter(([m]) => m === 'POST').length,
+    // a picked file, as the screen's file input hands it on
+    choose: (file) => { const input = $('main').querySelector('input'); input.files = [file]; input.dispatch('change'); },
+    levels: () => JSON.parse(storage.getItem('frameplay.levels') || '[]'),
   };
   await app.settle();
   return app;
