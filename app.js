@@ -150,13 +150,13 @@ function setBusy(on) {
 
 function progressPanel(panel, lines, current, error) {
   panel.hidden = false;
-  panel.replaceChildren(
-    el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
-      class: i < current ? 'done' : i === current && !error ? 'now' : 'todo',
-      text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
-    }))),
-    error ? el('p', { class: 'error', role: 'alert', text: error }) : null,
-  );
+  // never a null child: the page's own replaceChildren would write 'null'
+  const kids = [el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
+    class: i < current ? 'done' : i === current && !error ? 'now' : 'todo',
+    text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
+  })))];
+  if (error) kids.push(el('p', { class: 'error', role: 'alert', text: error }));
+  panel.replaceChildren(...kids);
 }
 
 const FREE_WORDS = 'Rounds in Free play do not change your road.';

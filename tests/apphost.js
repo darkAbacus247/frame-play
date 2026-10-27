@@ -41,9 +41,22 @@ function page(doc) {
 export const nameOf = (e) => (e.children.length ? e.children.map(nameOf).join('') : e.textContent || '').trim();
 export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' ') : e.textContent || '').replace(/\s+/g, ' ').trim();
 
-// mode: 'mock' | 'rehearsal' | 'live'; road: saved before the boot, or null
-export async function bootApp({ mode = 'mock', road = null } = {}) {
+// mode: 'mock' | 'rehearsal' | 'live'; road: saved before the boot, or null;
+// room: the room the stand-in was started for (REHEARSAL); answer(body): the
+// reply api/room gives for a POST, or null for no server answer there. With
+// an answer, the page's canvases encode (an empty JPEG) and decode again, so
+// a send runs end to end.
+export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null } = {}) {
   const doc = installFakeDocument();
+  if (answer) {
+    const make = doc.createElement;
+    doc.createElement = (tag) => {
+      const e = make(tag);
+      if (tag === 'canvas') e.toBlob = (cb, type = 'image/png') => cb(new Blob([new Uint8Array(64)], { type }));
+      return e;
+    };
+    globalThis.createImageBitmap = async () => ({ width: 1024, height: 768, close() {} });
+  }
   doc.body.append(el('div', { id: 'tips' }));
   page(doc);
   const storage = memoryStorage();
@@ -70,8 +83,12 @@ export async function bootApp({ mode = 'mock', road = null } = {}) {
       if (url === 'api/health') {
         if (mode === 'mock') throw new Error('no server');
         const h = { mode, reason: '', label: mode };
-        if (mode === 'rehearsal') h.rehearsal = { stand_in_base: 'http://127.0.0.1:8192/v1', room: 'desk' };
+        if (mode === 'rehearsal') h.rehearsal = { stand_in_base: 'http://127.0.0.1:8192/v1', room };
         return { ok: true, json: async () => h };
+      }
+      if (url === 'api/room' && answer) {
+        const reply = answer(opts.body);
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => reply };
       }
       const m = /^rooms\/([a-z]+)\.json$/.exec(url);
       if (m) {
@@ -101,6 +118,7 @@ export async function bootApp({ mode = 'mock', road = null } = {}) {
     button: (name) => $('main').querySelectorAll('button').find((b) => (b.getAttribute('aria-label') || nameOf(b)) === name) || null,
     popstate: (state) => { for (const f of listeners.get('popstate') || []) f({ state }); },
     savedRoad: () => JSON.parse(storage.getItem('frameplay.road')),
+    posts: () => requests.filter(([m]) => m === 'POST').length,
   };
   await app.settle();
   return app;

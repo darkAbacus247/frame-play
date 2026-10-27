@@ -52,9 +52,11 @@ class FakeElement {
   getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null; }
   hasAttribute(k) { return this.attrs.has(k); }
   removeAttribute(k) { this.attrs.delete(k); }
+  // as a browser does: anything that is not an element (null and undefined
+  // too) becomes a text node of its String(), so a stray null shows as 'null'
   append(...kids) {
     for (const c of kids) {
-      const n = typeof c === 'string' ? Object.assign(new FakeElement(this.ownerDocument, '#text'), { textContent: c }) : c;
+      const n = c instanceof FakeElement ? c : Object.assign(new FakeElement(this.ownerDocument, '#text'), { textContent: String(c) });
       if (n.parentNode) n.remove();
       n.parentNode = this;
       this.children.push(n);
