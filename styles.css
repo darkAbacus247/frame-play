@@ -467,3 +467,21 @@ dialog.card .label { color: var(--muted); }
 /* the page applies .hc and .rm from the system setting until the person
    flips the switch in Settings, so one class decides */
 .rm *, .rm *::before, .rm *::after { animation: none !important; transition: none !important; }
+
+/* ---- particles (src/fx.js) ----
+   A canvas laid exactly over the board: out of the flow, so it never sizes
+   the board or moves the page, and under no pointer, so every tap reaches
+   the board. Hidden with reduced motion. */
+.fx-host { position: relative; }
+.fx-layer { position: absolute; left: 0; top: 0; pointer-events: none; }
+.rm .fx-layer { display: none; }
+
+/* ---- Music, effects and motion (src/settings_fx.js), in the drawer ---- */
+.fx-settings { display: grid; gap: var(--s2); }
+.fx-volume-row {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--s2) var(--s4);
+  min-height: var(--target); padding: 0 var(--s3);
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2);
+}
+.fx-volume { flex: 1 1 8rem; min-width: 6rem; max-width: 16rem; min-height: var(--target); accent-color: var(--accent); }
+.fx-volume:disabled { opacity: 0.5; }

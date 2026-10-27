@@ -2,10 +2,13 @@
 // keyboard, the on-screen pad, tap-to-move, the Walk to chips, sound and
 // the announcements. It touches the page; the rules live in play.js.
 import { createRound, stepRound, walkToObject, walkToPoint, nextGoal, routeRatio, DT } from './play.js';
-import { Renderer, fitSize, unlockPulse } from './render.js';
+import { Renderer, fitSize, unlockPulse, ROLE_STYLE } from './render.js';
+import { bounds } from './geom.js';
+import { Fx } from './fx.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
 import { el, boardRoom, ceilH, ceilW, floorW, spaceH } from './ui.js';
+import { emit } from './events.js';
 
 const KEY_DIRS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -17,7 +20,10 @@ const KEY_DIRS = {
 // reduced motion), numbered badges clear of every outline, Show walls.
 export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
   const canvas = el('canvas', { 'aria-hidden': 'true' });
-  root.replaceChildren(canvas);
+  // the particles' layer lies over the picture, out of the flow
+  const fx = new Fx(canvas, level.picture, { reduced: () => !!ui().reducedMotion });
+  root.classList.add('fx-host');
+  root.replaceChildren(canvas, fx.layer);
   const renderer = new Renderer(canvas, picture, level, rt);
   const n = level.objects.length;
   let count = ui().reducedMotion ? n : 0;
@@ -29,6 +35,7 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
     const h = maxHeight ? maxHeight() : (w * level.picture.height) / level.picture.width;
     const f = fitSize(Math.max(80, w), Math.max(60, h), level.picture.width, level.picture.height);
     renderer.resize(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
+    fx.fit(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
     draw();
   };
   const ro = new ResizeObserver(fit);
@@ -41,15 +48,43 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
     timer = setInterval(() => {
       count++;
       draw();
+      emit('reveal', { k: count - 1, of: n });
+      const o = level.objects[count - 1];
+      const st = o.on_surface || o.role === 'flat' ? ROLE_STYLE[o.role] : null;
+      fx.burst('trace', 0, 0, { rings: o.outline.rings, color: st ? st.color : '#f3efe6' });
       if (count >= n) clearInterval(timer);
     }, 170);
   }
   return {
+    fx,
     setWalls(v) { walls = !!v; draw(); },
     redraw: draw,
-    destroy() { clearInterval(timer); ro.disconnect(); },
+    destroy() { clearInterval(timer); ro.disconnect(); fx.destroy(); },
   };
 }
+
+// The page's primary buttons click softly and the closing screen gets the
+// music's sting. Watched here, from the outside, so the screens need not
+// know about sound; installed once per page.
+export function watchPage(doc) {
+  if (!doc || doc.fpWatched || typeof doc.addEventListener !== 'function') return false;
+  doc.fpWatched = true;
+  doc.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest('[data-primary]')) emit('ui', { kind: 'primary' });
+  }, true);
+  const MO = globalThis.MutationObserver;
+  if (typeof MO === 'function' && doc.body) {
+    let shown = false;
+    new MO(() => {
+      const now = !!doc.querySelector('.screen.closing');
+      if (now && !shown) emit('closing');
+      shown = now;
+    }).observe(doc.body, { childList: true, subtree: true });
+  }
+  return true;
+}
+if (globalThis.document) watchPage(globalThis.document);
 
 // opts: { level, rt, picture, ui: () => ({outlines, reducedMotion, highContrast, walls}),
 //         audio, say(text), onEnd({status, ratio, travelled, words}),
@@ -65,11 +100,12 @@ export function mountPlay(root, opts) {
 
   const rule = el('p', { class: 'rule-row', id: 'rule-row' });
   const canvas = el('canvas', { 'aria-hidden': 'true' });
+  const fx = new Fx(canvas, level.picture, { reduced: () => !!(opts.ui && opts.ui().reducedMotion) });
   const game = el('div', {
     class: 'game', tabindex: '0', role: 'application',
     'aria-label': `The game: ${level.title || 'your room'}. Arrow keys or W A S D steer. N walks to the next goal. Tab leaves.`,
     'aria-describedby': 'rule-row',
-  }, [canvas]);
+  }, [canvas, fx.layer]);
   const stage = el('div', { class: 'stage' }, [game]);
   const chips = el('div', { class: 'chips', role: 'group', 'aria-label': 'Walk to' });
   const padBtn = (label, dir, cls) => {
@@ -97,6 +133,8 @@ export function mountPlay(root, opts) {
   root.replaceChildren(wrap);
 
   const renderer = new Renderer(canvas, picture, level, rt);
+  // the music turns softer while a round is played
+  const music = (mode) => audio && audio.musicMode && audio.musicMode(mode);
 
   // "Walk to coin 2" when there are several, "Walk to the lamp" for one
   function walkWords(k) {
@@ -138,18 +176,22 @@ export function mountPlay(root, opts) {
     audio && audio.play('tick');
   }
 
+  // an object's middle, in picture pixels, for its particles
+  const middle = (k) => { const b = bounds(level.objects[k].outline.rings); return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]; };
+  const exitK = level.objects.findIndex((o) => o.role === 'exit');
+
   function handleEvents(events) {
     let chipsDirty = false;
     for (const ev of events) {
       const words = announce(level, ev, surfaceName);
       switch (ev.type) {
-        case 'step': audio && audio.play('step'); break;
+        case 'step': audio && audio.play('step'); fx.burst('dust', ...state.pos); emit('step', { at: [...state.pos] }); break;
         case 'bump': audio && audio.play('bump'); break;
-        case 'collect': audio && audio.play('collect'); chipsDirty = true; break;
-        case 'unlock': audio && audio.play('unlock'); chipsDirty = true; unlockAt = performance.now(); break;
+        case 'collect': audio && audio.play('collect'); chipsDirty = true; fx.burst('coin', ...middle(ev.k)); emit('coin', { k: ev.k, left: ev.left }); break;
+        case 'unlock': audio && audio.play('unlock'); chipsDirty = true; unlockAt = performance.now(); if (exitK >= 0) fx.burst('exit', ...middle(exitK)); emit('exit', { k: exitK }); break;
         case 'locked': audio && audio.play('locked'); break;
-        case 'lose': audio && audio.play('hazard'); break;
-        case 'win': audio && audio.play('win'); break;
+        case 'lose': audio && audio.play('hazard'); fx.burst('hazard', ...state.pos); emit('hazard', { k: ev.k, at: [...state.pos] }); break;
+        case 'win': audio && audio.play('win'); fx.burst('win'); emit('win', { k: ev.k, travelled: ev.travelled }); break;
         default: break;
       }
       if (words) say(words);
@@ -182,6 +224,8 @@ export function mountPlay(root, opts) {
       steps++;
       if (state.status !== 'playing') {
         ended = true;
+        music('calm');
+        if (state.status !== 'won') emit('lose', { status: state.status });
         goalChips();
         const ratio = routeRatio(state, level);
         opts.onEnd && opts.onEnd({ status: state.status, ratio, travelled: state.travelled, words: endCardWords(level, state, ratio) });
@@ -247,29 +291,36 @@ export function mountPlay(root, opts) {
     if (key === fitted) return;
     fitted = key;
     renderer.resize(f.cssW, f.cssH, dpr);
+    fx.fit(f.cssW, f.cssH, dpr);
   });
   for (const e of [root, wrap, rule, label, side]) ro.observe(e);
 
   refreshRule();
   goalChips();
   audio && audio.play('start');
+  music('play');
   raf = requestAnimationFrame(frame);
 
   return {
     get state() { return state; },
+    get fx() { return fx; },
     focusGame() { game.focus({ preventScroll: true }); },
     walkTo(k) { walkObject(k); },
     restart() {
       state = createRound(level, rt);
       ended = false; acc = 0; last = 0; marker = null; unlockAt = 0;
+      fx.clear();
       refreshRule();
       goalChips();
       audio && audio.play('start');
+      music('play');
     },
     destroy() {
       destroyed = true;
+      music('calm');
       cancelAnimationFrame(raf);
       ro.disconnect();
+      fx.destroy();
     },
   };
 }
