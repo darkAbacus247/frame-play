@@ -241,7 +241,9 @@ picture through them.
   of guessing.
 - SAM's mask payload (Meta's opaque one_bit encoding) is checked for its
   alphabet and its shape and not decoded; outlines are traced by code
-  inside SAM's boxes instead.
+  inside SAM's boxes instead. A strict decoder for it
+  (`server/sam_mask.py`, see NOTICE) is built and tested against the
+  recorded answers, and is not wired into the pipeline yet.
 - When SAM gives several matches for one name, the ones holding one of
   Muse Spark's points for it are kept (a point may fall up to 3% of the
   picture beside a box: Muse Spark's points are rough), else the most
@@ -276,3 +278,10 @@ MOCK.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+**NOTICE.** `server/sam_mask.py` is derived from Meta's meta-sam-parser 0.1.0
+(its mask codec): it is a
+port written for this repository, and it is distributed under the SAM
+License, not MIT. The license text is in
+[LICENSES/SAM_LICENSE.txt](LICENSES/SAM_LICENSE.txt), verbatim (stored as
+UTF-16 text). Everything else in this repository is MIT.
