@@ -185,11 +185,20 @@ export function acceptReply(healthMode, reply, copy) {
   reply.objects = good;
   if (surfaceLost) reply.surface = null;
   reply.dropped = { objects: lost.length, surface: surfaceLost };
+  return { ok: true, why: '', dropped: lost.length, words: leftOutWords(reply.dropped) };
+}
+
+// What acceptReply left out, in one sentence ('' for nothing), from the
+// reply's `dropped`: said on the reveal, so nothing goes silently.
+export function leftOutWords(dropped) {
+  const n = dropped && Number.isInteger(dropped.objects) && dropped.objects > 0 ? dropped.objects : 0;
+  const surface = !!(dropped && dropped.surface);
+  if (!n && !surface) return '';
   const said = [];
-  if (lost.length) said.push(`${plural(lost.length, 'object', 'objects')} in the reply had a box outside the picture or an empty one`);
-  if (surfaceLost) said.push(`${lost.length ? 'the' : 'The'} surface’s box was not usable`);
-  const words = `${said.join(', and ')}, so ${lost.length + (surfaceLost ? 1 : 0) > 1 ? 'they were' : 'it was'} left out.`;
-  return { ok: true, why: '', dropped: lost.length, words: words[0].toUpperCase() + words.slice(1) };
+  if (n) said.push(`${plural(n, 'object', 'objects')} in the reply had a box outside the picture or an empty one`);
+  if (surface) said.push(`${n ? 'the' : 'The'} surface’s box was not usable`);
+  const words = `${said.join(', and ')}, so ${n + (surface ? 1 : 0) > 1 ? 'they were' : 'it was'} left out.`;
+  return words[0].toUpperCase() + words.slice(1);
 }
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -263,6 +272,7 @@ export function readSummary(reply) {
     found,
     scenery: scenery.map((s) => s.name),
     warnings: reply.warnings || [],
+    leftOut: leftOutWords(reply.dropped),
     rehearsal: reply.provenance.mode === 'rehearsal',
   };
 }

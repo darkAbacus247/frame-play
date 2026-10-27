@@ -168,14 +168,16 @@ function setBusy(on) {
 
 // While reading, the panel's Cancel stays pressable (setBusy passes over a
 // button marked data-busy-ok). After a failure, again: the read once more.
-// error: the words; cancel(): stop the read; again: { retry, tip } or null
-function progressPanel(panel, lines, current, error, { cancel = null, again = null } = {}) {
+// error: the words; cancel(): stop the read; again: { retry, tip } or null;
+// note: a line under the steps while reading (the wait for a free reader)
+function progressPanel(panel, lines, current, error, { cancel = null, again = null, note = null } = {}) {
   panel.hidden = false;
   // never a null child: the page's own replaceChildren would write 'null'
   const kids = [el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
     class: i < current ? 'done' : i === current && !error ? 'now' : 'todo',
     text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
   })))];
+  if (!error && note) kids.push(el('p', { class: 'progress-note', text: note }));
   if (error) kids.push(el('p', { class: 'error', role: 'alert', text: error }));
   if (!error && cancel) {
     kids.push(el('div', { class: 'actions' }, [el('button', {
@@ -207,6 +209,33 @@ function retryButton(again) {
 
 const FREE_WORDS = 'Rounds in Free play do not change your road.';
 const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
+
+// A read's words on its panel, for Steps 2 and 5 and your own room alike:
+// its three steps, and while every reader on the server is busy (stage
+// 'waiting', from sendPhoto) the countdown under them, changed in place so
+// Cancel keeps the focus, and said aloud once per wait. onStep(i): the step
+// now shown. Nothing after Cancel.
+function readWords(panel, signal, onStep) {
+  let step = 0;
+  let waiting = false;
+  return (words, stage) => {
+    if (signal.aborted) return;
+    const i = LIVE_LINES.indexOf(words);
+    if (i >= 0) {
+      step = i;
+      waiting = false;
+      onStep(i);
+      progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead });
+      say(words);
+    } else if (stage === 'waiting' && typeof words === 'string' && words) {
+      const shown = panel.querySelector('.progress-note');
+      if (shown) shown.textContent = words;
+      else progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead, note: words });
+      if (!waiting) say(words);
+      waiting = true;
+    }
+  };
+}
 
 // Words joined as whole sentences: the first one ends as a sentence ends
 // (the server's own words may not), so the next one reads on.
@@ -268,10 +297,7 @@ async function runLivePath(slot, panel, make, { inPlace = false, again = null } 
   const lines = (error, more) => progressPanel(panel, LIVE_LINES, step, error, more);
   lines(null, { cancel: cancelRead });
   try {
-    const { ref, entry } = await cancellable((signal) => make((words) => {
-      const i = LIVE_LINES.indexOf(words);
-      if (i >= 0 && !signal.aborted) { step = i; lines(null, { cancel: cancelRead }); say(words); }
-    }, signal));
+    const { ref, entry } = await cancellable((signal) => make(readWords(panel, signal, (i) => { step = i; }), signal));
     if (entry.built.error) throw new Error(entry.built.error);
     A.live.set(refKey(ref), entry);
     setBusy(false);
@@ -292,7 +318,7 @@ async function runLivePath(slot, panel, make, { inPlace = false, again = null } 
 // reply rides on the error (e.reply), so its code and retry_same can be read.
 // signal: Cancel's, for sendPhoto.
 async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null, signal = null) {
-  const reply = await sendPhoto(blob, (m) => onWords(m.words), undefined, { signal });
+  const reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal });
   const ok = acceptReply(A.mode, reply, copy);
   if (!ok.ok) throw Object.assign(new Error(ok.why), { reply });
   const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
@@ -850,7 +876,7 @@ function ownDeps(signal = null, seen = {}) {
     preview: previewPhoto,
     readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
     send: async (blob, onWords) => {
-      seen.reply = await sendPhoto(blob, (m) => onWords(m.words), undefined, { signal });
+      seen.reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal });
       return seen.reply;
     },
     samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
@@ -938,10 +964,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     const r = await cancellable((signal) => makeOwnRoom({
       mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(signal, seen),
       sameAs: inPlace ? A.road.rooms[2].sha256 : null,
-      onWords: (words) => {
-        const i = LIVE_LINES.indexOf(words);
-        if (i >= 0 && !signal.aborted) { step = i; progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead }); say(words); }
-      },
+      onWords: readWords(panel, signal, (i) => { step = i; }),
     }));
     setBusy(false);
     if (r.notSame) r.words = sentences(r.words, IN_PLACE_WAYS);

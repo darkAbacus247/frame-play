@@ -62,6 +62,8 @@ test('a bad box is left out and said, not the whole reply refused (D2)', () => {
   assert.deepEqual(r.dropped, { objects: 3, surface: false });
   for (const name of [a, b, c]) assert.ok(r.warnings.includes(`not used: ${name} (its box lay outside the picture or was empty)`), name);
   assert.equal(readSummary(r).found, n - 3, 'the reveal counts what is left');
+  assert.equal(readSummary(r).leftOut, ok.words, 'and says what was left out');
+  assert.equal(readSummary(replyFor('desk', 'live')).leftOut, '', 'nothing left out: no words');
   // and what is left still builds
   const built = buildLevel(inputFromReply(r, { kind: 'photo', sha256: 'ab'.repeat(32) }, undefined, '2026-10-27T10:00:00Z'));
   assert.ok(!built.error, built.error);
@@ -82,6 +84,7 @@ test('a bad box is left out and said, not the whole reply refused (D2)', () => {
   assert.equal(os.dropped, 0);
   assert.equal(s.surface, null);
   assert.equal(os.words, 'The surface’s box was not usable, so it was left out.');
+  assert.equal(readSummary(s).leftOut, os.words);
   assert.ok(s.warnings.some((w) => /^not used: .*the play surface/.test(w)));
   assert.equal(inputFromReply(s, { kind: 'photo', sha256: 'ab'.repeat(32) }).surface, null);
 

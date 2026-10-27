@@ -137,8 +137,10 @@ test('LIVE: Cancel stays pressable while reading, stops the wait at once, says s
     assert.equal(app.button('Cancel'), null);
     assert.equal(app.button('Choose a photo').disabled, false, 'no longer busy');
     assert.ok(app.button('Try this photo again'));
-    // where sendPhoto hands the signal to fetch, the send itself is aborted
-    if (s.posts[0].signal) assert.equal(s.posts[0].signal.aborted, true);
+    // Cancel's signal reaches sendPhoto, which hands it on to fetch: the
+    // send itself is aborted
+    assert.ok(s.posts[0].signal, 'the send carries a signal');
+    assert.equal(s.posts[0].signal.aborted, true);
     late();
     await app.settle(60);
     assert.equal(app.step(), 2, 'the late answer is not used');
@@ -156,11 +158,58 @@ test('LIVE, Step 9: Cancel works on your own room too', async () => {
   try {
     app.choose(photoFile(45));
     for (let i = 0; i < 200 && !started; i++) await app.settle(2);
-    app.button('Cancel').click();
+    const cancel = app.button('Cancel');
+    assert.ok(cancel && !cancel.disabled, 'Cancel is pressable while the rest waits');
+    assert.equal(app.button('Choose a photo').disabled, true);
+    cancel.click();
     await app.settle();
     assert.match(app.main(), /Cancelled: this page stopped waiting for the read/);
     assert.equal(app.step(), 9);
     assert.equal(app.button('Choose a photo').disabled, false);
+    assert.ok(s.posts[0].signal && s.posts[0].signal.aborted, 'the send itself is aborted');
+  } finally { s.restore(); }
+});
+
+// ---- the joins: the wait for a free reader, boxes left out ----
+// every reader busy (429 'busy', Retry-After 1 s), then the answer
+const busy = () => ({
+  ok: false, status: 429,
+  headers: { get: (k) => ({ 'content-type': 'application/json', 'retry-after': '1' })[k.toLowerCase()] || null },
+  json: async () => ({ status: 'error', error: { code: 'busy', message: 'Every reader is busy right now. Please try again in a few seconds.' } }),
+});
+
+for (const [where, at, done] of [['Step 2', road, 3], ['Step 9 (your own room)', AT9, 10]]) {
+  test(`LIVE, ${where}: while the server's readers are busy the panel shows the countdown, then the read goes on`, async () => {
+    const { app, s } = await live(at, (url, opts, n) => (url === 'api/room' ? (n === 1 ? busy() : json(200, replyFor('desk', 'live'))) : undefined));
+    try {
+      app.choose(photoFile(at === road ? 48 : 49));
+      let note = null;
+      for (let i = 0; i < 400 && !note; i++) {
+        await app.settle(2);
+        const p = app.$('main').querySelector('.progress-note');
+        if (p) note = textOf(p);
+      }
+      assert.equal(note, 'Waiting for a free reader (another photo is being read): trying again in 1 s');
+      assert.ok(app.button('Cancel') && !app.button('Cancel').disabled, 'Cancel stays pressable during the wait');
+      for (let i = 0; i < 400 && app.step() !== done; i++) await app.settle(2);
+      assert.equal(app.step(), done, 'read and built after the wait');
+      assert.equal(s.posts.length, 2, 'the same copy sent once more');
+      assert.equal(s.posts[1].body.size, s.posts[0].body.size);
+    } finally { s.restore(); }
+  });
+}
+
+test('LIVE: an object left out for a bad box is said on the reveal, not dropped silently', async () => {
+  const r = replyFor('desk', 'live');
+  r.objects.push({ ...r.objects[0], id: 'bad', name: 'ghost lamp', box: [1000, 10, 1030, 40] });
+  const { app, s } = await live(road, (url) => (url === 'api/room' ? json(200, r) : undefined));
+  try {
+    app.choose(photoFile(50));
+    for (let i = 0; i < 400 && app.step() !== 3; i++) await app.settle(2);
+    assert.equal(app.step(), 3, 'the rest of the reply makes the room');
+    const warnings = app.$('main').querySelectorAll('.objects .changes li').map(textOf);
+    assert.equal(warnings[0], '1 object in the reply had a box outside the picture or an empty one, so it was left out.');
+    assert.ok(warnings.some((w) => /^not used: ghost lamp \(/.test(w)), 'and which one');
   } finally { s.restore(); }
 });
 

@@ -252,7 +252,10 @@ export function foundView({ level, summary, fromDevice, actions }) {
     ? el('ul', { class: 'changes' }, level.changes_by_code.map((c) => el('li', { text: `${c.what}: ${c.why}.` })))
     : el('p', { text: 'None: the room could be won as read.' });
   const scenery = summary && summary.scenery.length ? summary.scenery : [];
-  const warnings = summary && summary.warnings.length ? summary.warnings : [];
+  // what the page left out for bad boxes leads the warnings (a summary kept
+  // on this device before it said so has no leftOut)
+  const leftOut = summary && typeof summary.leftOut === 'string' && summary.leftOut ? [summary.leftOut] : [];
+  const warnings = summary ? [...leftOut, ...summary.warnings] : [];
   const info = el('div', { class: 'found-info' }, [
     el('p', { class: 'summary', text: summaryLine(level, summary) }),
     fromDevice ? el('p', { class: 'why', text: 'Loaded from this device: no model was called this time.' }) : null,
