@@ -14,37 +14,10 @@ import { fillRings } from '../src/raster.js';
 import { traceFloor, floorFromReply } from '../src/trace_in_box.js';
 import { buildLevel, floorRooms, validateLevel } from '../src/level.js';
 import { jpegLike } from './jpegsim.js';
+import { PLAN_ROOMS, PLAN_DOORS, planJson } from './plan.js';
 
 const CREATED = '2026-10-27T12:00:00Z';
 const rect = (x, y, w, h) => ({ rect: [x, y, w, h] });
-
-// A small floor plan seen from above: three rooms (wood, tile, carpet)
-// inside dark walls; the wood room opens to the tile room, the tile room to
-// the carpet room, and the wood room and the carpet room share a wall with
-// no doorway in it.
-export const PLAN_ROOMS = { wood: [34, 34, 280, 200], tile: [328, 34, 258, 200], carpet: [34, 248, 552, 178] };
-export const PLAN_DOORS = { woodTile: [314, 100, 14, 50], tileCarpet: [420, 234, 50, 14] };
-export function planJson(objects = []) {
-  const R = PLAN_ROOMS, D = PLAN_DOORS;
-  return {
-    schema: 'frameplay.room/1', id: 'plan', title: 'A plan', theme_line: '', width: 640, height: 480, seed: 7, view: 'top_down',
-    background: [
-      { shape: rect(0, 0, 640, 480), paint: '#efebe4', grain: 2 },
-      { shape: rect(20, 20, 580, 420), paint: '#2f2b28', grain: 2 },
-    ],
-    surface: {
-      name: 'floor',
-      shape: { rings: [rect(...R.wood), rect(...R.tile), rect(...R.carpet), rect(...D.woodTile), rect(...D.tileCarpet)] },
-      seeds: [[60, 60], [560, 60], [300, 400]],
-      paint: { linear: [0, 34, 0, 234], stops: ['#c08a55', '#a87444'] }, grain: 5,
-    },
-    foreground: [
-      { shape: { rings: [rect(...R.tile), rect(...D.tileCarpet)] }, paint: '#d6dadc', grain: 3 },
-      { shape: rect(...R.carpet), paint: '#8597ad', grain: 4 },
-    ],
-    objects,
-  };
-}
 
 const boxOf = ([x, y, w, h]) => [x, y, x + w, y + h];
 const iou = (a, b) => {
@@ -167,7 +140,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 // A sample room's answers from the stand-in through the real pipeline, in
 // one process with no socket (server/tests/standin_replay.py).
-export function standInReply(room, golden = false) {
+function standInReply(room, golden = false) {
   const out = execFileSync(PYTHON, ['-B', '-m', 'server.tests.standin_replay', '--room', room, ...(golden ? ['--golden'] : [])], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
   return JSON.parse(out);
 }

@@ -70,6 +70,17 @@ so before you choose one.
   after an account problem). A refused photo, or a read that fails, can be
   marked as in MOCK.
 
+**Floors, walls and doorways.** Where a room's floor is known (drawn by
+code in a sample room, or grown by code from a LIVE or REHEARSAL read),
+the explorer stands only on it: the arrow pad, the keys, a tap and the
+walk-to chips all keep to the floor, the start is on it, and a path to
+another room goes through its doorway. A goal behind walls with no doorway
+cannot be reached, and every word says so: code makes it solid and lists
+why ("Out of reach: behind walls with no doorway"), a tap there is refused
+("No doorway leads there"), and the proof names it. **Show walls** draws
+where the explorer can stand, the floor's outline and a ring on each
+doorway.
+
 The people refusal (a person in the photo) and Muse Spark declining to
 read a photo for its content are the refusals with no marking after them:
 such a photo makes no room in any way. A photo that is

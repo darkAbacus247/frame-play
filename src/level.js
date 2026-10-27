@@ -275,6 +275,35 @@ export function ringReachable(rt, k, comp) {
   return comp > 0 && rt.rings[k].some((c) => rt.nav.comp[c] === comp);
 }
 
+// Whether walls with no doorway (not things standing on the floor) keep
+// the explorer, in component comp, from object k: on the bare floor, with
+// nothing standing on it, k could still not be reached. Only for a level
+// whose floor fences the play area.
+export function walledOff(rt, k, comp) {
+  if (!rt.floor || comp <= 0 || !rt.rings[k].length || ringReachable(rt, k, comp)) return false;
+  const bare = bareNav(rt);
+  // a cell the explorer stands on is free on the bare floor too
+  let from = -1;
+  for (let c = 0; c < rt.nav.comp.length && from < 0; c++) if (rt.nav.comp[c] === comp) from = c;
+  const bc = bare.comp[from];
+  // not on the bare floor at all (behind a thing seen at eye level): unsaid
+  if (!bc) return false;
+  return !rt.rings[k].some((c) => bare.comp[c] === bc);
+}
+
+// The clearance grid of the bare floor, nothing standing on it (holes in
+// the floor are things on it), made once.
+export function bareNav(rt) {
+  if (!rt.bare) {
+    const walk = fillHoles(rt.floor, rt.W, rt.H);
+    const { W, H } = rt;
+    for (let x = 0; x < W; x++) { walk[x] = 0; walk[(H - 1) * W + x] = 0; }
+    for (let y = 0; y < H; y++) { walk[y * W] = 0; walk[y * W + W - 1] = 0; }
+    rt.bare = buildNav(walk, null, W, H, rt.p);
+  }
+  return rt.bare;
+}
+
 // The start: a free cell in the lowest fifth of the walk region, nearest the
 // horizontal centre, from which every target can be reached (or the most).
 export function chooseStart(level, rt) {
@@ -336,7 +365,8 @@ export function proveLevel(level, rt, start) {
   const exit = exits[0];
   const unreachable = [...collect, exit].filter((k) => !ringReachable(rt, k, comp));
   if (unreachable.length) {
-    return fail(`Out of reach: ${unreachable.map((k) => objectWords(level, k)).join(', ')}`);
+    const walled = (k) => (walledOff(rt, k, comp) ? ' (behind walls with no doorway)' : '');
+    return fail(`Out of reach: ${unreachable.map((k) => `${objectWords(level, k)}${walled(k)}`).join(', ')}`);
   }
   const nav = rt.nav;
   const ringSeeds = (k, base) => rt.rings[k].map((c) => [c, base ? base[c] : 0]);
@@ -475,7 +505,8 @@ function noLevelWords(level, rt, start, proof) {
   if (start < 0) return { why: `There is no open ${surface} to start on: the things found cover it.`, advice: roomier };
   if (cut.length) {
     const alone = rest.length === 1 ? `, and ${the(rest[0])} alone cannot be both the exit and a thing to collect` : '';
-    return { why: `The explorer cannot walk to ${nameList(cut.map(the))} on the ${surface}${alone}.`, advice: roomier };
+    const walls = cut.every((k) => walledOff(rt, k, comp)) ? ': walls with no doorway stand in the way' : '';
+    return { why: `The explorer cannot walk to ${nameList(cut.map(the))} on the ${surface}${walls}${alone}.`, advice: roomier };
   }
   return { why: `${proof.why}.`, advice: 'Try a sample room or another photo.' };
 }
@@ -578,9 +609,10 @@ export function buildLevel(input) {
   if (exitK !== undefined && !ringReachable(rt, exitK, start >= 0 ? rt.nav.comp[start] : 0)) {
     const k = exitCandidate(level, rt, start);
     if (k >= 0) {
+      const walled = walledOff(rt, exitK, start >= 0 ? rt.nav.comp[start] : 0);
       level.objects[exitK].role = 'solid';
       takeRole(k, 'exit');
-      say(`The ${objectWords(level, k)} became the exit`, `The ${objectWords(level, exitK)} cannot be reached`);
+      say(`The ${objectWords(level, k)} became the exit`, `The ${objectWords(level, exitK)} ${walled ? 'is behind walls with no doorway' : 'cannot be reached'}`);
       start = chooseStart(level, rt);
     }
   }
@@ -590,7 +622,7 @@ export function buildLevel(input) {
   for (const k of roleIndexes(level, 'collect')) {
     if (!ringReachable(rt, k, comp())) {
       level.objects[k].role = 'solid';
-      say(`The ${objectWords(level, k)} is solid`, 'Out of reach');
+      say(`The ${objectWords(level, k)} is solid`, walledOff(rt, k, comp()) ? 'Out of reach: behind walls with no doorway' : 'Out of reach');
     }
   }
   start = chooseStart(level, rt);

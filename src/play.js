@@ -3,7 +3,7 @@
 // Pure logic: the same inputs always give the same run.
 import { sampleField, fieldGradient } from './distance.js';
 import { findPath, gridDistances, cellOf, cellCenter, nearestPass } from './nav.js';
-import { footDistance, objectWords } from './level.js';
+import { footDistance, objectWords, walledOff, bareNav } from './level.js';
 import { pointInShape } from './geom.js';
 
 export const HZ = 60;
@@ -97,10 +97,16 @@ function blockerAt(level, rt, pos) {
   return bd <= rt.p.radius + 3 ? best : -1;
 }
 
-export function blockedWords(level, k, surfaceName) {
-  if (k < 0) return `Blocked by the edge of the ${surfaceName || 'floor'}`;
+// A bump with no thing near is the floor's edge; where the floor fences the
+// play area (a floor drawn or traced, rooms seen from above), a wall.
+export function blockedWords(level, k, surfaceName, wall = false) {
+  if (k < 0) return wall ? 'Blocked by a wall' : `Blocked by the edge of the ${surfaceName || 'floor'}`;
   return `Blocked by the ${objectWords(level, k)}`;
 }
+
+const fenced = (rt) => !!rt.floor;
+// Seen from above, the floor's edge is a wall between rooms.
+const wallsAround = (level, rt) => fenced(rt) && level.view === 'top_down';
 
 function checkTouches(state, level, rt, events) {
   const [x, y] = state.pos;
@@ -198,7 +204,7 @@ export function stepRound(state, level, rt, input = {}) {
     const key = `b${k}`;
     if (state.contact !== key) {
       state.contact = key;
-      events.push({ type: 'bump', k });
+      events.push(k < 0 && wallsAround(level, rt) ? { type: 'bump', k, wall: true } : { type: 'bump', k });
     }
   } else if (state.contact && field(rt, state.pos[0], state.pos[1]) > rt.p.radius + 2) {
     state.contact = null;
@@ -246,7 +252,10 @@ export function walkToObject(state, level, rt, k) {
   const d = gridDistances(rt.nav, [[s, 0]]);
   let best = -1, bd = Infinity;
   for (const c of ring) if (d[c] < bd) { bd = d[c]; best = c; }
-  if (best < 0) return { ok: false, reason: `Can't reach the ${objectWords(level, k)}` };
+  if (best < 0) {
+    if (walledOff(rt, k, rt.nav.comp[s])) return { ok: false, reason: `No doorway leads to the ${objectWords(level, k)}` };
+    return { ok: false, reason: `Can't reach the ${objectWords(level, k)}` };
+  }
   const res = findPath(rt.nav, state.pos[0], state.pos[1], ...cellCenter(rt.nav, best));
   if (!res) return { ok: false, reason: `Can't reach the ${objectWords(level, k)}` };
   state.auto = { points: res.points.slice(1), i: 0, k, length: res.length };
@@ -261,11 +270,38 @@ export function walkToPoint(state, level, rt, x, y) {
   if (k >= 0 && level.objects[k].role !== 'flat') return walkToObject(state, level, rt, k);
   const h = inHazardHalo(level, rt, x, y);
   if (h >= 0) return { ok: false, reason: `Too close to the ${objectWords(level, h)}` };
+  // a point on the floor of a room no doorway leads to is not walked
+  // toward (the nearest point this side of the wall is no answer)
+  if (fenced(rt) && behindWalls(rt, state.pos, x, y)) return { ok: false, reason: 'No doorway leads there' };
   const res = findPath(rt.nav, state.pos[0], state.pos[1], x, y);
   if (!res) return { ok: false, reason: 'There is no way there' };
   state.auto = { points: res.points.slice(1), i: 0, k: -1, length: res.length };
   if (!state.auto.points.length) state.auto = null;
   return { ok: true, path: res.points, k: -1, snapped: res.snapped };
+}
+
+// Whether a point lies on floor that walls with no doorway keep the
+// explorer from: the free cell nearest the point (within the explorer's
+// reach of it, so a tap on a wall is still walked toward) cannot be reached
+// even on the bare floor.
+function behindWalls(rt, pos, x, y) {
+  const nav = rt.nav;
+  const xi = Math.floor(x), yi = Math.floor(y);
+  if (xi < 0 || yi < 0 || xi >= rt.W || yi >= rt.H || !rt.floor[yi * rt.W + xi]) return false;
+  let s = cellOf(nav, pos[0], pos[1]);
+  if (!nav.pass[s]) s = nearestPass(nav, pos[0], pos[1]);
+  if (s < 0) return false;
+  let g = cellOf(nav, x, y);
+  if (!nav.pass[g]) {
+    g = nearestPass(nav, x, y);
+    if (g < 0) return false;
+    const [gx, gy] = cellCenter(nav, g);
+    if (Math.hypot(gx - x, gy - y) > 2 * nav.planRadius + nav.cell) return false;
+  }
+  if (nav.comp[g] === nav.comp[s]) return false;
+  // things standing in the way are not walls: the nearest point is walked to
+  const bare = bareNav(rt);
+  return !!bare.comp[g] && !!bare.comp[s] && bare.comp[g] !== bare.comp[s];
 }
 
 // The next goal: the first uncollected collectible in the proof's order,
