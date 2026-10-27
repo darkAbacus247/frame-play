@@ -575,6 +575,9 @@ function describeSection(section, level, rt, state, button) {
   shown(true);
 }
 
+const NO_LEVEL = 'No level from this picture';
+const withoutHeading = (words) => String(words).replace(new RegExp(`^${NO_LEVEL}:\\s*`), '');
+
 async function screenFound(main, slot, token) {
   const ref = A.road.rooms[slot];
   // marks not made into a room yet, or opened again: the marking board
@@ -585,7 +588,8 @@ async function screenFound(main, slot, token) {
   if (token !== A.renderToken) return;
   if (!entry) return missingRoom(main, slot, token);
   if (entry.built.error) {
-    main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: 'No level from this picture' }), el('p', { text: entry.built.error })]));
+    // the heading says it once: the words under it start with the reason
+    main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: NO_LEVEL }), el('p', { text: withoutHeading(entry.built.error) })]));
     return;
   }
   const { level, rt } = entry.built;

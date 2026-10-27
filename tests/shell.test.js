@@ -248,6 +248,22 @@ test('a reply stream cut mid-way shows the page’s own sentence, never the brow
   }
 });
 
+test('No level from this picture says its heading once: the words under it start with the reason', () => {
+  const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  assert.match(app, /el\('h1', \{ text: NO_LEVEL \}\), el\('p', \{ text: withoutHeading\(entry\.built\.error\) \}\)/);
+  const heading = /const NO_LEVEL = '([^']+)';/.exec(app)[1];
+  assert.equal(heading, 'No level from this picture');
+  // the page's own strip, run on the level builder's real words for a room
+  // with nothing in it
+  const body = /const withoutHeading = \(words\) => (.+);\n/.exec(app)[1];
+  const withoutHeading = new Function('NO_LEVEL', `return (words) => ${body};`)(heading);
+  const built = buildLevel({ picture: { kind: 'photo', sha256: 'ab'.repeat(32), width: 1024, height: 768 }, title: 'x', surface: null, objects: [] });
+  assert.ok(built.error && built.error.startsWith(`${heading}: `), built.error);
+  const shown = withoutHeading(built.error);
+  assert.ok(!shown.includes(heading) && shown.length > 10, shown);
+  assert.equal(withoutHeading('SAM 3.1 found none of the things Muse Spark named.'), 'SAM 3.1 found none of the things Muse Spark named.', 'other words are left as they are');
+});
+
 test('the page shell: in-flow grid, no inline styles or scripts, labels in place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));
