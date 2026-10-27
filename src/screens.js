@@ -23,7 +23,9 @@ export function more(summary, kids, cls = '') {
 
 export function photoInput(onFile, camera = false) {
   const input = el('input', {
-    type: 'file', accept: 'image/jpeg,image/png,image/webp', capture: camera ? 'environment' : null,
+    // any picture: the browser's decoder decides (src/photo.js), so a
+    // desktop file dialog does not grey out a phone's HEIC photos
+    type: 'file', accept: 'image/*', capture: camera ? 'environment' : null,
     class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true',
   });
   input.addEventListener('change', () => {

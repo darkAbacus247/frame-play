@@ -1,8 +1,10 @@
 // The photo path on the device: decode the picked file, shrink it to at most
 // 1024 px on its long side, re-encode it as JPEG at quality 0.9 (so camera,
 // place and time data never leave the device), take the sha256 of the
-// file's own bytes, and send the copy with progress lines. Touches the page.
-import { shrinkSize, photoRefusal } from './reply.js';
+// file's own bytes, and send the copy with progress lines (waiting out a
+// busy server, stopped after 120 s or by the page's Cancel). The browser's
+// decoder decides what a photo is, never the file's label. Touches the page.
+import { shrinkSize, photoRefusal, undecodableWords } from './reply.js';
 
 export async function sha256Hex(bytes) {
   const subtle = globalThis.crypto && globalThis.crypto.subtle;
@@ -46,20 +48,53 @@ export function pixelsOf(canvas) {
   return canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
 }
 
+// The browser's decoder decides what a photo is, whatever its label says.
+// First createImageBitmap; when that fails (a full-size decode of a big
+// phone photo can), an Image, which phone browsers decode more frugally.
+// When both fail, the words come from the file's first bytes: HEIC this
+// browser cannot open, a photo too large for this device, or not a picture.
+// Gives { source, width, height, done() }; done() frees it.
+export async function decodePhoto(file, head = null) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    return { source: bmp, width: bmp.width, height: bmp.height, done: () => { if (bmp.close) bmp.close(); } };
+  } catch { /* try an Image */ }
+  try {
+    return await decodeWithImage(file);
+  } catch { /* neither could */ }
+  const first = head || new Uint8Array(await file.slice(0, 64).arrayBuffer());
+  throw new Error(undecodableWords(first, file.type));
+}
+
+// The picture element only ever gets a blob: URL of the picked file itself,
+// made here: it loads nothing from the network and sends nothing.
+async function decodeWithImage(file) {
+  if (typeof document === 'undefined' || !globalThis.URL || !URL.createObjectURL) throw new Error('no picture element here');
+  const url = URL.createObjectURL(file);
+  const done = () => URL.revokeObjectURL(url);
+  try {
+    const img = document.createElement('img');
+    img.decoding = 'async';
+    const loaded = img.decode ? null : new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+    img.src = url;
+    await (loaded || img.decode());
+    if (!img.naturalWidth || !img.naturalHeight) throw new Error('empty picture');
+    return { source: img, width: img.naturalWidth, height: img.naturalHeight, done };
+  } catch (e) {
+    done();
+    throw e;
+  }
+}
+
 // Read a picked file: { sha256, blob, picture (canvas), width, height }.
 export async function readPhoto(file) {
   const why = photoRefusal(file);
   if (why) throw new Error(why);
   const bytes = await file.arrayBuffer();
   const sha256 = await sha256Hex(bytes);
-  let bmp;
-  try {
-    bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    throw new Error('This photo could not be opened. Please try a JPEG, PNG or WEBP photo.');
-  }
-  const copy = copyCanvas(bmp, bmp.width, bmp.height);
-  if (bmp.close) bmp.close();
+  const pic = await decodePhoto(file, new Uint8Array(bytes, 0, Math.min(64, bytes.byteLength)));
+  const copy = copyCanvas(pic.source, pic.width, pic.height);
+  pic.done();
   const blob = await canvasJpeg(copy);
   const picture = await decodeToCanvas(blob, copy.width, copy.height);
   return { sha256, blob, picture, width: copy.width, height: copy.height };
@@ -70,14 +105,9 @@ export async function readPhoto(file) {
 export async function previewPhoto(file) {
   const why = photoRefusal(file);
   if (why) throw new Error(why);
-  let bmp;
-  try {
-    bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    throw new Error('This photo could not be opened. Please try a JPEG, PNG or WEBP photo.');
-  }
-  const picture = copyCanvas(bmp, bmp.width, bmp.height);
-  if (bmp.close) bmp.close();
+  const pic = await decodePhoto(file);
+  const picture = copyCanvas(pic.source, pic.width, pic.height);
+  pic.done();
   return { picture, width: picture.width, height: picture.height };
 }
 
@@ -101,14 +131,49 @@ export function retryAfterSeconds(value, now = Date.now()) {
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A send is stopped after 120 s in all (waits included), or at once when
+// the page's own signal aborts (its Cancel button). Either way the request
+// itself is aborted, and the send rejects with an Error whose `code` says
+// which: 'too_long' or 'canceled'.
+export const READ_LIMIT_MS = 120000;
+export const TOO_LONG_WORDS = 'The read took too long and was stopped. Please try again.';
+export const CANCELED_WORDS = 'The read was canceled, so nothing was made from this photo.';
+function stopped(code) {
+  const e = new Error(code === 'canceled' ? CANCELED_WORDS : TOO_LONG_WORDS);
+  e.code = code;
+  return e;
+}
+
 // Send the copy. Progress lines arrive first, then the reply. Throws an
 // Error in words for a refusal the server sends as its own status.
-// opts.sleep(ms) stands in for the timer in tests.
+// opts.signal: an AbortSignal for the page's Cancel; opts.timeoutMs: the
+// limit (120 s); opts.sleep(ms) stands in for the timer in tests.
 export async function sendPhoto(blob, onProgress, url = 'api/room', opts = {}) {
-  const sleep = opts.sleep || pause;
+  const outer = opts.signal || null;
+  if (outer && outer.aborted) throw stopped('canceled');
+  const ctl = new AbortController();
+  let why = null;
+  let fail;
+  const failed = new Promise((_, reject) => { fail = reject; });
+  const stop = (code) => { if (why) return; why = code; ctl.abort(); fail(stopped(code)); };
+  const onCancel = () => stop('canceled');
+  if (outer) outer.addEventListener('abort', onCancel, { once: true });
+  const timer = setTimeout(() => stop('too_long'), opts.timeoutMs ?? READ_LIMIT_MS);
+  const run = readThrough(blob, onProgress, url, opts.sleep || pause, ctl.signal);
+  run.catch(() => {}); // once stopped, what the read throws later is not news
+  try {
+    return await Promise.race([run, failed]);
+  } finally {
+    clearTimeout(timer);
+    if (outer) outer.removeEventListener('abort', onCancel);
+  }
+}
+
+async function readThrough(blob, onProgress, url, sleep, signal) {
   let waited = 0;
   let res;
   for (let send = 1; ; send++) {
+    if (signal.aborted) return null;
     try {
       res = await fetch(url, {
         method: 'POST',
@@ -116,6 +181,7 @@ export async function sendPhoto(blob, onProgress, url = 'api/room', opts = {}) {
         body: blob,
         credentials: 'same-origin',
         cache: 'no-store',
+        signal,
       });
     } catch {
       throw new Error('The server could not be reached. Please check the connection and try again.');
@@ -138,6 +204,7 @@ export async function sendPhoto(blob, onProgress, url = 'api/room', opts = {}) {
     for (; s > 0; s--) {
       if (onProgress) onProgress({ type: 'progress', stage: 'waiting', words: `${WAITING_WORDS}: trying again in ${s} s`, seconds: s });
       await sleep(1000);
+      if (signal.aborted) return null;
     }
   }
   // The progress lines are read as they come from a copy of the body, while

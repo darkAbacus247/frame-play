@@ -7,13 +7,48 @@ export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 export const MAX_PHOTO_BYTES = 40 * 1024 * 1024;
 export const MAX_SIDE = 1024;
 
-// Why a picked file cannot be used, in words, or null.
+// Why a picked file cannot be used, in words, or null. The browser's own
+// decoder decides what a photo is: HEIC, HEIF, AVIF and files whose type is
+// empty or generic (some cloud pickers) are tried. Only a label that says
+// the file is plainly not a still photo is refused here (a video, a text,
+// an animated GIF, an SVG drawing).
 export function photoRefusal(file) {
   if (!file) return 'No photo was picked.';
-  if (!PHOTO_TYPES.includes(file.type)) return 'Please pick a JPEG, PNG or WEBP photo.';
+  const type = String(file.type || '').toLowerCase();
+  const generic = !type || type === 'application/octet-stream';
+  if (!generic && (!type.startsWith('image/') || type === 'image/gif' || type.startsWith('image/svg'))) return 'Please pick a JPEG, PNG or WEBP photo.';
   if (file.size > MAX_PHOTO_BYTES) return 'That photo is larger than 40 MB. Please pick a smaller one.';
   if (file.size < 64) return 'That file is too small to be a photo.';
   return null;
+}
+
+// Words for a file this browser could not decode, from its first bytes
+// (and its label): HEIC gets its own way forward; a real JPEG, PNG or WEBP
+// that would not open is too large for this device; anything else is not
+// a picture here.
+export const HEIC_WORDS = 'This browser cannot open HEIC photos. Take a screenshot of the photo and pick that, or set the camera to save ‘Most Compatible’ (JPEG), or open the page on your phone.';
+export const TOO_LARGE_WORDS = 'This photo is too large for this device to open. Please pick a smaller copy or a screenshot of it.';
+export const NOT_PICTURE_WORDS = 'This file could not be opened as a picture here. Please pick a JPEG or PNG photo.';
+const HEIC_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'];
+const ascii = (b, from, to) => String.fromCharCode(...Array.from(b.subarray(from, to)));
+export function photoKind(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+  if (b.length >= 8 && b[0] === 0x89 && ascii(b, 1, 4) === 'PNG') return 'png';
+  if (b.length >= 12 && ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WEBP') return 'webp';
+  if (b.length >= 12 && ascii(b, 4, 8) === 'ftyp') {
+    const brand = ascii(b, 8, 12);
+    if (HEIC_BRANDS.includes(brand)) return 'heic';
+    if (brand === 'avif' || brand === 'avis') return 'avif';
+  }
+  return null;
+}
+export function undecodableWords(firstBytes, type = '') {
+  const kind = photoKind(firstBytes);
+  const t = String(type || '').toLowerCase();
+  if (kind === 'heic' || (!kind && /^image\/hei[cf]/.test(t))) return HEIC_WORDS;
+  if (kind === 'jpeg' || kind === 'png' || kind === 'webp' || (!kind && PHOTO_TYPES.includes(t))) return TOO_LARGE_WORDS;
+  return NOT_PICTURE_WORDS;
 }
 
 // The size of the copy that is sent: at most 1024 px on the long side.

@@ -2,7 +2,114 @@
 // Image and the canvas stubbed: no browser, no server, no network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sendPhoto, retryAfterSeconds, WAITING_WORDS, BUSY_WAIT_MS } from '../src/photo.js';
+import { sendPhoto, retryAfterSeconds, WAITING_WORDS, BUSY_WAIT_MS, readPhoto, previewPhoto, READ_LIMIT_MS, TOO_LONG_WORDS, CANCELED_WORDS } from '../src/photo.js';
+import { photoRefusal, undecodableWords, photoKind, HEIC_WORDS, TOO_LARGE_WORDS, NOT_PICTURE_WORDS } from '../src/reply.js';
+import { photoInput } from '../src/screens.js';
+import { installFakeDocument } from './fakedom.js';
+
+// ---- a picture stand-in: anything with width, height and pixel(x, y) ----
+const RED = [255, 0, 0, 255], BLUE = [0, 0, 255, 255], GREEN = [0, 255, 0, 255];
+const picture = (width, height, pixel) => ({ width, height, pixel });
+
+// A canvas that really draws: transform() and drawImage() with nearest
+// sampling, so where each pixel lands can be checked. toBlob gives a small
+// JPEG-shaped file (with a camera segment a careless encoder might leave)
+// whose scan holds an id the stubbed decoder looks up.
+const ENCODED = new Map();
+class FakeCanvas {
+  constructor() { this.width = 0; this.height = 0; this.px = null; this.m = [1, 0, 0, 1, 0, 0]; }
+  pixel(x, y) { const i = (y * this.width + x) * 4; return this.px ? Array.from(this.px.subarray(i, i + 4)) : [0, 0, 0, 0]; }
+  getContext() {
+    const c = this;
+    return {
+      set imageSmoothingEnabled(v) {}, set imageSmoothingQuality(v) {},
+      setTransform(a, b, cc, d, e, f) { c.m = [a, b, cc, d, e, f]; },
+      transform(a, b, cc, d, e, f) {
+        const [A, B, C, D, E, F] = c.m;
+        c.m = [A * a + C * b, B * a + D * b, A * cc + C * d, B * cc + D * d, A * e + C * f + E, B * e + D * f + F];
+      },
+      drawImage(src, dx, dy, dw = src.width, dh = src.height) {
+        if (!c.px) c.px = new Uint8ClampedArray(c.width * c.height * 4);
+        const [a, b, cc, d, e, f] = c.m;
+        const det = a * d - b * cc;
+        for (let Y = 0; Y < c.height; Y++) {
+          for (let X = 0; X < c.width; X++) {
+            const x = X + 0.5 - e, y = Y + 0.5 - f;
+            const u = (d * x - cc * y) / det, v = (-b * x + a * y) / det;
+            if (u < dx || v < dy || u >= dx + dw || v >= dy + dh) continue;
+            const p = src.pixel(Math.floor(((u - dx) * src.width) / dw), Math.floor(((v - dy) * src.height) / dh));
+            c.px.set(p, (Y * c.width + X) * 4);
+          }
+        }
+      },
+      getImageData() { return { width: c.width, height: c.height, data: c.px }; },
+    };
+  }
+  toBlob(cb, type) {
+    const id = ENCODED.size + 1;
+    ENCODED.set(id, picture(this.width, this.height, (x, y) => this.pixel(x, y)));
+    cb(new Blob([jpegBytes({ width: this.width, height: this.height, orientation: 1, camera: true, id })], { type }));
+  }
+}
+
+// ---- JPEG bytes by hand: SOI, JFIF, (EXIF with orientation and a GPS
+// block, XMP, a comment), the frame header, a scan holding an id, EOI ----
+const seg = (marker, body) => [0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 255, ...body];
+const text = (s) => Array.from(s, (ch) => ch.charCodeAt(0));
+function exif(orientation) {
+  // big-endian TIFF: IFD0 with the orientation and a GPS IFD pointer
+  const tiff = [...text('MM'), 0, 42, 0, 0, 0, 8, 0, 2,
+    0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0,
+    0x88, 0x25, 0, 4, 0, 0, 0, 1, 0, 0, 0, 38, 0, 0, 0, 0,
+    ...text('GPS 51.5007N 0.1246W; Camera: PhoneCam 12; 2026:10:27 09:41')];
+  return seg(0xe1, [...text('Exif'), 0, 0, ...tiff]);
+}
+function jpegBytes({ width, height, orientation = 1, camera = false, id = 0 }) {
+  return new Uint8Array([0xff, 0xd8,
+    ...seg(0xe0, [...text('JFIF'), 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]),
+    ...(camera ? [...exif(orientation), ...seg(0xe1, text('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>GPS</x:xmpmeta>')), ...seg(0xfe, text('shot on PhoneCam'))] : []),
+    ...seg(0xc0, [8, height >> 8, height & 255, width >> 8, width & 255, 1, 1, 0x11, 0]),
+    ...seg(0xda, [1, 1, 0, 0, 63, 0]), id >> 8, id & 255, 0xff, 0xd9]);
+}
+function scanId(bytes) {
+  for (let i = 2; i < bytes.length - 1; i++) if (bytes[i] === 0xff && bytes[i + 1] === 0xda) { const at = i + 2 + ((bytes[i + 2] << 8) | bytes[i + 3]); return (bytes[at] << 8) | bytes[at + 1]; }
+  return 0;
+}
+
+// the page's globals for one test: document, createImageBitmap, Image, URL
+async function withPage({ bitmap, image }, f) {
+  const saved = { cib: globalThis.createImageBitmap, mk: URL.createObjectURL, rv: URL.revokeObjectURL, doc: globalThis.document };
+  const urls = new Map();
+  const revoked = [];
+  const doc = installFakeDocument();
+  const make = doc.createElement.bind(doc);
+  const sources = [];
+  class FakeImg {
+    set src(u) { sources.push(u); this.file = urls.get(u); }
+    async decode() { const p = await image(this.file); this.naturalWidth = p.width; this.naturalHeight = p.height; this.width = p.width; this.height = p.height; this.pixel = p.pixel; }
+  }
+  doc.createElement = (tag) => (tag === 'canvas' ? new FakeCanvas() : tag === 'img' ? new FakeImg() : make(tag));
+  globalThis.createImageBitmap = async (src, opts) => {
+    if (src instanceof Blob && !(src instanceof File)) {
+      const pic = ENCODED.get(scanId(new Uint8Array(await src.arrayBuffer())));
+      if (pic) return { ...pic, close() {} };
+    }
+    return bitmap(src, opts);
+  };
+  URL.createObjectURL = (b) => { const u = `blob:test/${urls.size + 1}`; urls.set(u, b); return u; };
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  try {
+    return await f({ revoked, sources, urls });
+  } finally {
+    globalThis.createImageBitmap = saved.cib;
+    URL.createObjectURL = saved.mk;
+    URL.revokeObjectURL = saved.rv;
+    globalThis.document = saved.doc;
+  }
+}
+const cannot = async () => { throw new Error('cannot decode'); };
+const fileOf = (bytes, type, name = 'photo') => new File([bytes], name, { type });
+const padded = (bytes, size) => { const b = new Uint8Array(size); b.set(bytes); return b; };
 
 const ndjson = (lines) => new Response(lines.map((l) => `${JSON.stringify(l)}\n`).join(''), { headers: { 'Content-Type': 'application/x-ndjson' } });
 const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
@@ -103,4 +210,133 @@ test('D1: Retry-After read as seconds or as a date', () => {
   const now = Date.parse('2026-10-27T10:00:00Z');
   assert.equal(retryAfterSeconds('Tue, 27 Oct 2026 10:00:07 GMT', now), 7);
   assert.equal(retryAfterSeconds('Tue, 27 Oct 2026 09:00:00 GMT', now), 0);
+});
+
+// ---- D3: the decoder decides; HEIC and too-large words; a 120 s limit and Cancel ----
+
+test('D3: the label does not decide: HEIC, empty and generic types are tried; plain non-photos are refused', () => {
+  for (const type of ['', 'application/octet-stream', 'image/heic', 'image/heif', 'image/avif', 'image/jpeg', 'image/png', 'image/webp', 'IMAGE/JPEG']) {
+    assert.equal(photoRefusal({ type, size: 2e6 }), null, `"${type}" is tried`);
+  }
+  for (const type of ['video/quicktime', 'text/plain', 'application/pdf', 'image/gif', 'image/svg+xml']) {
+    assert.match(photoRefusal({ type, size: 2e6 }), /JPEG, PNG or WEBP/, type);
+  }
+  assert.match(photoRefusal({ type: '', size: 41 * 1024 * 1024 }), /40 MB/, 'the size still counts');
+  assert.match(photoRefusal({ type: 'image/heic', size: 10 }), /too small/);
+});
+
+test('D3: the picker offers any picture, so desktop dialogs show HEIC files', () => {
+  installFakeDocument();
+  const input = photoInput(() => {});
+  assert.equal(input.getAttribute('accept'), 'image/*');
+});
+
+test('D3: words for a file that would not open come from its first bytes', () => {
+  const ftyp = (brand) => new Uint8Array([0, 0, 0, 24, ...text('ftyp'), ...text(brand), 0, 0, 0, 0]);
+  for (const brand of ['heic', 'heix', 'hevc', 'mif1']) {
+    assert.equal(photoKind(ftyp(brand)), 'heic');
+    assert.equal(undecodableWords(ftyp(brand), ''), HEIC_WORDS, brand);
+  }
+  assert.equal(photoKind(ftyp('avif')), 'avif');
+  assert.equal(undecodableWords(ftyp('avif'), 'image/avif'), NOT_PICTURE_WORDS);
+  assert.equal(undecodableWords(jpegBytes({ width: 9, height: 9 }), ''), TOO_LARGE_WORDS, 'a real JPEG with no label');
+  assert.equal(undecodableWords(new Uint8Array([0x89, ...text('PNG'), 13, 10, 26, 10]), 'application/octet-stream'), TOO_LARGE_WORDS);
+  assert.equal(undecodableWords(new Uint8Array([...text('RIFF'), 0, 0, 0, 0, ...text('WEBP')]), ''), TOO_LARGE_WORDS);
+  assert.equal(undecodableWords(new Uint8Array(16), 'image/jpeg'), TOO_LARGE_WORDS, 'labelled JPEG, bytes unknown');
+  assert.equal(undecodableWords(new Uint8Array(16), 'image/heic'), HEIC_WORDS);
+  assert.equal(undecodableWords(new Uint8Array(text('hello there, this is text')), ''), NOT_PICTURE_WORDS);
+  assert.match(HEIC_WORDS, /screenshot/);
+  assert.match(TOO_LARGE_WORDS, /too large for this device/);
+});
+
+test('D3: a photo createImageBitmap refuses is opened through an Image, shrunk to 1024 px', async () => {
+  const big = picture(4032, 3024, () => RED);
+  await withPage({ bitmap: cannot, image: async () => big }, async ({ revoked, sources, urls }) => {
+    const file = fileOf(padded(jpegBytes({ width: 4032, height: 3024 }), 4096), 'image/jpeg');
+    const p = await readPhoto(file);
+    assert.equal(p.width, 1024);
+    assert.equal(p.height, 768);
+    assert.match(p.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(revoked.length, 1, 'the object URL is let go');
+    assert.deepEqual(sources, revoked, 'the picture element only ever loads the blob: URL of the picked file');
+    assert.ok(sources.every((u) => u.startsWith('blob:') && urls.get(u) === file));
+    const v = await previewPhoto(file);
+    assert.deepEqual([v.width, v.height], [1024, 768]);
+  });
+});
+
+test('D3: an empty label is no bar: the decoder opens it', async () => {
+  await withPage({ bitmap: async () => picture(800, 600, () => BLUE), image: cannot }, async () => {
+    const p = await readPhoto(fileOf(padded(jpegBytes({ width: 800, height: 600 }), 4096), ''));
+    assert.deepEqual([p.width, p.height], [800, 600]);
+  });
+});
+
+test('D3: when nothing here can decode it: HEIC words for a HEIC, too-large words for a JPEG', async () => {
+  await withPage({ bitmap: cannot, image: cannot }, async ({ revoked }) => {
+    const heic = fileOf(padded(new Uint8Array([0, 0, 0, 24, ...text('ftypheic')]), 4096), 'image/heic', 'IMG_0001.HEIC');
+    await assert.rejects(readPhoto(heic), { message: HEIC_WORDS });
+    await assert.rejects(previewPhoto(heic), { message: HEIC_WORDS });
+    const jpeg = fileOf(padded(jpegBytes({ width: 8000, height: 6000 }), 4096), 'image/jpeg');
+    await assert.rejects(readPhoto(jpeg), { message: TOO_LARGE_WORDS });
+    await assert.rejects(previewPhoto(fileOf(padded(new Uint8Array(text('just some text, really')), 4096), '')), { message: NOT_PICTURE_WORDS });
+    assert.equal(revoked.length, 4, 'every object URL is let go, even when the Image fails');
+  });
+});
+
+test('D3: a read that never answers is stopped at the limit, in the page’s words', async () => {
+  assert.equal(READ_LIMIT_MS, 120000);
+  await withFetch([() => new Promise(() => {})], async (calls) => {
+    const t0 = Date.now();
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { timeoutMs: 30 }), (e) => e.message === TOO_LONG_WORDS && e.code === 'too_long');
+    assert.ok(Date.now() - t0 < 2000);
+    assert.equal(calls[0].init.signal.aborted, true, 'the request itself is aborted');
+  });
+});
+
+test('D3: Cancel stops a read at once, before, during the request, while waiting, or mid-stream', async () => {
+  const canceled = (e) => e.message === CANCELED_WORDS && e.code === 'canceled';
+  // already canceled: nothing is sent
+  await withFetch([OK()], async (calls) => {
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { signal: AbortSignal.abort() }), canceled);
+    assert.equal(calls.length, 0);
+  });
+  // during the request
+  await withFetch([() => new Promise(() => {})], async (calls) => {
+    const ctl = new AbortController();
+    const p = sendPhoto(new Blob(['x']), () => {}, 'u', { signal: ctl.signal });
+    await new Promise((r) => setTimeout(r, 5));
+    ctl.abort();
+    await assert.rejects(p, canceled);
+    assert.equal(calls[0].init.signal.aborted, true);
+  });
+  // while waiting for a free reader: no second send
+  await withFetch([busy(5), OK()], async (calls) => {
+    const ctl = new AbortController();
+    let ticks = 0;
+    const sleep = async () => { if (++ticks === 2) ctl.abort(); };
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { signal: ctl.signal, sleep }), canceled);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(calls.length, 1);
+  });
+  // mid-stream: the progress came, the reply never does
+  const stalled = (init) => new Response(new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode('{"type":"progress","words":"Reading your room"}\n'));
+      init.signal.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')));
+    },
+  }), { headers: { 'Content-Type': 'application/x-ndjson' } });
+  await withFetch([stalled], async () => {
+    const ctl = new AbortController();
+    const words = [];
+    const p = sendPhoto(new Blob(['x']), (m) => { words.push(m.words); ctl.abort(); }, 'u', { signal: ctl.signal });
+    await assert.rejects(p, canceled);
+    assert.deepEqual(words, ['Reading your room']);
+  });
+  // a finished read is not touched by a later Cancel, and leaves no timer
+  await withFetch([OK()], async () => {
+    const ctl = new AbortController();
+    assert.deepEqual(await sendPhoto(new Blob(['x']), () => {}, 'u', { signal: ctl.signal }), { ok: 1 });
+    ctl.abort();
+  });
 });
