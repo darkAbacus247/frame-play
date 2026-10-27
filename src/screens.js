@@ -275,6 +275,18 @@ export function leaveButton(slot, onClick) {
   });
 }
 
+// A sure way on from any round on the road: it ends as played, not won, and
+// the road goes on, after a true modal card (Keep playing focused, Escape
+// never closes it). Always a secondary, never a tour target.
+export const END_ROUND = 'End this round';
+export const END_CARD = { title: 'End this round?', line: 'It counts as played, not won.', end: 'End it', stay: 'Keep playing' };
+export function endRoundButton(onClick) {
+  return el('button', {
+    type: 'button', class: 'btn', text: END_ROUND,
+    tip: 'Ends this round as played, not won, so the road goes on', onclick: onClick,
+  });
+}
+
 // actions: { play, describe(desc, button), walls(on), remark (a marked room),
 // leave (back to the room's pick step), or null }; slot: the room's slot
 export function foundView({ level, summary, fromDevice, actions, slot = 0 }) {
@@ -584,7 +596,7 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
     // our kitchen, replayed or read fresh, in any slot
     const ours = !!ref && (ref.kind === 'replay' || (!!summaries[slot] && summaries[slot].ours === true));
     return {
-      slot, heading, ref, playable: !!level,
+      slot, heading, ref, playable: !!level, won: road.best[slot] != null,
       title: ref && ref.kind === 'marked' ? 'marked by you' : ours ? 'our kitchen' : level ? level.title : null,
       result: resultLine(road, slot),
       ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode, room, kept[slot] || null, canReplay),
@@ -653,16 +665,30 @@ export function aiLine(level, summary) {
   return `Muse Spark named ${things(named)} ${photo} and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
+// The closing screen's one line of what was won: the rooms on the road
+// (whether or not their levels are in memory) and how many were won there.
+const COUNT = ['no', 'one', 'two', 'three', 'four'];
+export function wonLine(rooms) {
+  const n = rooms.filter((r) => r.ref).length;
+  const won = rooms.filter((r) => r.ref && r.won).length;
+  if (!n) return 'No rooms were on your road this time.';
+  if (n === 1) return won ? 'You won your one room.' : 'You did not win your one room.';
+  if (won === n) return `You won all ${COUNT[n]} rooms.`;
+  return `You won ${COUNT[won] === 'no' ? 'none' : COUNT[won]} of your ${COUNT[n]} rooms.`;
+}
+
 // actions: { freePlay, playAgain(ref, title), ownRoom, startOver };
 // canReplay: this server can replay our kitchen photo's recorded answer
 export function closingView({ rooms, mode, primaryLabel, actions, canReplay = false }) {
   const sends = mode === 'live' || mode === 'rehearsal';
-  // the rooms on the road, whether or not their levels are in memory
-  const made = rooms.filter((r) => r.ref).length;
-  const count = ['no rooms', 'one room', 'two rooms', 'three rooms', 'four rooms'][made];
   return el('section', { class: 'screen closing' }, [
     el('h1', { text: 'You’ve completed FRAME//PLAY' }),
-    el('p', { class: 'lede', text: `That is the whole road: ${count}, and ${sends ? 'what the AI did in each' : 'how each was made'}.` }),
+    // what was won (the rooms on the road, whether or not their levels are
+    // in memory), then what is below, in one line so four rooms still fit
+    el('p', { class: 'lede' }, [
+      el('strong', { class: 'won-line', text: wonLine(rooms) }),
+      ` Here is ${sends ? 'what the AI did in each' : 'how each was made'}.`,
+    ]),
     el('ul', { class: 'closing-rooms', 'aria-label': 'The rooms you played' }, rooms.map((r) => el('li', {}, [
       el('div', { class: 'closing-text' }, [
         // the room and what happened share a line where they fit, so four

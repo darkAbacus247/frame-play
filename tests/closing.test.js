@@ -186,10 +186,10 @@ test('a room not in memory names its own step, and only what this mode can do', 
   // the opening line counts the rooms on the road, not those in memory
   const photos = { ...endRoad(true), rooms: [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }, apartment, { kind: 'photo', sha256: 'ef'.repeat(32) }] };
   const rows = closingRooms({ road: photos, mode: 'live', levels: [null, null, null, null] });
-  assert.match(texts(closingView({ rooms: rows, mode: 'live', primaryLabel: 'Free play', actions: {} })), /That is the whole road: four rooms, and what the AI did in each\./);
+  assert.match(texts(closingView({ rooms: rows, mode: 'live', primaryLabel: 'Free play', actions: {} })), /You won (all four rooms|\w+ of your four rooms)\.( \|)? +Here is what the AI did in each\./);
   const mock = closingRooms({ road: endRoad(false), mode: 'mock', levels: [...SAMPLES, null] });
   const mockText = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {} }));
-  assert.match(mockText, /That is the whole road: three rooms, and how each was made\./, 'MOCK: no AI did anything');
+  assert.match(mockText, /You won (all three rooms|\w+ of your three rooms)\.( \|)? +Here is how each was made\./, 'MOCK: no AI did anything');
   assert.equal((mockText.match(/no model reads a photo/g) || []).length, 1, 'one sentence on why, and what your own room is in MOCK');
   assert.match(mockText, /your own room is a photo you mark yourself\.$/, 'with no server to replay ours, only marking is offered');
   const withReplay = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {}, canReplay: true }));

@@ -210,9 +210,21 @@ boxes) and the level are kept on this device under the photo's
 fingerprint, taken on the device, never the photo, so after a reload the
 same photo picked again brings the room back in place.
 
+**A sure way to completion.** Every Play step on the road has a plainly
+labelled secondary, **End this round**. It asks first in a true modal card
+("End this round? It counts as played, not won.", with End it and Keep
+playing; Keep playing has the focus and Escape never closes it). Ended, the
+round counts as played, not won (a room won before keeps its best), and the
+road goes on as the end card would. So every path, in every mode, reaches
+the closing screen after the last room, whether your own room was made from
+a photo you chose, from our kitchen, marked by you, or passed by.
+
 The road ends on a closing screen (Step 15, the counter's last step) that
-says the circuit is complete: each of the four rooms (the three sample
-rooms, then your own room: yours, ours, or not made) with whether you won
+says the circuit is complete, and celebrates: the music's sting and confetti
+over the screen, once on each arrival (no confetti with Reduce motion, and
+neither with Effects off), and one line of the rooms won ("You won two of
+your four rooms."). Then each of the four rooms (the three sample
+rooms, or our kitchen where it took one's place, then your own room: yours, ours, or not made) with whether you won
 and your best route, a line on what the AI did in it (for ours replayed,
 the replay's own words), and the ways on: Free play, Play again for any
 room, Try your own room (a photo of yours, or ours), and Start over, which

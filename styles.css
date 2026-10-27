@@ -439,6 +439,10 @@ dialog.card .label { color: var(--muted); }
 .closing-text { flex: 1 1 20rem; min-width: 0; display: grid; gap: var(--s1); }
 .closing-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s3); }
 .closing .result { font-weight: 600; }
+/* the celebration: one line of what was won, and confetti laid over the
+   screen (out of the flow, under no pointer) */
+.closing { position: relative; }
+.won-line { color: var(--text); }
 .closing .ai { color: var(--muted); }
 
 /* ---- settings ---- */

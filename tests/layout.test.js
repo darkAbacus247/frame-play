@@ -123,8 +123,8 @@ const flexible = (t) => /fr\b/.test(t);
 const centred = (d) => /center/.test(`${d['place-items'] || ''} ${d['align-items'] || ''} ${d['align-content'] || ''} ${d['place-content'] || ''}`);
 
 // header and dock as in the zoom cases above; the side column's height as
-// the sample rooms fill it (three chips, the pad, Describe this room,
-// Choose a different room)
+// the sample rooms fill it (three chips, the pad, Describe this room, End
+// this round, Choose a different room)
 const HEADER = 61, DOCK = 61, RULE_H = 24, LABEL_H = 24;
 function layPlay(vw, vh, chrome = HEADER + DOCK) {
   const pad = length('var(--pad)', vw, vh);
@@ -141,7 +141,7 @@ function layPlay(vw, vh, chrome = HEADER + DOCK) {
   const short = vh <= 640;
   const sideW = sideBeside ? length(cascade('.side', vw, vh).width, vw, vh) : playW;
   const padH = short ? 3 * 44 + 2 * 4 : 3 * 56 + 2 * 4;
-  const sideH = sideBeside ? 3 * 44 + 2 * 8 + 16 + padH + 16 + 44 + 16 + 44 : padH + 16 + 44 + 16 + 44;
+  const sideH = sideBeside ? 3 * 44 + 2 * 8 + 16 + padH + 3 * (16 + 44) : padH + 3 * (16 + 44);
   const minH = length(play['--stage-min'] || '12rem', vw, vh);
   const room = boardRoom({ playW, spaceH, ruleH: RULE_H, labelH: LABEL_H, rowGap, colGap, sideW, sideH, sideBeside, minH });
   const board = fitSize(Math.max(80, room.w), Math.max(60, room.h), 1024, 768);
@@ -211,7 +211,7 @@ test('play: the board starts under the status line, level with the side column, 
   assert.ok(wide.fit.cssW >= wide.room.w - 1 || wide.fit.cssH >= wide.room.h - 1);
 });
 
-test('play, with Choose a different room in the side column: nothing scrolls at 839x945 and 1259x1418, 100% zoom', () => {
+test('play, with End this round and Choose a different room in the side column: nothing scrolls at 839x945 and 1259x1418, 100% zoom', () => {
   for (const [vw, vh] of [[839, 945], [1259, 1418]]) {
     const L = layPlay(vw, vh);
     assert.ok(L.sideBeside, `${vw}x${vh}: the side column sits beside the board`);

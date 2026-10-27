@@ -90,9 +90,9 @@ export class Synth {
     if (this.music) this.music.setMode(this.mode);
   }
 
-  // the closing screen's sting, when the music plays
+  // the closing screen's sting, when the music plays and Effects are on
   sting() {
-    return !!(this.on && this.musicOn && this.music && this.music.sting());
+    return !!(this.on && this.musicOn && this.effects && this.music && this.music.sting());
   }
 
   tone(freq, dur, { type = 'sine', gain = 0.2, at = 0, slide = 0, attack = 0.005 } = {}) {

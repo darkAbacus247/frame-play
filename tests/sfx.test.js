@@ -102,6 +102,16 @@ test('the bus brings the shimmer, the click and the sting', () => {
     n = oscs();
     emit('closing');
     assert.equal(oscs(), n, 'no sting with the music off');
+    // Effects off: the closing screen's celebration stays quiet too
+    s.setMusic(true);
+    emit('settings', { music: true, effects: false });
+    n = oscs();
+    emit('closing');
+    assert.equal(oscs(), n, 'no sting with Effects off');
+    emit('settings', { music: true, effects: true });
+    n = oscs();
+    emit('closing');
+    assert.equal(oscs(), n + STING.length, 'and with Effects on again, the sting');
     clearListeners();
   } finally { undo(); }
 });

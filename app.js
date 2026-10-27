@@ -14,15 +14,16 @@ import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tou
 import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
-import { mountFxSettings } from './src/settings_fx.js';
+import { mountFxSettings, effectsOn } from './src/settings_fx.js';
 import { makeMarkedRoom, keptMarkedEntry, sanitizeMarks, needs } from './src/marks.js';
 import { mountMarker } from './src/marker.js';
 import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal, NOT_SAME_WORDS, OURS, replayOurs, REPLAY_WORDS } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
   freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
-  oursCardView, OURS_TITLE,
+  oursCardView, OURS_TITLE, endRoundButton, END_CARD,
 } from './src/screens.js';
+import { Fx } from './src/fx.js';
 
 const $ = (id) => document.getElementById(id);
 const SAMPLES = [
@@ -417,6 +418,7 @@ function stopViews() {
   if (A.view) { A.view.destroy(); A.view = null; }
   for (const r of A.reveals) r.destroy();
   A.reveals = [];
+  if (A.celebration) { A.celebration.destroy(); A.celebration = null; }
 }
 
 function renderHeader() {
@@ -533,6 +535,8 @@ async function render() {
   // a free-play replay lasts only while Free play is on screen: every way
   // off it (←, the browser's Back and Forward, the welcome-back card) ends it
   if (A.road.step !== R.FREE_PLAY) A.free = null;
+  // each arrival on the closing screen celebrates once
+  if (A.road.step !== R.LAST_STEP) A.celebrated = false;
   stopViews();
   hideTip();
   A.missingWhy = null;
@@ -819,13 +823,16 @@ async function screenPlay(main, slot, ref, token) {
     tip: 'Every object, its role, where it is and how far, in words',
     onclick: () => describeSection(desc, level, rt, A.view && A.view.state, describeBtn),
   });
-  // a room on the road (never a replay in Free play) can be left for another
-  const leave = slot >= 0 && A.road.step !== R.FREE_PLAY ? leaveButton(slot, () => leaveRoom(slot)) : null;
+  // a room on the road (never a replay in Free play) can be left for
+  // another, or its round ended as played, not won, so the road goes on
+  const onRoad = slot >= 0 && A.road.step !== R.FREE_PLAY;
+  const leave = onRoad ? leaveButton(slot, () => leaveRoom(slot)) : null;
+  const end = onRoad ? endRoundButton(() => confirmEndRound(slot)) : null;
   A.view = mountPlay(main, {
     level, rt, picture: entry.picture, audio,
     say: (t) => { say(t); progress(); },
     ui: uiFlags,
-    sideExtras: leave ? [describeBtn, leave, desc] : [describeBtn, desc],
+    sideExtras: onRoad ? [describeBtn, end, leave, desc] : [describeBtn, desc],
     // a card (Start over?, welcome back) or the settings drawer holds the round
     paused: () => cardOpen() || A.drawerOpen,
     onEnd: (r) => endOfRound(slot, r, level),
@@ -847,6 +854,28 @@ function leaveRoom(slot) {
     primary: { label: LEAVE_CARD.stay, onClick: () => { if (A.view) A.view.focusGame(); } },
     secondary: [{ label: LEAVE_CARD.leave, onClick: go }],
   });
+}
+
+// End this round: asked first in a true modal card (Keep playing focused,
+// Escape never closes it; the round holds still under it). Ended, it counts
+// as played, not won (a room won before keeps its best), and the road goes
+// on as the end card's primary would.
+function confirmEndRound(slot) {
+  if (A.busy) return;
+  showCard($('card'), {
+    title: END_CARD.title,
+    lines: [END_CARD.line],
+    primary: { label: END_CARD.stay, onClick: () => { if (A.view) A.view.focusGame(); } },
+    secondary: [{ label: END_CARD.end, onClick: () => endRoundNow(slot) }],
+  });
+}
+
+function endRoundNow(slot) {
+  if (R.stepKind(A.road.step) !== 'play' || R.slotOf(A.road.step) !== slot) return;
+  A.road = R.finishRound(A.road, slot, { status: 'lost' });
+  saveRoad();
+  say('Round ended: it counts as played, not won.');
+  setRoad(R.continueAfterRound(A.road));
 }
 
 // A round started and not over: the explorer has moved, collected or set
@@ -953,7 +982,7 @@ async function screenEnd(main, token) {
     levels: entries.map((e) => (e ? e.built.level : null)),
     summaries: entries.map((e) => (e ? e.summary : null)),
   });
-  main.replaceChildren(closingView({
+  const section = closingView({
     rooms, mode: A.mode, primaryLabel: R.primaryLabel(A.road), canReplay: canReplay(),
     actions: {
       freePlay: () => setRoad(R.startFreePlay(A.road)),
@@ -961,7 +990,30 @@ async function screenEnd(main, token) {
       ownRoom: () => setRoad({ ...A.road, step: R.OWN_STEP }),
       startOver: confirmStartOver,
     },
-  }));
+  });
+  main.replaceChildren(section);
+  celebrate(section);
+}
+
+// The closing screen celebrates once on each arrival: the music's sting
+// (the page watcher in src/game.js tells the bus; src/audio.js plays it
+// while the music and Effects are on) and confetti over the screen, none
+// with Effects off or Reduce motion. Drawn the same screen again (a check
+// of the server), it does not celebrate twice.
+function celebrate(section) {
+  if (A.celebrated) return;
+  A.celebrated = true;
+  if (!effectsOn() || reducedMotion()) return;
+  try {
+    const box = section.getBoundingClientRect();
+    const w = Math.max(1, box.width), h = Math.max(1, box.height);
+    const fx = new Fx(section, { width: w, height: h }, { reduced: () => reducedMotion() || !effectsOn() });
+    fx.layer.classList.add('closing-fx');
+    section.append(fx.layer);
+    fx.fit(w, h, globalThis.devicePixelRatio || 1);
+    A.celebration = fx;
+    fx.burst('win');
+  } catch { /* no confetti where it cannot be drawn */ }
 }
 
 // ---- your own room ----
