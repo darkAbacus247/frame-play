@@ -52,8 +52,8 @@ function deps(reply) {
 }
 const quick = () => Promise.resolve();
 
-test('the MOCK words are the plain sentence the owner asked for', () => {
-  assert.equal(MOCK_WORDS, 'Reading a real photo needs the live AI (Meta’s models). This copy is running without it, so your photo stays on your device and nothing is invented.');
+test('the MOCK words say, before a photo is chosen, what will happen to it: kept here, and marked by you', () => {
+  assert.equal(MOCK_WORDS, 'MOCK: no model reads photos in this copy. Your photo stays on this device, and you mark its objects yourself; code traces their outlines. Nothing is sent.');
 });
 
 test('MOCK never builds a level from a real photo: shown on the device, nothing read or sent', async () => {

@@ -47,11 +47,25 @@ export function acceptReply(healthMode, reply, copy) {
   return { ok: true, why: '' };
 }
 
-// A refusal or an error, in words.
+// A refusal or an error, in words, ending as a sentence ends (the server's
+// own words may not), so the words after it read on.
 export function refusalWords(reply) {
   const e = reply && reply.error;
-  if (e && typeof e.message === 'string' && e.message) return e.message;
+  if (keyRefused(reply)) return KEY_WORDS[reply.provenance && reply.provenance.mode] || KEY_WORDS.live;
+  if (e && typeof e.message === 'string' && e.message) return /[.!?]$/.test(e.message) ? e.message : `${e.message}.`;
   return 'The photo could not be read. Please try another one, or play a sample room.';
+}
+
+// The key the server holds was refused (the answer was 401): whose key it
+// is, said plainly. In LIVE it is the operator's key for Meta's Model API,
+// never anything of the player's; in REHEARSAL, the stand-in's drill.
+export const KEY_WORDS = {
+  live: 'Meta’s Model API refused the key that whoever runs this copy set for it (not anything of yours), so Meta’s models cannot read your photo here right now. Nothing was made from it.',
+  rehearsal: 'The local stand-in (not Meta) refused this server’s key, as a rehearsal of a refused key, so nothing read your photo. Nothing was made from it.',
+};
+export function keyRefused(reply) {
+  const e = reply && reply.error;
+  return !!e && e.status === 401;
 }
 
 // A box as one rectangular ring.

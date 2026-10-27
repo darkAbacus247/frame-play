@@ -11,6 +11,7 @@ import { buildLevel, inputFromRoom, LABELS } from '../src/level.js';
 import { inputFromReply, readSummary, REPLY_SCHEMA } from '../src/reply.js';
 import { MOCK_WORDS } from '../src/own.js';
 import { markedReply } from '../src/marks.js';
+import { KEY_WORDS } from '../src/reply.js';
 import { header } from './layoutmodel.js';
 
 const doc = installFakeDocument();
@@ -111,7 +112,7 @@ export function screens(mode) {
     // a refused photo is not shown: only the words (src/screens.js ownResult)
     ownStates.push(['with a photo refused', { kind: 'refused', picture: null, words: 'In REHEARSAL the local stand-in (not Meta) only knows the sample rooms’ own pictures, and this photo is not one of them. Nothing was sent, and no level is made from it. You can mark the room yourself instead, try another photo, or continue to the end.' }, true]);
     ownStates.push(['with the people refusal', { kind: 'refused', picture: null, words: 'This photo seems to show a person. Please use one with no people.' }, false]);
-    ownStates.push(['with a read that failed', { kind: 'refused', words: 'The key this copy’s operator set for Meta’s Model API was refused, so Meta’s models cannot read your photo here. Nothing was made from it. You can mark the room yourself instead, try another photo, or continue to the end.' }, true]);
+    ownStates.push(['with a refused key', { kind: 'refused', words: `${KEY_WORDS[mode]} You can mark the room yourself instead, try another photo, or continue to the end.` }, true]);
   }
   for (const [what, result, markable] of ownStates) {
     const v = V.ownView({

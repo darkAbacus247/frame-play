@@ -20,7 +20,7 @@ import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from
 import { buildLevel } from './level.js';
 import { traceInBox } from './trace_in_box.js';
 
-export const MOCK_WORDS = 'Reading a real photo needs the live AI (Meta’s models). This copy is running without it, so your photo stays on your device and nothing is invented.';
+export const MOCK_WORDS = 'MOCK: no model reads photos in this copy. Your photo stays on this device, and you mark its objects yourself; code traces their outlines. Nothing is sent.';
 
 // A small fingerprint of how a picture looks: its shape, and the mean
 // colour of each cell of a 32 by 24 grid (32 px cells at 1024x768). JPEG

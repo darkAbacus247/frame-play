@@ -24,7 +24,7 @@ RETRY_STATUSES = {429, 500, 502}
 NEVER_RETRY = {400, 401, 402, 403, 404, 413, 504}
 WORDS = {
     400: 'The Model API refused the request as malformed',
-    401: 'The Model API did not accept the key',
+    401: "The Model API did not accept this server's key",
     402: 'The Model API account needs a payment method or credit',
     403: 'The Model API refused access',
     404: 'The Model API does not know this address or model',

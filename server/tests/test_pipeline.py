@@ -319,6 +319,8 @@ class TheKeyNeverLeaks(unittest.TestCase):
             self.assertEqual(status, 200)
             reply = json.loads(body)
             self.assertEqual(reply['error']['code'], 'bad_key')
+            self.assertEqual(reply['error']['status'], 401, 'the page tells a refused key by its status')
+            self.assertEqual(reply['error']['message'], "The Model API did not accept this server's key")
             self.assertEqual(reply['provenance']['models'], ['muse-spark-1.3', 'sam-3.1'])
             for text in (body.decode(), health.decode(), '\n'.join(run_.lines), '\n'.join(lines)):
                 self.assertNotIn(TEST_VALUE, text)

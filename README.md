@@ -15,8 +15,10 @@ Status: work in progress. This repository was created on 2026-10-26 after
 One road with one step counter: Welcome, then two sample rooms (pick, see
 what the AI found, play), the two side by side, then **your own room**: a
 photo from your device, or from the camera where the browser offers one.
-What happens to that photo depends on the server's mode, and the page says
-so plainly:
+What happens to that photo depends on the server's mode, and Step 9 says
+so before you choose one.
+
+### How a photo becomes a room
 
 - **LIVE** (a key and the live switch on the server): the photo is shrunk
   and stripped of its camera data on the device, then goes through this
@@ -24,38 +26,51 @@ so plainly:
   one SAM 3.1 call for the surface and one for each kind of object on it,
   at most 10 calls in all, each carrying the photo (a failed call may be
   sent one more time). This app does not store the photo. The room is
-  built from what the models found in it.
-- **MOCK** (no key): no model reads the photo, so nothing is invented. It is
-  shown on your device only, and you can mark the room yourself (below).
+  built from what the models found in it. If the read fails (the key the
+  operator set is refused, the account has no credit, the read runs out of
+  time, the server cannot be reached), the screen says why in words, and
+  for a refused key it says plainly that it is the operator's key, not
+  anything of yours; then Mark your room is the way on, and nothing more is
+  sent.
+- **MOCK** (no key): no model reads the photo, so nothing is invented. The
+  photo is shown on your device only, and Mark your room, right under it,
+  is the way on: you mark the room yourself. Nothing is sent.
 - **REHEARSAL** (the local stand-in): the stand-in only knows its sample
   room's own picture, which the page offers to save. Any other photo, or a
   copy of that picture edited enough for the page's check to see (an
   object erased or pasted, an object moved by 8 px or more, a crop), is
   refused in words before anything is sent, and no level is made from it.
   An edit of a few pixels (a coin nudged by 4 px, a small mark) can pass,
-  and the stand-in then answers with its sample's own places.
+  and the stand-in then answers with its sample's own places. A refused
+  photo, or a read that fails, can be marked as in MOCK.
 
-A photo that is refused (in any mode) is not shown; the screen says in
-words why no room was made from it.
+The people refusal (a person in the photo) and Muse Spark declining to
+read a photo for its content are the refusals with no marking after them:
+such a photo makes no room in any way. A photo that is
+refused is not shown on Step 9; the screen says in words why no room was
+made from it, and the photo appears again only on the marking board, if
+you choose to mark it.
 
-**Mark it yourself.** Whenever this copy cannot read a chosen photo with
-Meta's models (MOCK; or a LIVE or REHEARSAL read that was refused or failed,
-such as a refused key or a timeout, but never after the people refusal),
-the next button is Mark your room. On Step 10 (named Your marks) you pick
-what a box is (a coin to collect, an obstacle, a hazard or the exit) and
-drag one over each object, with a mouse, pen or finger, or with the
-keyboard alone (a box cursor: arrow keys move it, Shift with an arrow
-resizes it, Enter adds it). A line says what the room still needs to be
-winnable. Make the room then runs the same code a model's reply goes
-through: code first finds the object's own bounds inside each of your
-boxes, then traces its outline there with the same tracer and tightness
-test as SAM's boxes, keeping your box where the trace is not tight; the
-level builder and the proof follow. The reveal, the play label, the closing
-screen and Free play say you marked the objects and code traced the
-outlines, and that no model was called. Nothing is sent: the marks (roles
-and boxes) and the level are kept on this device under the photo's
-fingerprint, never the photo, so after a reload the same photo picked again
-brings the room back in place.
+**Mark it yourself.** On Step 10 (named Your marks) you pick what a box is
+(a coin to collect, an obstacle, a hazard or the exit) and drag one over
+each object, with a mouse, pen or finger, or with the keyboard alone (Tab
+to the photo; a box cursor: the arrow keys move it, Shift with an arrow
+resizes it, Enter adds it, Space selects the box under it, Delete removes
+it, 1 to 4 pick what a box is, Ctrl+Z undoes). A box can be selected,
+changed or removed, and Undo takes back the last change. A line says what
+the room still needs to be winnable (a coin at least, and one exit). Make
+the room then runs the same code a model's reply goes through: the marks
+become the same reply shape, code first finds the object's own bounds
+inside each of your boxes, then traces its outline there with the same
+tracer and tightness test as SAM's boxes, keeping your box where the trace
+is not tight; the level builder and the proof follow. If the marks cannot
+make a room that can be won, the board says why and stays. The reveal, the
+play label, the closing screen ("Your own room: marked by you") and Free
+play say you marked the objects and code traced the outlines, and that no
+model was called. Nothing is sent, in any mode: the marks (roles and
+boxes) and the level are kept on this device under the photo's
+fingerprint, taken on the device, never the photo, so after a reload the
+same photo picked again brings the room back in place.
 
 The road ends on a closing screen (the counter's last step) that says the
 circuit is complete: each room with whether you won and your best route,

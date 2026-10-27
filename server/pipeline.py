@@ -381,7 +381,9 @@ class Pipeline:
             stages['read'] = e.code
             if e.code == 'content_filter':
                 return reply('refused', {'code': 'content_filter', 'message': 'Muse Spark declined to read this photo. Please try another one.'})
-            return reply('error', {'code': e.code, 'message': e.message})
+            # the answer's HTTP status, so the page can tell a refused key
+            # (401) from other errors
+            return reply('error', {'code': e.code, 'message': e.message, **({'status': e.status} if isinstance(e.status, int) else {})})
         cost = spark_cost(tin, tout)
         self.limits.settle(res, cost)
         usage.update(calls=usage['calls'] + 1, spark_calls=1, tokens_in=tin, tokens_out=tout, reasoning_tokens=reasoning)

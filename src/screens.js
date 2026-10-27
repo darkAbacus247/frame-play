@@ -319,7 +319,7 @@ export const OWN_NOTICE = {
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };
-const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo, or a copy edited enough for the check to see, is refused in words, nothing is sent, and no level is made from it; an edit of a few pixels can pass, and the stand-in answers with its sample’s own places.';
+const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo, or a copy edited enough for the check to see, is refused in words, nothing is sent, and no level is made from it; an edit of a few pixels can pass, and the stand-in answers with its sample’s own places. A refused photo can still become your room: you mark it yourself, and nothing more is sent.';
 
 // actions: { file(f), skip }; camera: offer the camera; sampleLink: the
 // REHEARSAL picture to save, or null; made: a room is already made here
