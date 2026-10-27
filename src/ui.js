@@ -120,6 +120,19 @@ export function boardRoom({ playW, spaceH, ruleH, labelH, rowGap, colGap, sideW,
   return { w: Math.max(0, w), h: Math.max(minH, h) };
 }
 
+// The play board is drawn at the size the picture had on its reveal ("What
+// the AI found"), never larger: given that size (cap, a fitSize result), a
+// room with space for it gets exactly it; a smaller room (a window made
+// smaller since) gets the picture fitted to the smaller of the two.
+export function capBoard(room, cap, picW, picH) {
+  const w = Math.max(80, room.w), h = Math.max(60, room.h);
+  if (cap && w >= cap.cssW && h >= cap.cssH) return { cssW: cap.cssW, cssH: cap.cssH, scale: cap.cssW / picW };
+  const aw = cap ? Math.min(w, cap.cssW) : w, ah = cap ? Math.min(h, cap.cssH) : h;
+  // as render.js fitSize
+  const s = Math.max(0.05, Math.min(aw / picW, ah / picH));
+  return { cssW: Math.floor(picW * s), cssH: Math.floor(picH * s), scale: Math.floor(picW * s) / picW };
+}
+
 // Keep a box at least as tall as it is now, so new contents cannot shrink it
 // and shift what sits below (keep), or let it size itself again (!keep).
 export function reserveHeight(box, keep) {

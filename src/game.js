@@ -7,7 +7,7 @@ import { bounds } from './geom.js';
 import { Fx } from './fx.js';
 import { ruleRow, announce, endCardWords } from './words.js';
 import { objectWords } from './level.js';
-import { el, boardRoom, ceilH, ceilW, floorW, spaceH } from './ui.js';
+import { el, boardRoom, capBoard, ceilH, ceilW, floorW, spaceH } from './ui.js';
 import { emit } from './events.js';
 
 const KEY_DIRS = {
@@ -18,7 +18,7 @@ const KEY_DIRS = {
 
 // The reveal picture: outlines drawing in one by one (all at once with
 // reduced motion), numbered badges clear of every outline, Show walls.
-export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
+export function mountReveal(root, { level, rt, picture, ui, maxHeight, onFit }) {
   const canvas = el('canvas', { 'aria-hidden': 'true' });
   // the particles' layer lies over the picture, out of the flow
   const fx = new Fx(canvas, level.picture, { reduced: () => !!ui().reducedMotion });
@@ -36,6 +36,7 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
     const f = fitSize(Math.max(80, w), Math.max(60, h), level.picture.width, level.picture.height);
     renderer.resize(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
     fx.fit(f.cssW, f.cssH, globalThis.devicePixelRatio || 1);
+    if (onFit) onFit(f, { w: Math.max(80, w), h: Math.max(60, h) });
     draw();
   };
   const ro = new ResizeObserver(fit);
@@ -285,7 +286,8 @@ export function mountPlay(root, opts) {
       sideBeside: /"stage side"/.test(ps.gridTemplateAreas),
       minH: (parseFloat(ps.getPropertyValue('--stage-min')) || 12) * rem,
     });
-    const f = fitSize(Math.max(80, room.w), Math.max(60, room.h), level.picture.width, level.picture.height);
+    // never larger than the picture was on "What the AI found" (ui.js capBoard)
+    const f = capBoard(room, opts.cap, level.picture.width, level.picture.height);
     const dpr = globalThis.devicePixelRatio || 1;
     const key = `${f.cssW}x${f.cssH}@${dpr}`;
     if (key === fitted) return;

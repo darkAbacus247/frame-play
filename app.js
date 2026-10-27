@@ -55,6 +55,8 @@ const A = {
   pulsed: false,
   headerStep: 0, // the step the header was last drawn for
   missingWhy: null, // the header's reason while a room's level is missing
+  boards: new Map(), // each room's picture size on its reveal (boardCap)
+  lastBox: null, // the last reveal's space for its picture
   tour: { on: false, offered: false, lastProgress: Date.now(), notOn: null },
 };
 
@@ -805,7 +807,24 @@ async function screenFound(main, slot, token) {
       infoH: ceilH(info), beside: info.getBoundingClientRect().left > pic.getBoundingClientRect().left + 1,
     });
   };
-  A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags, maxHeight }));
+  const key = boardKey(ref);
+  A.reveals.push(mountReveal(pic, {
+    level, rt, picture: entry.picture, ui: uiFlags, maxHeight,
+    onFit: (f, box) => { A.boards.set(key, { cssW: f.cssW, cssH: f.cssH }); A.lastBox = box; },
+  }));
+}
+
+// The size each room's picture had on its reveal, so Play draws it no larger
+// (src/ui.js capBoard). A room played before its reveal was drawn here (a
+// reload on Play, Free play) takes the last reveal's space for its shape.
+const boardKey = (ref) => (ref ? (ref.kind === 'sample' ? `sample:${ref.id}` : refKey(ref)) : '');
+function boardCap(ref, level) {
+  const known = A.boards.get(boardKey(ref));
+  if (known) return known;
+  if (!A.lastBox) return null;
+  const { width: w, height: h } = level.picture;
+  const s = Math.min(A.lastBox.w / w, A.lastBox.h / h);
+  return { cssW: Math.floor(w * s), cssH: Math.floor(h * s) };
 }
 
 async function screenPlay(main, slot, ref, token) {
@@ -829,7 +848,7 @@ async function screenPlay(main, slot, ref, token) {
   const leave = onRoad ? leaveButton(slot, () => leaveRoom(slot)) : null;
   const end = onRoad ? endRoundButton(() => confirmEndRound(slot)) : null;
   A.view = mountPlay(main, {
-    level, rt, picture: entry.picture, audio,
+    level, rt, picture: entry.picture, audio, cap: boardCap(ref || A.road.rooms[slot], level),
     say: (t) => { say(t); progress(); },
     ui: uiFlags,
     sideExtras: onRoad ? [describeBtn, end, leave, desc] : [describeBtn, desc],
