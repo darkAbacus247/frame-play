@@ -97,6 +97,8 @@ export function mountPlay(root, opts) {
   root.replaceChildren(wrap);
 
   const renderer = new Renderer(canvas, picture, level, rt);
+  // the music turns softer while a round is played
+  const music = (mode) => audio && audio.musicMode && audio.musicMode(mode);
 
   // "Walk to coin 2" when there are several, "Walk to the lamp" for one
   function walkWords(k) {
@@ -182,6 +184,7 @@ export function mountPlay(root, opts) {
       steps++;
       if (state.status !== 'playing') {
         ended = true;
+        music('calm');
         goalChips();
         const ratio = routeRatio(state, level);
         opts.onEnd && opts.onEnd({ status: state.status, ratio, travelled: state.travelled, words: endCardWords(level, state, ratio) });
@@ -253,6 +256,7 @@ export function mountPlay(root, opts) {
   refreshRule();
   goalChips();
   audio && audio.play('start');
+  music('play');
   raf = requestAnimationFrame(frame);
 
   return {
@@ -265,9 +269,11 @@ export function mountPlay(root, opts) {
       refreshRule();
       goalChips();
       audio && audio.play('start');
+      music('play');
     },
     destroy() {
       destroyed = true;
+      music('calm');
       cancelAnimationFrame(raf);
       ro.disconnect();
     },

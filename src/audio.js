@@ -1,16 +1,34 @@
 // Every sound is synthesised; there are no sound files. A browser lets sound
-// start only after the first press or key, so the context is created then.
+// start only after the first press or key, so the context is created then,
+// and the background music (src/music.js) starts with it: never by itself,
+// not after a reload until the next press or key.
+import { Music, MUSIC_DEFAULT_VOLUME } from './music.js';
+
 export class Synth {
   constructor() {
     this.ctx = null;
     this.on = true;
     this.master = null;
+    this.music = null;
+    this.musicOn = true;
+    this.musicVolume = MUSIC_DEFAULT_VOLUME;
+    this.mode = 'calm';
+    // a hidden tab holds every sound and the music; it goes on when shown
+    const doc = globalThis.document;
+    if (doc && typeof doc.addEventListener === 'function') {
+      doc.addEventListener('visibilitychange', () => {
+        if (!this.ctx) return;
+        if (doc.hidden) this.ctx.suspend && this.ctx.suspend().catch(() => {});
+        else this.ctx.resume().catch(() => {});
+      });
+    }
   }
 
   // Call from a user gesture.
   unlock() {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+      this.syncMusic();
       return;
     }
     const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
@@ -20,12 +38,43 @@ export class Synth {
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.5;
       this.master.connect(this.ctx.destination);
+      this.music = new Music(this.ctx, this.master, { volume: this.musicVolume });
     } catch {
       this.ctx = null;
+      this.music = null;
     }
+    this.syncMusic();
   }
 
-  setOn(on) { this.on = !!on; }
+  // the music plays while sound and music are both on, once a gesture made
+  // the context
+  syncMusic() {
+    const m = this.music;
+    if (!m) return;
+    m.setVolume(this.musicVolume);
+    m.setMode(this.mode);
+    if (this.on && this.musicOn) m.start();
+    else m.stop();
+  }
+
+  setOn(on) { this.on = !!on; this.syncMusic(); }
+
+  setMusic(on, volume = this.musicVolume) {
+    this.musicOn = !!on;
+    this.musicVolume = Math.max(0, Math.min(1, Number(volume) || 0));
+    this.syncMusic();
+  }
+
+  // 'calm' on the screens, 'play' (softer) during a round
+  musicMode(mode) {
+    this.mode = mode === 'play' ? 'play' : 'calm';
+    if (this.music) this.music.setMode(this.mode);
+  }
+
+  // the closing screen's sting, when the music plays
+  sting() {
+    return !!(this.on && this.musicOn && this.music && this.music.sting());
+  }
 
   tone(freq, dur, { type = 'sine', gain = 0.2, at = 0, slide = 0, attack = 0.005 } = {}) {
     if (!this.on || !this.ctx || this.ctx.state !== 'running') return;
