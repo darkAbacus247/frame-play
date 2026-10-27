@@ -158,6 +158,7 @@ function setBusy(on) {
   A.busy = on;
   if (on) A.busyFocus = document.activeElement;
   for (const b of document.querySelectorAll('#main button, #road button')) {
+    if (b.hasAttribute('data-busy-ok')) continue; // Cancel: the one way out of a read
     if (on) { b.dataset.wasDisabled = b.disabled ? '1' : ''; b.disabled = true; } else if (b.dataset.wasDisabled === '') b.disabled = false;
   }
   const f = A.busyFocus;
@@ -165,7 +166,10 @@ function setBusy(on) {
   if (!on) A.busyFocus = null;
 }
 
-function progressPanel(panel, lines, current, error) {
+// While reading, the panel's Cancel stays pressable (setBusy passes over a
+// button marked data-busy-ok). After a failure, again: the read once more.
+// error: the words; cancel(): stop the read; again: { retry, tip } or null
+function progressPanel(panel, lines, current, error, { cancel = null, again = null } = {}) {
   panel.hidden = false;
   // never a null child: the page's own replaceChildren would write 'null'
   const kids = [el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
@@ -173,25 +177,101 @@ function progressPanel(panel, lines, current, error) {
     text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
   })))];
   if (error) kids.push(el('p', { class: 'error', role: 'alert', text: error }));
+  if (!error && cancel) {
+    kids.push(el('div', { class: 'actions' }, [el('button', {
+      type: 'button', class: 'btn', 'data-busy-ok': 'true', text: 'Cancel', tip: 'Stops waiting for this read', onclick: cancel,
+    })]));
+  }
+  if (error && again) {
+    demotePrimaries();
+    kids.push(el('div', { class: 'actions' }, [retryButton(again)]));
+  }
   panel.replaceChildren(...kids);
+}
+
+// One primary on the screen: the others become plain buttons.
+function demotePrimaries(root = $('main')) {
+  for (const p of root.querySelectorAll('[data-primary]')) {
+    p.removeAttribute('data-primary');
+    p.classList.remove('primary');
+    if (p.getAttribute('data-tour') === 'primary') p.removeAttribute('data-tour');
+  }
+}
+
+// The same photo read once more: no new pick, no file dialog.
+function retryButton(again) {
+  return el('button', {
+    type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Try this photo again', tip: again.tip, onclick: again.retry,
+  });
 }
 
 const FREE_WORDS = 'Rounds in Free play do not change your road.';
 const LIVE_LINES = ['Reading your room', 'Finding every object', 'Tracing the outlines'];
 
+// Words joined as whole sentences: the first one ends as a sentence ends
+// (the server's own words may not), so the next one reads on.
+function sentences(...parts) {
+  return parts.filter(Boolean).map((p) => String(p).trim()).filter(Boolean)
+    .map((p, i, all) => (i < all.length - 1 && !/[.!?]$/.test(p) ? `${p}.` : p)).join(' ');
+}
+
+// What a failed read says about itself, from the reply's error or from what
+// the send's error carries (absent-safe: a server or a send that says
+// nothing of these gives { code: null, retrySame: false }).
+function failureOf(e, reply = null) {
+  const er = (reply && reply.error) || (e && (e.error || (e.reply && e.reply.error))) || {};
+  return {
+    code: er.code || (e && e.code) || null,
+    retrySame: !!(er.retry_same || (e && (e.retry_same || e.retrySame))),
+  };
+}
+
+// A read stopped with Cancel: the page stops waiting at once (and the send
+// is aborted where sendPhoto takes the signal); nothing from it is used.
+const CANCEL_WORDS = 'Cancelled: this page stopped waiting for the read, and nothing from it is used.';
+function cancelled() {
+  const e = new Error(CANCEL_WORDS);
+  e.cancelled = true;
+  e.retrySame = true;
+  return e;
+}
+
+// Runs a read that Cancel can stop: make(signal) races the press. A read
+// that finishes after Cancel is dropped (the race is already over).
+function cancellable(make) {
+  const ctl = new AbortController();
+  A.cancelRead = ctl;
+  const stopped = new Promise((_, reject) => ctl.signal.addEventListener('abort', () => reject(cancelled()), { once: true }));
+  return Promise.race([make(ctl.signal), stopped]).finally(() => { if (A.cancelRead === ctl) A.cancelRead = null; });
+}
+
+function cancelRead() {
+  if (A.cancelRead && !A.cancelRead.signal.aborted) A.cancelRead.abort();
+}
+
+// A reply made while calls were failing (an object not looked for): played,
+// never kept on this device, so the same photo is read again next time.
+function degradedReply(reply) {
+  const p = reply && reply.provenance;
+  const calls = (p && Array.isArray(p.calls)) ? p.calls : [];
+  const warnings = (reply && Array.isArray(reply.warnings)) ? reply.warnings : [];
+  return calls.some((c) => c && c.status !== 200) || warnings.some((w) => typeof w === 'string' && /^not looked for: /.test(w));
+}
 
 // inPlace: the room is already on the road (its level was not in memory):
 // it is made again on the same step, never by moving the counter back.
-async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
+// again: reads the same photo once more, offered when a failure says so.
+async function runLivePath(slot, panel, make, { inPlace = false, again = null } = {}) {
   if (A.busy) return;
   setBusy(true);
   let step = 0;
-  progressPanel(panel, LIVE_LINES, step);
+  const lines = (error, more) => progressPanel(panel, LIVE_LINES, step, error, more);
+  lines(null, { cancel: cancelRead });
   try {
-    const { ref, entry } = await make((words) => {
+    const { ref, entry } = await cancellable((signal) => make((words) => {
       const i = LIVE_LINES.indexOf(words);
-      if (i >= 0) { step = i; progressPanel(panel, LIVE_LINES, step); say(words); }
-    });
+      if (i >= 0 && !signal.aborted) { step = i; lines(null, { cancel: cancelRead }); say(words); }
+    }, signal));
     if (entry.built.error) throw new Error(entry.built.error);
     A.live.set(refKey(ref), entry);
     setBusy(false);
@@ -199,21 +279,29 @@ async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
     else setRoad(R.chooseRoom(A.road, slot, ref));
   } catch (e) {
     setBusy(false);
-    progressPanel(panel, LIVE_LINES, step, inPlace ? e.message : `${e.message} You can try another photo, or play a sample room below.`);
+    const f = failureOf(e, e.reply);
+    const retry = again && f.retrySame;
+    const ways = inPlace ? null : retry ? 'You can also pick another photo, or play a sample room below.' : 'You can try another photo, or play a sample room below.';
+    lines(sentences(e.message, ways), { again: retry ? { retry: again, tip: 'Sends the same photo again; no need to pick it' } : null });
     say(e.message);
+    if (!e.cancelled) liveFailed(e, f);
   }
 }
 
-// standInRoom: in REHEARSAL, the room the answer must be for
-async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null) {
-  const reply = await sendPhoto(blob, (m) => onWords(m.words));
+// standInRoom: in REHEARSAL, the room the answer must be for. A refused
+// reply rides on the error (e.reply), so its code and retry_same can be read.
+// signal: Cancel's, for sendPhoto.
+async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null, signal = null) {
+  const reply = await sendPhoto(blob, (m) => onWords(m.words), undefined, { signal });
   const ok = acceptReply(A.mode, reply, copy);
-  if (!ok.ok) throw new Error(ok.why);
+  if (!ok.ok) throw Object.assign(new Error(ok.why), { reply });
   const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
   if (other) throw new Error(other);
   onWords('Tracing the outlines');
   await new Promise((r) => setTimeout(r, 0)); // let the words show
-  return levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
+  const entry = await levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
+  entry.degraded = degradedReply(reply);
+  return entry;
 }
 
 // Steps 2 and 5: only LIVE reads a photo here (MOCK and REHEARSAL have no
@@ -223,7 +311,7 @@ async function readThroughServer(blob, copy, picture, pictureRef, onWords, stand
 function choosePhoto(slot, file, panel, opts) {
   if (A.mode !== 'live') return null;
   const want = opts && opts.inPlace ? A.road.rooms[slot] : null;
-  return runLivePath(slot, panel, async (onWords) => {
+  return runLivePath(slot, panel, async (onWords, signal) => {
     const photo = await readPhoto(file);
     if (want && photo.sha256 !== want.sha256) throw new Error(`${NOT_SAME_WORDS} Pick the same photo, or use ← to go back to Step ${R.PICK_STEPS[slot]} for another room.`);
     const ref = { kind: 'photo', sha256: photo.sha256 };
@@ -232,10 +320,12 @@ function choosePhoto(slot, file, panel, opts) {
       say('This photo’s level was on this device: no model was called.');
       return { ref, entry: kept };
     }
-    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords);
-    if (!entry.built.error) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
+    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal);
+    // a cancelled read is not used, so not kept either; nor one made while
+    // calls were failing
+    if (!entry.built.error && !entry.degraded && !signal.aborted) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
     return { ref, entry };
-  }, opts);
+  }, { ...opts, again: () => choosePhoto(slot, file, panel, opts) });
 }
 
 // Rehearsal: the stand-in's own sample picture goes through the live path,
@@ -243,7 +333,7 @@ function choosePhoto(slot, file, panel, opts) {
 // room the running stand-in answers for is sent, and only its answer for
 // that room is used.
 function rehearseRoom(slot, id, panel, opts) {
-  return runLivePath(slot, panel, async (onWords) => {
+  return runLivePath(slot, panel, async (onWords, signal) => {
     const room = rehearsalRoom();
     if (id !== room) {
       throw new Error(`The local stand-in was started for ${await sampleTitle(room)}, not ${await sampleTitle(id)}, so it would answer for the wrong room. Nothing was sent.`);
@@ -251,9 +341,9 @@ function rehearseRoom(slot, id, panel, opts) {
     const s = await sample(id);
     const blob = await canvasJpeg(s.picture);
     const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
-    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room);
+    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room, signal);
     return { ref: { kind: 'rehearsal', id }, entry };
-  }, opts);
+  }, { ...opts, again: () => rehearseRoom(slot, id, panel, opts) });
 }
 
 // ---- the road ----
@@ -435,7 +525,7 @@ function screenWelcome(main) {
 }
 
 function photoOffWords() {
-  if (A.mode === 'live') return null;
+  if (A.mode === 'live') return liveOff();
   if (A.mode === 'rehearsal') return OFF_WORDS.rehearsal;
   if (!A.health) return `Off: ${A.modeWhy}`;
   return OFF_WORDS.mock;
@@ -463,6 +553,8 @@ async function screenRoom(main, slot, token) {
       onClick: () => rehearseRoom(slot, rehearsal, view.panel),
     } : null,
   });
+  const check = checkAgainButton();
+  if (check) view.section.querySelector('.actions').append(check);
   main.replaceChildren(view.section);
   const other = slot === 1 ? A.road.rooms[0] : null;
   for (const s of SAMPLES) {
@@ -575,6 +667,9 @@ function describeSection(section, level, rt, state, button) {
   shown(true);
 }
 
+const NO_LEVEL = 'No level from this picture';
+const withoutHeading = (words) => String(words).replace(new RegExp(`^${NO_LEVEL}:\\s*`), '');
+
 async function screenFound(main, slot, token) {
   const ref = A.road.rooms[slot];
   // marks not made into a room yet, or opened again: the marking board
@@ -585,7 +680,8 @@ async function screenFound(main, slot, token) {
   if (token !== A.renderToken) return;
   if (!entry) return missingRoom(main, slot, token);
   if (entry.built.error) {
-    main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: 'No level from this picture' }), el('p', { text: entry.built.error })]));
+    // the heading says it once: the words under it start with the reason
+    main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: NO_LEVEL }), el('p', { text: withoutHeading(entry.built.error) })]));
     return;
   }
   const { level, rt } = entry.built;
@@ -746,11 +842,17 @@ async function screenEnd(main, token) {
 // sample picture; LIVE sends it to Meta's models.
 const coarsePointer = mq('(pointer: coarse)');
 
-function ownDeps() {
+// signal: Cancel's; seen.reply: the server's reply, once one came (its
+// error's code and retry_same, and whether it was made while calls were
+// failing)
+function ownDeps(signal = null, seen = {}) {
   return {
     preview: previewPhoto,
     readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
-    send: (blob, onWords) => sendPhoto(blob, (m) => onWords(m.words)),
+    send: async (blob, onWords) => {
+      seen.reply = await sendPhoto(blob, (m) => onWords(m.words), undefined, { signal });
+      return seen.reply;
+    },
     samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
     stored: storedEntry,
     // the photo of your own room marked by hand: made again from the marks
@@ -789,11 +891,18 @@ async function screenOwn(main, token) {
   for (const s of SAMPLES) await sample(s.id);
   if (token !== A.renderToken) return;
   const room = rehearsalRoom();
+  const off = liveOff();
   const view = ownView({
-    mode: A.mode, primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
+    mode: ownMode(), primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
     sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road),
     actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.passOwnRoom(A.road)) },
   });
+  // the live AI unavailable: said in place of MOCK's notice; a photo is
+  // shown here and can be marked, and nothing is sent
+  const notice = view.section.querySelector('.notice');
+  if (off && notice) notice.textContent = sentences('LIVE, but the live AI is unavailable on this server right now', A.liveDown.reason, 'A photo you choose stays on this device and you can mark your room yourself; nothing is sent. The sample rooms still work.');
+  const check = checkAgainButton();
+  if (check) view.section.querySelector('.actions').append(check);
   main.replaceChildren(view.section);
   if (A.busy) setBusy(true);
 }
@@ -804,34 +913,42 @@ async function screenOwn(main, token) {
 const IN_PLACE_WAYS = 'Pick the same photo, or continue to the end.';
 // after a photo no model can read here (MOCK, or a read refused or failed)
 const MARK_WAYS = 'You can mark the room yourself instead, try another photo, or continue to the end.';
+// and when the failure says the same photo may work again
+const RETRY_MARK_WAYS = 'You can try this photo again, mark the room yourself instead, try another photo, or continue to the end.';
+const RETRY_WAYS = 'You can try this photo again, try another photo, or continue to the end.';
 async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   if (A.busy) return;
   setBusy(true);
-  const sends = A.mode === 'live' || A.mode === 'rehearsal';
+  // with the live AI unavailable, a photo is shown here and can be marked,
+  // as in MOCK: nothing is sent
+  const mode = ownMode();
+  const sends = mode === 'live' || mode === 'rehearsal';
   let step = 0;
   shown.hidden = true;
-  if (sends) progressPanel(panel, LIVE_LINES, step);
+  if (sends) progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead });
   // the photo can be marked by hand instead (never in place: that is a
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
+  const again = { retry: () => ownPhoto(file, panel, shown, { inPlace }), tip: 'Sends the same photo again; no need to pick it' };
+  const seen = { reply: null };
   try {
     // the samples' fingerprints, for a rehearsal's check (a return visit
     // may reach this without any sample room drawn yet)
     for (const s of SAMPLES) await sample(s.id);
-    const r = await makeOwnRoom({
-      mode: A.mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(),
+    const r = await cancellable((signal) => makeOwnRoom({
+      mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(signal, seen),
       sameAs: inPlace ? A.road.rooms[2].sha256 : null,
       onWords: (words) => {
         const i = LIVE_LINES.indexOf(words);
-        if (i >= 0) { step = i; progressPanel(panel, LIVE_LINES, step); say(words); }
+        if (i >= 0 && !signal.aborted) { step = i; progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead }); say(words); }
       },
-    });
+    }));
     setBusy(false);
-    if (r.notSame) r.words = `${r.words} ${IN_PLACE_WAYS}`;
+    if (r.notSame) r.words = sentences(r.words, IN_PLACE_WAYS);
     if (r.kind === 'built') {
       if (r.ref.kind === 'marked') say('Your marks for this photo were on this device: nothing was sent.');
       else if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
-      else S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
+      else if (!degradedReply(seen.reply)) S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
       A.live.set(refKey(r.ref), r.entry);
       if (inPlace) render();
       else setRoad(R.chooseRoom(A.road, 2, r.ref));
@@ -839,41 +956,50 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     }
     panel.hidden = true;
     const onMark = r.markable ? marking(r.picture, r.sha256 || null) : null;
-    if (onMark && r.kind === 'refused') r.words = `${r.words} ${MARK_WAYS}`;
-    showOwnResult(shown, r, onMark);
+    const retry = r.kind === 'refused' && failureOf(null, seen.reply).retrySame;
+    if (r.kind === 'refused' && !r.notSame) r.words = sentences(r.words, onMark ? (retry ? RETRY_MARK_WAYS : MARK_WAYS) : retry && !inPlace ? RETRY_WAYS : null);
+    showOwnResult(shown, r, onMark, retry ? again : null);
     say(r.kind === 'kept' ? 'Your photo is shown here and stays on this device. Nothing was sent. You can mark your room.' : r.words);
+    if (r.kind === 'refused' && seen.reply) liveFailed(null, failureOf(null, seen.reply));
   } catch (e) {
     setBusy(false);
+    const f = failureOf(e, e.reply);
     // a read that failed after the photo was read here (src/own.js): it
     // can be marked instead
     const onMark = e.photo ? marking(e.photo.picture, e.photo.sha256) : null;
     // only the ways this screen offers
-    const words = `${e.message} ${inPlace ? IN_PLACE_WAYS : onMark ? MARK_WAYS : 'You can try another photo, or continue to the end.'}`;
+    const ways = inPlace ? (f.retrySame ? null : IN_PLACE_WAYS) : onMark ? (f.retrySame ? RETRY_MARK_WAYS : MARK_WAYS) : f.retrySame ? RETRY_WAYS : 'You can try another photo, or continue to the end.';
+    const words = sentences(e.message, ways);
     // MOCK sends nothing, so it shows no progress lines: only the words;
     // a read that can be marked instead says why, then the way on, as a
     // refusal does
-    if (sends && !onMark) progressPanel(panel, LIVE_LINES, step, words);
+    if (sends && !onMark) progressPanel(panel, LIVE_LINES, step, words, { again: f.retrySame ? again : null });
     else {
       panel.hidden = true;
-      showOwnResult(shown, { kind: 'refused', words }, onMark);
+      showOwnResult(shown, { kind: 'refused', words }, onMark, f.retrySame ? again : null);
     }
     say(e.message);
+    if (!e.cancelled && sends) liveFailed(e, f);
   }
 }
 
 // onMark: the photo can be marked instead; its button becomes the one
-// primary on the screen, right under the photo or the words
-function showOwnResult(box, r, onMark = null) {
-  if (onMark) {
-    for (const p of $('main').querySelectorAll('[data-primary]')) {
-      p.removeAttribute('data-primary');
-      p.classList.remove('primary');
-      if (p.getAttribute('data-tour') === 'primary') p.removeAttribute('data-tour');
-    }
-    A.missingWhy = 'Mark your room, or continue to the end';
+// primary on the screen, right under the photo or the words. again: the
+// same photo once more, then the primary (Mark your room stays beside it).
+function showOwnResult(box, r, onMark = null, again = null) {
+  if (onMark || again) {
+    demotePrimaries();
+    A.missingWhy = onMark ? 'Mark your room, or continue to the end' : A.missingWhy;
     renderHeader();
   }
-  box.replaceChildren(...ownResult(r, onMark ? { mark: () => onMark() } : null).filter(Boolean));
+  const kids = ownResult(r, onMark ? { mark: () => onMark() } : null).filter(Boolean);
+  if (again) {
+    for (const k of kids) demotePrimaries(k);
+    const row = kids.find((k) => k.classList && k.classList.contains('actions'));
+    if (row) row.replaceChildren(retryButton(again), ...row.children);
+    else kids.push(el('div', { class: 'actions' }, [retryButton(again)]));
+  }
+  box.replaceChildren(...kids);
   box.hidden = false;
 }
 
@@ -1128,25 +1254,122 @@ addEventListener('popstate', (e) => {
 });
 
 // ---- mode ----
-async function detectMode() {
+// The server's health, tried up to 3 times (a slow or waking host gets
+// 4 s, then 6 s, then 8 s), and again with Check again.
+const HEALTH_WAITS = [4000, 6000, 8000];
+const NO_SERVER_WORDS = 'The server did not answer, so this page shows sample rooms only.';
+async function healthOnce(ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
   try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 2500);
     const res = await fetch('api/health', { signal: ctl.signal, headers: { 'X-FramePlay-Request': '1' } });
-    clearTimeout(t);
     if (!res.ok) throw new Error('no health');
     const h = await res.json();
-    if (h && ['mock', 'live', 'rehearsal'].includes(h.mode)) {
+    if (h && ['mock', 'live', 'rehearsal'].includes(h.mode)) return h;
+    throw new Error('unknown health');
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function detectMode() {
+  for (const ms of HEALTH_WAITS) {
+    try {
+      const h = await healthOnce(ms);
       A.mode = h.mode;
       A.modeWhy = h.reason || '';
       A.health = h;
-      return;
-    }
-    throw new Error('unknown health');
-  } catch {
-    A.mode = 'mock';
-    A.modeWhy = 'No server answered, so this page runs MOCK only: the sample rooms drawn by code.';
+      // a send's live_unavailable holds until health says otherwise
+      A.liveDown = h.live_state === 'unavailable' ? { reason: h.live_reason || '', wait: h.live_check_again_s || 0 } : null;
+      return true;
+    } catch { /* tried again, up to 3 times */ }
   }
+  A.mode = 'mock';
+  A.health = null;
+  A.liveDown = null;
+  A.modeWhy = NO_SERVER_WORDS;
+  return false;
+}
+
+// LIVE, but the live AI is unavailable (an account or model problem the
+// owner must fix): the words for an off picker, or null. Health says so
+// (live_state), or a send was answered live_unavailable.
+function liveOff() {
+  if (A.mode !== 'live' || !A.liveDown) return null;
+  const { reason, wait } = A.liveDown;
+  const mins = wait > 0 ? Math.max(1, Math.round(wait / 60)) : 0;
+  return sentences(
+    'Off: the live AI is unavailable on this server right now',
+    reason,
+    'The sample rooms still work, and on Step 9 you can mark your own room by hand; nothing is sent',
+    mins ? `The server tries again in about ${mins} minute${mins === 1 ? '' : 's'}: press Check again then.` : 'Press Check again to ask the server once more.',
+  );
+}
+
+// Your own room's mode: with the live AI unavailable, a photo is shown on
+// this device and can be marked, as in MOCK.
+function ownMode() {
+  return liveOff() ? 'mock' : A.mode;
+}
+
+// After a failed live read: a live_unavailable answer turns the picker off
+// at once; a send that failed without a reply (e: no e.reply) asks health
+// again, quietly, in case the server's latch closed (its 503 may not reach
+// the page with its code).
+function liveFailed(e, f) {
+  if (A.mode !== 'live') return;
+  if (f.code === 'live_unavailable') {
+    A.liveDown = { reason: '', wait: 0 };
+    render();
+    return;
+  }
+  if (!e || e.reply) return;
+  const step = A.road.step;
+  healthOnce(HEALTH_WAITS[0]).then((h) => {
+    if (h.mode !== 'live' || h.live_state !== 'unavailable' || A.liveDown) return;
+    A.health = h;
+    A.liveDown = { reason: h.live_reason || '', wait: h.live_check_again_s || 0 };
+    if (!A.busy && A.road.step === step) render();
+  }).catch(() => { /* the failure's own words stay */ });
+}
+
+// Check again: health asked once more (3 tries); the screen drawn again
+// in the mode it gives.
+async function checkAgain(button) {
+  if (A.busy || A.checking) return;
+  A.checking = true;
+  if (button) { button.disabled = true; button.textContent = 'Checking…'; }
+  say('Checking the server again');
+  const was = A.mode;
+  try {
+    await detectMode();
+  } finally {
+    A.checking = false;
+  }
+  rehearsalBand();
+  await render();
+  say(A.mode === 'live' && !liveOff() ? 'The live AI is on: you can choose a photo.'
+    : A.mode === 'live' ? 'The live AI is still unavailable.'
+      : A.mode !== was ? `This page now runs in ${A.mode.toUpperCase()}.` : A.health ? 'The server answered: no change.' : 'The server still did not answer.');
+}
+
+// LIVE off (no server answered, or the live AI unavailable): a way to ask
+// again, on the screens that offer a photo
+function checkAgainButton() {
+  if (A.health && !liveOff()) return null;
+  const b = el('button', {
+    type: 'button', class: 'btn', text: 'Check again', tip: 'Asks the server again whether the live AI is on',
+    onclick: () => checkAgain(b),
+  });
+  return b;
+}
+
+function rehearsalBand() {
+  const band = $('top').querySelector('.band');
+  if (A.mode === 'rehearsal' && !band) {
+    // a band on every screen: nothing in a rehearsal comes from Meta
+    $('top').append(el('p', { class: 'band', text: 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.' }));
+  } else if (A.mode !== 'rehearsal' && band) band.remove();
 }
 
 // ---- boot ----
@@ -1157,10 +1380,7 @@ async function boot() {
   A.tour.on = readPref('tour', false) === true;
   applyClasses();
   await detectMode();
-  if (A.mode === 'rehearsal') {
-    // a band on every screen: nothing in a rehearsal comes from Meta
-    $('top').append(el('p', { class: 'band', text: 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.' }));
-  }
+  rehearsalBand();
   const saved = R.sanitizeRoad(readPref('road', null));
   if (saved && saved.step > 1) {
     A.road = R.newRoad();
