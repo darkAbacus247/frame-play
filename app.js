@@ -19,7 +19,7 @@ import { mountMarker } from './src/marker.js';
 import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal, NOT_SAME_WORDS } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
-  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView,
+  freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
 } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
@@ -714,8 +714,9 @@ async function screenFound(main, slot, token) {
   }
   const { level, rt } = entry.built;
   const { section, pic, info } = foundView({
-    level, summary: entry.summary, fromDevice: entry.fromDevice,
+    level, summary: entry.summary, fromDevice: entry.fromDevice, slot,
     actions: {
+      leave: () => leaveRoom(slot),
       play: () => setRoad(R.startPlay(A.road)),
       describe: (desc, button) => describeSection(desc, level, rt, null, button),
       walls: (on) => { for (const r of A.reveals) r.setWalls(on); },
@@ -757,16 +758,41 @@ async function screenPlay(main, slot, ref, token) {
     tip: 'Every object, its role, where it is and how far, in words',
     onclick: () => describeSection(desc, level, rt, A.view && A.view.state, describeBtn),
   });
+  // a room on the road (never a replay in Free play) can be left for another
+  const leave = slot >= 0 && A.road.step !== R.FREE_PLAY ? leaveButton(slot, () => leaveRoom(slot)) : null;
   A.view = mountPlay(main, {
     level, rt, picture: entry.picture, audio,
     say: (t) => { say(t); progress(); },
     ui: uiFlags,
-    sideExtras: [describeBtn, desc],
+    sideExtras: leave ? [describeBtn, leave, desc] : [describeBtn, desc],
     // a card (Start over?, welcome back) or the settings drawer holds the round
     paused: () => cardOpen() || A.drawerOpen,
     onEnd: (r) => endOfRound(slot, r, level),
   });
   A.view.focusGame();
+}
+
+// Choose a different room (or photo): back to the step where this room was
+// picked. A round under way is not dropped without asking: a true modal
+// card, Keep playing focused, and Escape never closes it (src/ui.js
+// showCard); the round holds still under it.
+function leaveRoom(slot) {
+  if (A.busy) return;
+  const go = () => setRoad({ ...A.road, step: R.PICK_STEPS[slot] });
+  if (!roundUnderWay()) { go(); return; }
+  showCard($('card'), {
+    title: LEAVE_CARD.title,
+    lines: [LEAVE_CARD.line],
+    primary: { label: LEAVE_CARD.stay, onClick: () => { if (A.view) A.view.focusGame(); } },
+    secondary: [{ label: LEAVE_CARD.leave, onClick: go }],
+  });
+}
+
+// A round started and not over: the explorer has moved, collected or set
+// off on a walk.
+function roundUnderWay() {
+  const s = A.view && A.view.state;
+  return !!s && s.status === 'playing' && (s.travelled > 0 || !!s.auto || (Array.isArray(s.collected) && s.collected.some(Boolean)));
 }
 
 function endOfRound(slot, r, level) {

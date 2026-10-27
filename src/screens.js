@@ -214,8 +214,22 @@ export function revealHeight({ width, aspect, spaceH, headH, gap, infoH, beside,
 
 const changeCount = (n) => (n === 0 ? 'none' : n === 1 ? '1 change' : `${n} changes`);
 
-// actions: { play, describe(desc, button), walls(on), remark (a marked room) }
-export function foundView({ level, summary, fromDevice, actions }) {
+// A clear way out of a room, on its reveal and play steps: back to the step
+// where the room was picked, to pick again. Always a secondary (primaries
+// only move forward), and never a tour target.
+export const LEAVE_WORDS = ['Choose a different room', 'Choose a different room', 'Choose a different photo'];
+export const LEAVE_CARD = { title: 'Leave this room?', line: 'Your round so far is not kept.', leave: 'Leave', stay: 'Keep playing' };
+export function leaveButton(slot, onClick) {
+  return el('button', {
+    type: 'button', class: 'btn', text: LEAVE_WORDS[slot],
+    tip: slot === 2 ? `Back to Step ${PICK_STEPS[slot]}, to choose another photo or continue to the end` : `Back to Step ${PICK_STEPS[slot]}, to pick another room`,
+    onclick: onClick,
+  });
+}
+
+// actions: { play, describe(desc, button), walls(on), remark (a marked room),
+// leave (back to the room's pick step), or null }; slot: the room's slot
+export function foundView({ level, summary, fromDevice, actions, slot = 0 }) {
   const marked = level.origin === 'marked';
   const pic = el('div', { class: 'found-pic' });
   const list = el('ol', { class: 'obj-list' });
@@ -264,6 +278,7 @@ export function foundView({ level, summary, fromDevice, actions }) {
       describeBtn,
       wallsBtn,
       marked && actions.remark ? el('button', { type: 'button', class: 'btn', text: 'Change your marks', tip: 'Back to your boxes, to move, change or remove them', onclick: actions.remark }) : null,
+      actions.leave ? leaveButton(slot, actions.leave) : null,
     ]),
     desc,
     more(`${marked ? 'Objects you marked' : 'Objects found'} (${level.objects.length})`, [
