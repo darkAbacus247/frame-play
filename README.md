@@ -26,7 +26,15 @@ so before you choose one.
   one SAM 3.1 call for the surface and one for each kind of object on it,
   at most 10 calls in all, each carrying the photo (a failed call may be
   sent one more time). This app does not store the photo. The room is
-  built from what the models found in it. If the read fails (the key the
+  built from what the models found in it: Muse Spark names the things and
+  gives each a role and a few points on it; SAM 3.1 answers each name with
+  its matches (boxes), and of several, the ones holding Muse Spark's points
+  are kept. Code traces each outline inside SAM's box. For a thing SAM
+  finds nothing usable for, code traces around Muse Spark's own points
+  instead, with the same tracer, and the reveal says how many came each way
+  ("SAM 3.1 found 5; for 4 more, code traced around Muse Spark's points").
+  Only when SAM finds nothing and Muse Spark gave no points does the read
+  make no room. If the read fails or makes no room (the key the
   operator set is refused, the account has no credit, the read runs out of
   time, the server cannot be reached), the screen says why in words, and
   for a refused key it says plainly that it is the operator's key, not
@@ -41,8 +49,11 @@ so before you choose one.
   object erased or pasted, an object moved by 8 px or more, a crop), is
   refused in words before anything is sent, and no level is made from it.
   An edit of a few pixels (a coin nudged by 4 px, a small mark) can pass,
-  and the stand-in then answers with its sample's own places. A refused
-  photo, or a read that fails, can be marked as in MOCK.
+  and the stand-in then answers with its sample's own places, in the very
+  grammar sam-3.1 answers in, so the same reader, match choice and point
+  fallback run (its zero_matches drill makes the whole room from Muse
+  Spark's points). A refused photo, or a read that fails, can be marked as
+  in MOCK.
 
 The people refusal (a person in the photo) and Muse Spark declining to
 read a photo for its content are the refusals with no marking after them:
@@ -180,6 +191,10 @@ picture through them.
   is not tight is traced again on a finer and a coarser grid, and if it is
   still not tight it falls back to its box, and the reveal says so. Small, low
   contrast objects are the hardest to trace.
+- A box you mark is looser than SAM's: code looks for the one shape that
+  stands out inside it and traces that. A box over several things, or over
+  a thing much like its background, keeps your box as you drew it, and the
+  reveal counts it as kept as a box.
 - One photo, one room; a 2.5D approximation with one baseline per object.
 
 ## Disclosure

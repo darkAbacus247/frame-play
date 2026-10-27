@@ -508,7 +508,11 @@ export function aiLine(level, summary) {
   const things = (k) => `${k} ${k === 1 ? 'thing' : 'things'}`;
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
   if (level.origin === 'marked') return `${markedWords(level)} Code proved the room can be won.`;
-  if (level.origin === 'rehearsal') return `The local stand-in (not Meta) answered for its sample picture; code ${tracedWords(level)}, and proved the room can be won.`;
+  if (level.origin === 'rehearsal') {
+    // its zero_matches drill places every thing by Muse Spark's points
+    const found = fromPoints(level) ? `${foundWords(level, 'the stand-in for SAM 3.1')}; ` : '';
+    return `The local stand-in (not Meta) answered for its sample picture; ${found}code ${tracedWords(level)}, and proved the room can be won.`;
+  }
   const named = summary ? summary.named : n;
   if (fromPoints(level)) return `Muse Spark named ${things(named)} in your photo and gave each a role; ${foundWords(level)}; and code ${tracedWords(level)}, then proved the room can be won.`;
   return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;

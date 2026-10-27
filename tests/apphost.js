@@ -45,6 +45,29 @@ export function photoFile(seed) {
   return { type: 'image/jpeg', size: bytes.length, name: `photo${seed}.jpg`, arrayBuffer: async () => bytes.buffer.slice(0), sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
+// the page's canvases hold these pixels (Node has no decoder): what a
+// browser would hold after decoding and shrinking the chosen photo
+export function paintCanvases(app, pixels) {
+  const make = app.doc.createElement;
+  app.doc.createElement = (tag) => {
+    const e = make(tag);
+    if (tag === 'canvas') {
+      const ctx = { getImageData: () => ({ width: pixels.width, height: pixels.height, data: pixels.data }) };
+      e.getContext = () => new Proxy(ctx, { get: (t, k) => (k in t ? t[k] : () => undefined), set: () => true });
+    }
+    return e;
+  };
+  globalThis.createImageBitmap = async () => ({ width: pixels.width, height: pixels.height, close() {} });
+}
+
+export async function until(app, f, what, ms = 30000) {
+  const t0 = Date.now();
+  while (!f()) {
+    if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}: ${app.counter()} · ${app.main().slice(0, 300)}`);
+    await app.settle(2);
+  }
+}
+
 export const nameOf = (e) => (e.children.length ? e.children.map(nameOf).join('') : e.textContent || '').trim();
 export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' ') : e.textContent || '').replace(/\s+/g, ' ').trim();
 

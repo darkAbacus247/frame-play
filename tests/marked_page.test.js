@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { bootApp, photoFile, textOf } from './apphost.js';
+import { bootApp, photoFile, textOf, paintCanvases, until } from './apphost.js';
 import { played } from './stub_game.js';
 import { rooms, replyFor } from './replies.js';
 import { LABELS } from '../src/level.js';
@@ -17,29 +17,6 @@ const AT9 = {
   finished: [true, true, false], best: [1.24, null, null],
 };
 const DESK = rooms.desk.pixels;
-
-// the page's canvases hold these pixels (Node has no decoder): what a
-// browser would hold after decoding and shrinking the chosen photo
-function paintCanvases(app, pixels) {
-  const make = app.doc.createElement;
-  app.doc.createElement = (tag) => {
-    const e = make(tag);
-    if (tag === 'canvas') {
-      const ctx = { getImageData: () => ({ width: pixels.width, height: pixels.height, data: pixels.data }) };
-      e.getContext = () => new Proxy(ctx, { get: (t, k) => (k in t ? t[k] : () => undefined), set: () => true });
-    }
-    return e;
-  };
-  globalThis.createImageBitmap = async () => ({ width: pixels.width, height: pixels.height, close() {} });
-}
-
-async function until(app, f, what, ms = 30000) {
-  const t0 = Date.now();
-  while (!f()) {
-    if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}: ${app.counter()} · ${app.main().slice(0, 300)}`);
-    await app.settle(2);
-  }
-}
 
 const primaries = (app) => app.$('main').querySelectorAll('[data-primary]');
 const board = (app) => app.$('main').querySelector('.mark-board');
