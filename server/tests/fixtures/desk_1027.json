@@ -1,0 +1,164 @@
+{
+ "about": "The first live answers (10-27), for the desk sample picture that code paints (rooms/desk.json, 1024x768; no personal data): Muse Spark's read (the message content and its usage), and sam-3.1's answer text for each noun, exactly as recorded.",
+ "width": 1024,
+ "height": 768,
+ "read": {
+  "objects": [
+   {
+    "name": "cardboard box",
+    "on_surface": true,
+    "reason": "Cozy hideout to escape the big desk adventure.",
+    "role": "exit",
+    "seeds": [
+     {
+      "x": 165,
+      "y": 730
+     },
+     {
+      "x": 115,
+      "y": 754
+     }
+    ]
+   },
+   {
+    "name": "gold coin",
+    "on_surface": true,
+    "reason": "Shiny treasure waiting for a tiny hero.",
+    "role": "collect",
+    "seeds": [
+     {
+      "x": 458,
+      "y": 446
+     },
+     {
+      "x": 321,
+      "y": 592
+     },
+     {
+      "x": 752,
+      "y": 731
+     }
+    ]
+   },
+   {
+    "name": "blue notebook",
+    "on_surface": true,
+    "reason": "Secret map for brave desk explorers.",
+    "role": "collect",
+    "seeds": [
+     {
+      "x": 385,
+      "y": 618
+     },
+     {
+      "x": 450,
+      "y": 615
+     }
+    ]
+   },
+   {
+    "name": "potted cactus",
+    "on_surface": true,
+    "reason": "Ouch! Spiky guard, best tiptoe around.",
+    "role": "avoid",
+    "seeds": [
+     {
+      "x": 875,
+      "y": 505
+     },
+     {
+      "x": 875,
+      "y": 618
+     }
+    ]
+   },
+   {
+    "name": "coffee mug",
+    "on_surface": true,
+    "reason": "Hot and tall, do not bump into it.",
+    "role": "solid",
+    "seeds": [
+     {
+      "x": 625,
+      "y": 565
+     }
+    ]
+   },
+   {
+    "name": "desk lamp",
+    "on_surface": true,
+    "reason": "Big glowing tower lighting the way.",
+    "role": "solid",
+    "seeds": [
+     {
+      "x": 245,
+      "y": 275
+     },
+     {
+      "x": 251,
+      "y": 486
+     }
+    ]
+   },
+   {
+    "name": "book stack",
+    "on_surface": true,
+    "reason": "Wobbly mountain blocking the path.",
+    "role": "solid",
+    "seeds": [
+     {
+      "x": 735,
+      "y": 355
+     },
+     {
+      "x": 735,
+      "y": 426
+     }
+    ]
+   },
+   {
+    "name": "picture frame",
+    "on_surface": false,
+    "reason": "Distant art watching over the desk.",
+    "role": "solid",
+    "seeds": [
+     {
+      "x": 845,
+      "y": 152
+     }
+    ]
+   }
+  ],
+  "people_present": false,
+  "surface": {
+   "name": "desk"
+  },
+  "theme_line": "Tiny explorer hunts lost coins across the desk and escapes in the box.",
+  "title": "Desktop Dash: Cactus Corner Quest"
+ },
+ "read_usage": {
+  "completion_tokens": 1691,
+  "prompt_tokens": 1354,
+  "total_tokens": 3045,
+  "completion_tokens_details": {
+   "reasoning_tokens": 1151
+  },
+  "prompt_tokens_details": {
+   "cached_tokens": 295
+  }
+ },
+ "sam_metadata": {
+  "mask_encoding": "one_bit",
+  "include_confidence": "true"
+ },
+ "answers": {
+  "coffee mug": "<0f>0<|box;x1=560;y1=383;x2=669;y2=481;w=1024;h=768;c=0.949367105960846|><|mask;x=0;y=0;c=0.949367105960846;data=99,110,!!!!!pEP5ohG_Q$NQhC:*R.NSvVOJdc4Y_%EC3u/3$`Cdsvt$$@.q+SdkC{-rejoO/'xeeW=Kxex4b[]l3Ryr3ShabXbXm9zaP|>\n",
+  "desk lamp": "<0f>0<|box;x1=161;y1=170;x2=297;y2=385;w=1024;h=768;c=0.8202247023582458|><|mask;x=0;y=0;c=0.8202247023582458;data=216,137,!!!!#$Dg:aG@M51:e0@]:dGd3unSn+gt?u^HSa%klU'_*`RXL-:1#t+-iuhS/V*&0*m8GS{BbB5V2R={2HNFmLuI-S4e'{KL[hV8%Jk]z`DLQn='/*b|>\n",
+  "cardboard box": "<0f>0<|box;x1=70;y1=472;x2=239;y2=639;w=1024;h=768;c=0.9139785170555115|><|mask;x=0;y=0;c=0.9139785170555115;data=168,170,!!!!!^D{e@4W+B9^xY:Rw1K{Kv_fT-k]]qX=U08nZnYtq1`)]lr.b9&KCJ[wzI(b5nBtFCJt.SK|>\n",
+  "blue notebook": "<0f>0<|box;x1=293;y1=429;x2=476;y2=521;w=1024;h=768;c=0.9336099624633789|><|mask;x=0;y=0;c=0.9336099624633789;data=93,184,!!!!!hB-CqE-iwl'=/)j%O@F=k3ut0ph`!u5kxtRGjiH/M?]4hG)$Me[A=ii]R5W%7$lK$2JqiUGd+/(vQwI^9!!|>,1<|box;x1=648;y1=283;x2=799;y2=311;w=1024;h=768;c=0.5936508178710938|><|mask;x=0;y=0;c=0.5936508178710938;data=29,152,!!!!!3D-hcz3XP*YJ$i[M+K25[|>\n",
+  "desk": "<0f>0<|box;x1=0;y1=319;x2=1023;y2=686;w=1024;h=768;c=0.7852349281311035|><|mask;x=0;y=0;c=0.7852349281311035;data=368,1024,!!!!(F?F!f%)Opthj.mZwq:EdAsonb8Sz4IiLyt56XV@A1#dlcE_+sakrhsMs'WjuP*AioZlyO)KxNFd*vXwMp/mzUvnFec3@fa)JjPw{ccc=#/JLXr#TE*2ZgTs*NbHp.fITlmI!u7Uu5a`y=1:{G=Os@W4_q@M6glq54=i%n%&iawalf`5`lt(RmklLbhRsrS75Jl_I3@3JP3acL6h.7vkG[Fl35%6iiD!KnkR#IZ3irs]yN%8C^g%F?N[xt]cC_ij5_[T?75aUmL:w+wHQ8(s)0Mj$F=KWfAEIoUSXjYrIR3hV0M1&BZ%-#?]GwE1?d{5W`jVE)M$q/vh$KwbRCM`1xhAyW5q?d%rM71tyS%&tYy4bhhh5RU-j7PSDUcfl2cv&8Ne$NG6t#*%_gp.r9`2-Y`@{`+7[L*U1az7%.`f(3009QAagKa-47J-`XT1L^5%9_vo$gtXS%u-J`85?#$WkopDmL0ypO7*#lu]oO-th=]BFaX&Z)A%m0u/kQL^kegVXP[DweeVcZob.q$Hry0j#m0?xUhM'R?R=?%VCeo8^vHFIWW7zAf?QP&e9#qF`di33dIh`tO#7fL3/kndkCiDm]lskKL3)e%rAt#D3!jJo-iqYvp(y](JyR+6VW$Gw*c%D-[%8qzu'd+8Q6=GT9Q[8:9l]RnA$o%J#r{=yr4Z|>\n",
+  "gold coin": "<0f>0<|box;x1=725;y1=552;x2=758;y2=572;w=1024;h=768;c=0.8827838897705078|><|mask;x=0;y=0;c=0.8827838897705078;data=21,34,!!!!!?H3H'npa.{Gl(M'ROHh]?bn5$5HPUMZ!!|>,1<|box;x1=283;y1=444;x2=316;y2=464;w=1024;h=768;c=0.8865247964859009|><|mask;x=0;y=0;c=0.8865247964859009;data=21,34,!!!!!?HOW:fQFNvRn$%1^$ov*vB{(RUofsf1!!|>,2<|box;x1=453;y1=332;x2=486;y2=352;w=1024;h=768;c=0.8787879347801208|><|mask;x=0;y=0;c=0.8787879347801208;data=21,34,!!!!!?H3J$72Ps[qSI!mOA$vM)*=eVnV8c{V!!|>\n",
+  "potted cactus": "<0f>0<|box;x1=806;y1=330;x2=897;y2=508;w=1024;h=768;c=0.9569892287254333|><|mask;x=0;y=0;c=0.9569892287254333;data=179,92,!!!!#4D]hL&GU26u:gxg7jAPDpckXH^vzp_2IQqG*#@?O)%zyZ.:6Z672-3[%KPtLz&F%#HgNX*A_.a-o@ieTKn9qjQ:(t@tx.iBuRUscR$b`H9kEcOBvA%SVlrnlL_Uf4?!!!|>\n",
+  "book stack": "<0f>0<|box;x1=636;y1=262;x2=811;y2=345;w=1024;h=768;c=0.9532163739204407|><|mask;x=0;y=0;c=0.9532163739204407;data=84,176,!!!!!NEgANpXZcJt.6McFAR8V.]^SC#C&@T[0aOmIxXulF*Ga3o*12(S|>\n"
+ }
+}

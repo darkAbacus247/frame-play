@@ -120,10 +120,17 @@ picture through them.
 
 ## Known limits (so far)
 
-- Live mode is written against the Model API's documented shapes and tested
-  only against a local stand-in; it has not yet been run against Meta.
-- sam-3.1's answer text is parsed from our reading of Meta's published SAM 3
-  text format; the first live answers will confirm it.
+- Live mode has been run against Meta once (2026-10-27, the desk sample
+  picture). Those calls showed that the first reader of sam-3.1's answer
+  text, written from a summary of Meta's documents, did not match the real
+  grammar, so every box was dropped. The reader is now written from those
+  recorded answers and tested against them
+  (`server/tests/fixtures/desk_1027.json`); a photo unlike the desk may
+  still bring a surprise, which the reader reports as a diagnostic instead
+  of guessing.
+- SAM's mask payload (Meta's opaque one_bit encoding) is checked for its
+  alphabet and its shape and not decoded; outlines are traced by code
+  inside SAM's boxes instead.
 - Live outlines are traced by code inside SAM's boxes; an object whose trace
   is not tight is traced again on a finer and a coarser grid, and if it is
   still not tight it falls back to its box, and the reveal says so. Small, low

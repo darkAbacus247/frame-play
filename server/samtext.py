@@ -1,63 +1,50 @@
-"""The sam-3.1 answer text: a frame marker, then records of an id, a box and
-a mask, with the image size and an optional confidence.
+"""The sam-3.1 answer text: a frame marker, then one record per match.
 
-The grammar below is this project's reading of Meta's published SAM 3 text
-format as summarised in our specification. It is written for this project,
-from that summary only; the first live answers confirm it (step S15), and
-the parser reports every surprise as a diagnostic instead of guessing:
+The grammar below is read from sam-3.1's own answers, recorded on the first
+live calls (10-27; the desk sample picture, nine calls). Each record is an
+id, a box token and a mask token; later records follow a comma; a newline
+may end the text:
 
-    <0f>                              the frame marker; text before it is ignored
-    <w>1024<h>768                     the image size (the frame's, or a record's)
-    <id>1<box>x1 y1 x2 y2<c>0.93<mask>ENVELOPE   one record per match
+    <0f>0<|box;x1=560;y1=383;x2=669;y2=481;w=1024;h=768;c=0.9493|><|mask;x=0;y=0;c=0.9493;data=99,110,PAYLOAD|>,1<|box;...|><|mask;...|>
 
-- Tags are <name>; a tag's value runs to the next tag, except a mask, whose
-  envelope says its own length (its alphabet includes < and >).
-- Box corners are source pixels with x2 and y2 inclusive; they are made
-  half-open here: [x1, y1, x2 + 1, y2 + 1].
-- w and h must equal the size of the copy that was sent.
-- A mask envelope is the encoding marker "1" (one_bit), a five-character
-  length prefix in the base85 alphabet (a 32-bit count of payload
-  characters), and the payload in that alphabet. The payload is an
-  arithmetic-coded raster that only Meta's own parser decodes: here it is
-  checked and its size noted, and it is not kept.
+- A token is <|name;key=value;...|>. Its values never hold ';', '|' or '>'
+  (the payload's alphabet leaves them out), so a token ends at its first
+  '|>' and its fields split on ';'.
+- box: x1 y1 x2 y2 in source pixels with x2 and y2 inclusive (made
+  half-open here: [x1, y1, x2 + 1, y2 + 1]); w and h, the picture's size,
+  which must equal the copy that was sent; c, the confidence.
+- mask: x and y (offsets), c, and data = rows,cols,PAYLOAD, where rows and
+  cols are the box's own height and width. The payload is Meta's opaque
+  one_bit encoding in an 85-character alphabet; it is checked (alphabet,
+  shape) and its size noted, and it is not decoded or kept: the page traces
+  inside the box instead.
+- No match at all is the frame marker alone ('<0f>', perhaps with a
+  newline).
 
-Diagnostics: malformed_record (an error; the record is dropped), and
-ignored_field, ignored_token and ignored_confidence (warnings, once per
-answer each).
+Diagnostics. Errors: no_frame (not text, or no marker), malformed_record
+(the record is dropped), size_mismatch. Warnings, once per answer each:
+empty_answer (no text at all, read as no match), ignored_token (text the
+grammar does not have), ignored_field (an unknown key or token),
+ignored_confidence (out of range, or the mask's differs from the box's),
+no_mask (a record without its mask token; kept), mask_shape (the mask's
+rows and cols are not the box's; the record is kept).
+The parser never raises on bad input.
 """
 import re
 
 FRAME = '<0f>'
-B85 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~'
-_B85_SET = frozenset(B85)
-MASK_ONE_BIT = '1'
-_TAG = re.compile(r'<([a-z0-9]{1,8})>')
-KNOWN = {'id', 'box', 'c', 'w', 'h', 'mask'}
+# the payload alphabet, as the recorded answers use it: the printable ASCII
+# characters from '!' to '~' without " , ; < > \ | } ~ (85 of them)
+ALPHABET = ''.join(ch for ch in map(chr, range(33, 127)) if ch not in '",;<>\\|}~')
+_ALPHABET_SET = frozenset(ALPHABET)
+BOX_KEYS = ('x1', 'y1', 'x2', 'y2', 'w', 'h', 'c')
+MASK_KEYS = ('x', 'y', 'c', 'data')
 
-
-def b85_count(n):
-    """The five-character length prefix for n (for the stand-in and tests)."""
-    if not 0 <= n < 85 ** 5:
-        raise ValueError('length out of range')
-    out = []
-    for _ in range(5):
-        out.append(B85[n % 85])
-        n //= 85
-    return ''.join(reversed(out))
-
-
-def _b85_value(s):
-    v = 0
-    for ch in s:
-        v = v * 85 + B85.index(ch)
-    return v
-
-
-def envelope(payload):
-    """A well-formed one_bit envelope around an opaque payload."""
-    if any(ch not in _B85_SET for ch in payload):
-        raise ValueError('payload outside the alphabet')
-    return MASK_ONE_BIT + b85_count(len(payload)) + payload
+_SEP = re.compile(r'[\s,]*')
+_RECORD = re.compile(r'(\d{1,6})?<\|box;([^|<>]*)\|>(?:<\|mask;([^|<>]*)\|>)?')
+_TOKEN = re.compile(r'<\|([a-z0-9_]{1,16})(?:;[^|<>]*)?\|>')
+_RESYNC = re.compile(r'\d*<\|')
+_INT = re.compile(r'\d{1,6}')
 
 
 class Parsed:
@@ -66,7 +53,7 @@ class Parsed:
         self.height = None
         self.records = []      # dicts: id, box (half-open), confidence, mask
         self.errors = []       # malformed_record, size_mismatch, no_frame
-        self.warnings = []     # ignored_field, ignored_token, ignored_confidence
+        self.warnings = []     # see the module's words
 
     def warn_once(self, code):
         if code not in self.warnings:
@@ -77,35 +64,63 @@ class Parsed:
                 'errors': self.errors, 'warnings': self.warnings}
 
 
-def _ints(text, n):
-    parts = text.split()
-    if len(parts) != n or not all(re.fullmatch(r'-?\d{1,6}', p) for p in parts):
+def _fields(body, known, out):
+    """key=value fields of a token body, or None when one is not key=value
+    or a key repeats. Unknown keys are noted and left out."""
+    fields = {}
+    for part in body.split(';') if body else []:
+        key, eq, value = part.partition('=')
+        if not eq or not key or key in fields:
+            return None
+        if key not in known:
+            out.warn_once('ignored_field')
+            continue
+        fields[key] = value
+    return fields
+
+
+def _confidence(value):
+    try:
+        c = float(value)
+    except (TypeError, ValueError):
         return None
-    return [int(p) for p in parts]
+    return c if 0.0 <= c <= 1.0 else None
 
 
-def _finish(rec, out, width, height):
-    """Check one record; append it or note malformed_record."""
-    if rec is None:
-        return
-    w = rec.get('w', width)
-    h = rec.get('h', height)
-    box = rec.get('box')
-    ok = isinstance(rec.get('id'), int) and box is not None and rec.get('mask_ok') is not False
-    if ok:
-        x1, y1, x2, y2 = box
-        ok = 0 <= x1 <= x2 and 0 <= y1 <= y2 and (w is None or x2 < w) and (h is None or y2 < h)
-    if not ok:
+def _record(rid, box_body, mask_body, out):
+    """Check one record; returns it, or None after noting malformed_record."""
+    box = _fields(box_body, BOX_KEYS, out)
+    if rid is None or box is None or not all(k in box and _INT.fullmatch(box[k]) for k in BOX_KEYS[:6]):
         out.errors.append('malformed_record')
-        return
-    out.records.append({
-        'id': rec['id'],
-        'box': [box[0], box[1], box[2] + 1, box[3] + 1],
-        'confidence': rec.get('c'),
-        'mask': rec.get('mask'),
-        'w': w,
-        'h': h,
-    })
+        return None
+    x1, y1, x2, y2, w, h = (int(box[k]) for k in BOX_KEYS[:6])
+    if not (0 <= x1 <= x2 < w and 0 <= y1 <= y2 < h):
+        out.errors.append('malformed_record')
+        return None
+    c = None
+    if 'c' in box:
+        c = _confidence(box['c'])
+        if c is None:
+            out.warn_once('ignored_confidence')
+    mask = None
+    if mask_body is None:
+        out.warn_once('no_mask')
+    else:
+        m = _fields(mask_body, MASK_KEYS, out)
+        data = (m or {}).get('data', '').split(',', 2)
+        if m is None or len(data) != 3 or not all(_INT.fullmatch(v) for v in data[:2]) \
+                or not all(_INT.fullmatch(m.get(k, '')) for k in ('x', 'y')) \
+                or not data[2] or any(ch not in _ALPHABET_SET for ch in data[2]):
+            out.errors.append('malformed_record')
+            return None
+        rows, cols = int(data[0]), int(data[1])
+        if (rows, cols) != (y2 - y1 + 1, x2 - x1 + 1):
+            out.warn_once('mask_shape')
+        if 'c' in m and _confidence(m['c']) != c:
+            out.warn_once('ignored_confidence')
+        mask = {'encoding': 'one_bit', 'rows': rows, 'cols': cols, 'x': int(m['x']), 'y': int(m['y']),
+                'payload_chars': len(data[2])}
+    return {'id': int(rid), 'box': [x1, y1, x2 + 1, y2 + 1], 'confidence': c, 'mask': mask, 'w': w, 'h': h}
 
 
 def parse(text, expect_w=None, expect_h=None):
@@ -113,6 +128,9 @@ def parse(text, expect_w=None, expect_h=None):
     out = Parsed()
     if not isinstance(text, str):
         out.errors.append('no_frame')
+        return out
+    if not text.strip():
+        out.warn_once('empty_answer')
         return out
     start = text.find(FRAME)
     if start < 0:
@@ -122,76 +140,45 @@ def parse(text, expect_w=None, expect_h=None):
         out.warn_once('ignored_token')
     i = start + len(FRAME)
     n = len(text)
-    rec = None
-    while i < n:
-        m = _TAG.search(text, i)
-        gap = text[i:m.start()] if m else text[i:]
-        if gap.strip():
-            out.warn_once('ignored_token')
-        if not m:
+    while True:
+        i = _SEP.match(text, i).end()
+        if i >= n:
             break
-        tag = m.group(1)
-        i = m.end()
-        if tag == 'mask':
-            env = _read_mask(text, i)
-            if rec is None:
+        m = _RECORD.match(text, i)
+        if m and m.group(3) is None and text.startswith('<|mask', m.end()):
+            # a mask token cut short: the whole record is broken
+            out.errors.append('malformed_record')
+            nxt = _RESYNC.search(text, m.end() + 1)
+            i = nxt.start() if nxt else n
+            continue
+        if m:
+            rec = _record(m.group(1), m.group(2), m.group(3), out)
+            if rec is not None:
+                out.records.append(rec)
+            i = m.end()
+            continue
+        m = _TOKEN.match(text, i)
+        if m:
+            # a mask with no box before it is a broken record; any other
+            # token is one this grammar does not have
+            if m.group(1) in ('box', 'mask'):
                 out.errors.append('malformed_record')
             else:
-                rec['mask'] = env['mask']
-                rec['mask_ok'] = env['ok']
-            i = env['end']
+                out.warn_once('ignored_field')
+            i = m.end()
             continue
-        nxt = _TAG.search(text, i)
-        value = (text[i:nxt.start()] if nxt else text[i:]).strip()
+        nxt = _RESYNC.search(text, i + 1)
+        stray = text[i:nxt.start() if nxt else n]
+        # an unclosed or broken token is a broken record; other text is noise
+        if '<|box' in stray or '<|mask' in stray:
+            out.errors.append('malformed_record')
+        else:
+            out.warn_once('ignored_token')
         i = nxt.start() if nxt else n
-        if tag == '0f':
-            _finish(rec, out, out.width, out.height)
-            rec = None
-            continue
-        if tag not in KNOWN:
-            out.warn_once('ignored_field')
-            continue
-        if tag == 'id':
-            _finish(rec, out, out.width, out.height)
-            rec = {'id': int(value) if re.fullmatch(r'\d{1,6}', value) else None}
-        elif tag in ('w', 'h'):
-            v = int(value) if re.fullmatch(r'\d{1,5}', value) else None
-            if v is None:
-                if rec is not None:
-                    rec['mask_ok'] = False
-                else:
-                    out.errors.append('malformed_record')
-                continue
-            if rec is None:
-                if tag == 'w':
-                    out.width = v
-                else:
-                    out.height = v
-            else:
-                rec[tag] = v
-        elif tag == 'box':
-            if rec is None:
-                out.errors.append('malformed_record')
-                continue
-            rec['box'] = _ints(value, 4)
-        elif tag == 'c':
-            if rec is None:
-                out.warn_once('ignored_confidence')
-                continue
-            try:
-                c = float(value)
-            except ValueError:
-                c = None
-            if c is None or not 0.0 <= c <= 1.0 or 'c' in rec:
-                out.warn_once('ignored_confidence')
-                continue
-            rec['c'] = c
-    _finish(rec, out, out.width, out.height)
+    if out.records:
+        out.width, out.height = out.records[0]['w'], out.records[0]['h']
     if expect_w is not None and expect_h is not None:
-        sizes = {(r['w'], r['h']) for r in out.records}
-        if out.width is not None or out.height is not None:
-            sizes.add((out.width, out.height))
-        if any(s != (expect_w, expect_h) for s in sizes):
+        if any((r['w'], r['h']) != (expect_w, expect_h) for r in out.records):
             out.errors.append('size_mismatch')
     for r in out.records:
         r.pop('w', None)
@@ -199,20 +186,16 @@ def parse(text, expect_w=None, expect_h=None):
     return out
 
 
-def _read_mask(text, i):
-    """Check a mask envelope at text[i:]. Returns where it ends, whether it
-    is well formed, and what is noted about it (never the payload)."""
-    if text[i:i + 1] != MASK_ONE_BIT:
-        nxt = _TAG.search(text, i)
-        return {'end': nxt.start() if nxt else len(text), 'ok': False, 'mask': None}
-    prefix = text[i + 1:i + 6]
-    if len(prefix) != 5 or any(ch not in _B85_SET for ch in prefix):
-        nxt = _TAG.search(text, i)
-        return {'end': nxt.start() if nxt else len(text), 'ok': False, 'mask': None}
-    count = _b85_value(prefix)
-    body_start = i + 6
-    body = text[body_start:body_start + count]
-    if len(body) != count or any(ch not in _B85_SET for ch in body):
-        nxt = _TAG.search(text, body_start)
-        return {'end': nxt.start() if nxt else len(text), 'ok': False, 'mask': None}
-    return {'end': body_start + count, 'ok': True, 'mask': {'encoding': 'one_bit', 'payload_chars': count}}
+def compose(matches, W, H, newline=True):
+    """An answer text in this grammar, for the stand-in and tests. matches:
+    dicts with box (inclusive [x1, y1, x2, y2]), confidence and payload."""
+    parts = []
+    for i, m in enumerate(matches):
+        x1, y1, x2, y2 = m['box']
+        c = m['confidence']
+        payload = m['payload']
+        if any(ch not in _ALPHABET_SET for ch in payload) or not payload:
+            raise ValueError('payload outside the alphabet')
+        parts.append(f'{i}<|box;x1={x1};y1={y1};x2={x2};y2={y2};w={W};h={H};c={c}|>'
+                     f'<|mask;x=0;y=0;c={c};data={y2 - y1 + 1},{x2 - x1 + 1},{payload}|>')
+    return FRAME + ','.join(parts) + ('\n' if newline else '')

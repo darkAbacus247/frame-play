@@ -493,7 +493,7 @@ class Pipeline:
                     'box': m['box'],
                     'confidence': m['confidence'],
                     'seeds': seeds,
-                    'mask': {'height': H, 'width': W, 'encoding': 'one_bit', 'decoded': False,
+                    'mask': {'height': y1 - y0, 'width': x1 - x0, 'encoding': 'one_bit', 'decoded': False,
                              'payload_chars': (m['mask'] or {}).get('payload_chars')},
                 })
         if spend_stopped and not objects:

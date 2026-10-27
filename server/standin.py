@@ -115,7 +115,7 @@ def payload(room_id, obj_id, area):
     seed = _digest(room_id, obj_id, 'mask')
     while len(out) < n:
         seed = hashlib.sha256(seed).digest()
-        out.extend(samtext.B85[b % 85] for b in seed)
+        out.extend(samtext.ALPHABET[b % 85] for b in seed)
     return ''.join(out[:n])
 
 
@@ -158,22 +158,22 @@ class StandIn:
         RW, RH = self.room['width'], self.room['height']
         sx, sy = W / RW, H / RH
         if self.drill == 'zero_matches':
-            return f'<0f><w>{W}<h>{H}'
+            return samtext.compose([], W, H)
         if self.room.get('surface') and noun == self.room['surface']['name']:
             matches = [('surface', self.room['surface']['shape'])]
         else:
             matches = [(o['id'], o['shape']) for o in self.room['objects'] if o['name'] == noun]
-        parts = [f'<0f><w>{W}<h>{H}']
-        for i, (oid, shape) in enumerate(matches, 1):
+        found = []
+        for oid, shape in matches:
             b = pixel_box(shape, RW, RH)
             if (sx, sy) != (1, 1):
                 b = [math.floor(b[0] * sx), math.floor(b[1] * sy), min(W - 1, math.ceil((b[2] + 1) * sx) - 1), min(H - 1, math.ceil((b[3] + 1) * sy) - 1)]
             area = (b[2] - b[0] + 1) * (b[3] - b[1] + 1)
-            parts.append(f'<id>{i}<box>{b[0]} {b[1]} {b[2]} {b[3]}<c>{confidence(self.room_id, oid):.2f}'
-                         f'<mask>{samtext.envelope(payload(self.room_id, oid, area))}')
+            found.append({'box': b, 'confidence': confidence(self.room_id, oid), 'payload': payload(self.room_id, oid, area)})
+        text = samtext.compose(found, W, H, newline=False)
         if self.drill == 'malformed_record':
-            parts.append('<id>99<box>5 5 1<c>0.9<mask>' + samtext.envelope('abc'))
-        return ''.join(parts)
+            text += f'{"," if found else ""}{len(found)}<|box;x1=5;y1=5;x2=1;w={W};h={H};c=0.9|><|mask;x=0;y=0;c=0.9;data=1,1,!|>'
+        return text + '\n'
 
     def answer(self, path, headers, body):
         """(status, headers, JSON) for one request."""

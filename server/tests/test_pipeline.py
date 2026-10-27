@@ -11,7 +11,7 @@ from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import Transport
 from server.pipeline import Pipeline, clean_read, name_problem
-from server.samtext import envelope
+from server.samtext import compose
 from server.server import Log
 from server.tests import images
 from server.tests.fakemeta import FakeMeta, ok_json, sam_answer, spark_answer
@@ -36,15 +36,20 @@ READ = {
     'title': 'The Desk',
     'theme_line': 'Gather the coins.',
 }
-M = envelope('abc')
+
+
+def ans(*matches):
+    """An answer text in sam-3.1's grammar: matches of (x1, y1, x2, y2, c)."""
+    return compose([{'box': m[:4], 'confidence': m[4], 'payload': 'abc'} for m in matches], W, H)
+
+
 ANSWERS = {
-    'desk': f'<0f><w>{W}<h>{H}<id>1<box>0 20 63 47<c>0.97<mask>{M}',
-    'mug': f'<0f><w>{W}<h>{H}<id>1<box>5 20 14 30<c>0.91<mask>{M}<id>2<box>40 40 41 41<c>0.2<mask>{M}',
-    'coin': (f'<0f><w>{W}<h>{H}<id>1<box>20 30 23 33<c>0.8<mask>{M}<id>2<box>30 30 33 33<c>0.9<mask>{M}'
-             f'<id>3<box>40 30 43 33<c>0.7<mask>{M}<id>4<box>50 30 53 33<c>0.6<mask>{M}'),
-    'cactus': f'<0f><w>{W}<h>{H}<id>1<box>50 20 55 28<c>0.88<mask>{M}<id>2<box>10 40 12 42<c>0.5<mask>{M}',
-    'box': f'<0f><w>{W}<h>{H}<id>1<box>25 21 35 27<c>0.95<mask>{M}',
-    'lamp': f'<0f><w>{W}<h>{H}',
+    'desk': ans((0, 20, 63, 47, 0.97)),
+    'mug': ans((5, 20, 14, 30, 0.91), (40, 40, 41, 41, 0.2)),
+    'coin': ans((20, 30, 23, 33, 0.8), (30, 30, 33, 33, 0.9), (40, 30, 43, 33, 0.7), (50, 30, 53, 33, 0.6)),
+    'cactus': ans((50, 20, 55, 28, 0.88), (10, 40, 12, 42, 0.5)),
+    'box': ans((25, 21, 35, 27, 0.95)),
+    'lamp': ans(),
 }
 
 
@@ -94,7 +99,7 @@ class Reads(WithFake):
         mug = r['objects'][0]
         self.assertEqual(mug['box'], [5, 20, 15, 31], 'half-open boxes')
         self.assertEqual(mug['seeds'], [[12.8, 24.0]], 'seeds in pixels, inside the box')
-        self.assertEqual(mug['mask'], {'height': H, 'width': W, 'encoding': 'one_bit', 'decoded': False, 'payload_chars': 3})
+        self.assertEqual(mug['mask'], {'height': 11, 'width': 10, 'encoding': 'one_bit', 'decoded': False, 'payload_chars': 3})
         self.assertIn('not found: lamp', r['warnings'])
         self.assertTrue(any('left hand' in w for w in r['warnings']), 'a body word is dropped')
         self.assertEqual(r['usage']['spark_calls'], 1)
@@ -152,7 +157,7 @@ class Reads(WithFake):
 
     def test_zero_matches(self):
         self.fake.on('/chat/completions', spark_answer(READ))
-        self.fake.always('/responses', sam_answer(f'<0f><w>{W}<h>{H}'))
+        self.fake.always('/responses', sam_answer('<0f>\n'))
         r = self.pipe.run(photo())
         self.assertEqual((r['status'], r['error']['code']), ('error', 'nothing_found'))
         self.assertIn('not found: mug', r['warnings'])
@@ -169,7 +174,7 @@ class Reads(WithFake):
 
     def test_a_size_mismatch_is_not_used(self):
         self.fake.on('/chat/completions', spark_answer(READ))
-        wrong = dict(ANSWERS, mug=ANSWERS['mug'].replace(f'<w>{W}', '<w>999'))
+        wrong = dict(ANSWERS, mug=ANSWERS['mug'].replace(f'w={W}', 'w=999'))
         self.fake.always('/responses', sam_by_noun(wrong))
         r = self.pipe.run(photo())
         self.assertNotIn('mug', [o['name'] for o in r['objects']])
