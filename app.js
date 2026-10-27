@@ -14,7 +14,7 @@ import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tou
 import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
-import { levelFromReply, makeOwnRoom, signature, keptLevel, standInReplyRefusal } from './src/own.js';
+import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLevel, standInReplyRefusal } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
   freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS,
@@ -105,6 +105,9 @@ async function sample(id) {
     built: buildLevel(inputFromRoom(room)),
     // how its picture looks, so a rehearsal knows the sample's own picture
     sig: signature({ width: room.width, height: room.height, data: painted.rgba }),
+    // and where its objects sit, finely, so an edited copy is refused
+    fine: fineGrid({ width: room.width, height: room.height, data: painted.rgba }),
+    boxes: objectBoxes(room),
   };
   A.samples.set(id, entry);
   return entry;
@@ -702,7 +705,7 @@ function ownDeps() {
     preview: previewPhoto,
     readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
     send: (blob, onWords) => sendPhoto(blob, (m) => onWords(m.words)),
-    samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig })),
+    samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
     stored: storedEntry,
   };
 }

@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LABELS } from '../src/level.js';
-import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, keptLevel, standInReplyRefusal, OTHER_ROOM_WORDS, MOCK_WORDS } from '../src/own.js';
+import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, keptLevel, standInReplyRefusal, fineGrid, objectBoxes, worstBox, MATCH_BOX, OTHER_ROOM_WORDS, MOCK_WORDS } from '../src/own.js';
 import { paintRoom } from '../src/painter.js';
 import { rooms, replyFor } from './replies.js';
+import { readFileSync } from 'node:fs';
 import { jpegLike } from './jpegsim.js';
 
-const SAMPLES = Object.entries(rooms).map(([id, r]) => ({ id, title: r.room.title, sig: signature(r.pixels) }));
+const SAMPLES = Object.entries(rooms).map(([id, r]) => ({ id, title: r.room.title, sig: signature(r.pixels), fine: fineGrid(r.pixels), boxes: objectBoxes(r.room) }));
 const sent = (id) => ({ ...rooms[id].pixels, data: jpegLike(rooms[id].pixels.data, rooms[id].pixels.width, rooms[id].pixels.height, 90) });
 
 function noise(width, height, seed = 11) {
@@ -199,6 +200,78 @@ test('REHEARSAL refuses edited copies of its sample picture, and sends nothing',
     assert.equal(calls.send, 1, `${name}: sent`);
     if (pixels.width === 1024) assert.equal(r.kind, 'built', `${name}: ${r.words}`);
   }
+});
+
+// A copy of another size, each pixel the area mean of what it covers.
+function resize({ width, height, data }, w, h) {
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const x0 = (x * width) / w, x1 = ((x + 1) * width) / w, y0 = (y * height) / h, y1 = ((y + 1) * height) / h;
+    const sum = [0, 0, 0, 0];
+    let n = 0;
+    for (let yy = Math.floor(y0); yy < Math.ceil(y1); yy++) for (let xx = Math.floor(x0); xx < Math.ceil(x1); xx++) {
+      const a = (Math.min(xx + 1, x1) - Math.max(xx, x0)) * (Math.min(yy + 1, y1) - Math.max(yy, y0));
+      for (let k = 0; k < 4; k++) sum[k] += a * data[4 * (yy * width + xx) + k];
+      n += a;
+    }
+    for (let k = 0; k < 4; k++) out[4 * (y * w + x) + k] = sum[k] / n;
+  }
+  return { width: w, height: h, data: out };
+}
+// One object (with its shade and details) moved by dx, dy, in a room
+// painted by the page's own painter.
+function oneMoved(id, oid, dx, dy) {
+  const room = structuredClone(rooms[id].room);
+  const o = room.objects.find((x) => x.id === oid);
+  const shift = (rings) => rings.map((r) => r.map(([x, y]) => [x + dx, y + dy]));
+  for (const s of room.shades.filter(shadeOf(o))) s.ellipse = [s.ellipse[0] + dx, s.ellipse[1] + dy, ...s.ellipse.slice(2)];
+  o.rings = shift(o.rings);
+  for (const d of o.details) d.rings = shift(d.rings);
+  o.bounds = { x0: o.bounds.x0 + dx, y0: o.bounds.y0 + dy, x1: o.bounds.x1 + dx, y1: o.bounds.y1 + dy };
+  return jpeg({ width: room.width, height: room.height, data: paintRoom(room).rgba });
+}
+
+test('REHEARSAL looks at each object’s place before sending: faithful copies go, an object moved 8 px does not', async () => {
+  for (const id of ['desk', 'living']) {
+    const P = rooms[id].pixels;
+    const faithful = { 'quality 90': jpeg(P), 'quality 40': jpeg(P, 40), 'half size': half(P), '800x600': jpeg(resize(P, 800, 600)) };
+    for (const [name, pixels] of Object.entries(faithful)) {
+      const { calls, deps: d } = deps(replyFor(id, 'rehearsal'));
+      const r = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: id, file: file(pixels), deps: d, yieldNow: quick });
+      assert.equal(calls.send, 1, `${id}, ${name}: sent (${worstBox(fineGrid(pixels), SAMPLES.find((s) => s.id === id).fine, objectBoxes(rooms[id].room)).toFixed(2)})`);
+      if (pixels.width === 1024) assert.equal(r.kind, 'built', `${id}, ${name}: ${r.words}`);
+    }
+    // every object on the surface, moved 8 px each way: the coarse check
+    // or the boxes refuse it
+    for (const o of rooms[id].room.objects.filter((x) => x.on_surface)) {
+      for (const [dx, dy] of [[8, 0], [-8, 0], [0, 8], [0, -8]]) {
+        const { calls, deps: d } = deps(replyFor(id, 'rehearsal'));
+        const r = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: id, file: file(oneMoved(id, o.id, dx, dy)), deps: d, yieldNow: quick });
+        assert.equal(r.kind, 'refused', `${id}: ${o.id} moved ${dx},${dy}`);
+        assert.match(r.words, /Nothing was sent, and no level is made from it\./);
+        assert.equal(calls.send, 0, `${id}: ${o.id} moved ${dx},${dy}: never sent`);
+      }
+    }
+  }
+  // the coin moved 8 px that the coarse grid alone let through
+  const coin = oneMoved('desk', 'coin1', 8, 0);
+  assert.equal(matchSample(signature(coin), SAMPLES), 'desk');
+  assert.ok(worstBox(fineGrid(coin), SAMPLES[0].fine, SAMPLES[0].boxes) > MATCH_BOX);
+  const { deps: d } = deps(replyFor('desk', 'rehearsal'));
+  const r = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(coin), deps: d, yieldNow: quick });
+  assert.match(r.words, /^This is an edited copy of the sample picture of The Desk Top/);
+});
+
+test('the limit is said as it is: a coin nudged 4 px can pass, and the words say so', async () => {
+  const nudged = oneMoved('desk', 'coin1', 4, 0);
+  const { calls, deps: d } = deps(replyFor('desk', 'rehearsal'));
+  await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(nudged), deps: d, yieldNow: quick });
+  assert.equal(calls.send, 1, 'too small for the checks to see');
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+  assert.match(readme, /An edit of a few pixels \(a coin nudged by 4 px, a small mark\) can pass/);
+  assert.doesNotMatch(readme, /an object erased, moved or pasted/);
+  const screens = readFileSync(new URL('../src/screens.js', import.meta.url), 'utf8');
+  assert.match(screens, /an edit of a few pixels can pass/);
 });
 
 test('REHEARSAL builds from the stand-in’s own picture, and never from an answer for another room', async () => {

@@ -14,7 +14,7 @@ import { paintRoom } from '../src/painter.js';
 import { fillRings } from '../src/raster.js';
 import { shrinkSize } from '../src/reply.js';
 import { sha256Hex, sendPhoto } from '../src/photo.js';
-import { makeOwnRoom, signature } from '../src/own.js';
+import { makeOwnRoom, signature, fineGrid, objectBoxes } from '../src/own.js';
 import { jpegLike } from './jpegsim.js';
 import { encodePNG, decodePNG } from './png.js';
 
@@ -26,7 +26,10 @@ for (const id of ['desk', 'living']) {
   const room = loadRoom(JSON.parse(readFileSync(new URL(`../rooms/${id}.json`, import.meta.url), 'utf8')));
   rooms[id] = { room, rgba: paintRoom(room).rgba };
 }
-const SAMPLES = Object.entries(rooms).map(([id, r]) => ({ id, title: r.room.title, sig: signature({ width: r.room.width, height: r.room.height, data: r.rgba }) }));
+const SAMPLES = Object.entries(rooms).map(([id, r]) => {
+  const pixels = { width: r.room.width, height: r.room.height, data: r.rgba };
+  return { id, title: r.room.title, sig: signature(pixels), fine: fineGrid(pixels), boxes: objectBoxes(r.room) };
+});
 
 function startPair(room) {
   return new Promise((resolve, reject) => {

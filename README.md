@@ -28,10 +28,12 @@ so plainly:
 - **MOCK** (no key): nothing reads the photo, so nothing is invented. It is
   shown on your device only, and the road goes on to its end.
 - **REHEARSAL** (the local stand-in): the stand-in only knows its sample
-  room's own picture, which the page offers to save. Any other photo, or an
-  edited copy of that picture (an object erased, moved or pasted, a crop),
-  is refused in words before anything is sent, and no level is made from
-  it.
+  room's own picture, which the page offers to save. Any other photo, or a
+  copy of that picture edited enough for the page's check to see (an
+  object erased or pasted, an object moved by 8 px or more, a crop), is
+  refused in words before anything is sent, and no level is made from it.
+  An edit of a few pixels (a coin nudged by 4 px, a small mark) can pass,
+  and the stand-in then answers with its sample's own places.
 
 A photo that is refused (in any mode) is not shown; the screen says in
 words why no room was made from it.

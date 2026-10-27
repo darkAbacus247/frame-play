@@ -7,8 +7,12 @@
 //   The photo is shown on this device only.
 // - REHEARSAL: the local stand-in only knows the sample rooms' own
 //   pictures, so only the picture of the room it was started for is sent,
-//   or a faithful copy of it (re-encoded, resized). Any other photo, or an
-//   edited copy, is refused in words, and no level is made from it.
+//   or a faithful copy of it (re-encoded, resized). Any other photo, or a
+//   copy edited enough for these checks to see (an object erased, pasted
+//   or moved by 8 px or more, a crop), is refused in words before anything
+//   is sent, and no level is made from it. An edit of a few pixels (a coin
+//   nudged by 4 px, a small mark) can pass; the stand-in then answers with
+//   its sample's own places.
 // No page here: the page hands in its photo, send and save helpers, so the
 // gating is tested in Node.
 import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from './reply.js';
@@ -19,16 +23,18 @@ export const MOCK_WORDS = 'Reading a real photo needs the live AI (Meta’s mode
 
 // A small fingerprint of how a picture looks: its shape, and the mean
 // colour of each cell of a 32 by 24 grid (32 px cells at 1024x768). JPEG
-// and shrinking barely move it; a different or edited picture moves it a
-// lot, at least in the cells it touches.
+// and shrinking barely move it; a different picture, or a large edit, moves
+// it a lot, at least in the cells it touches. A small edit inside one cell
+// can stay under its limits (the object boxes below look more finely).
 const GW = 32, GH = 24;
-export function signature({ width, height, data }) {
-  const sums = new Float64Array(GW * GH * 3);
-  const counts = new Float64Array(GW * GH);
+// The mean colour of each cell of a gw by gh grid, 3 values per cell.
+function cellMeans({ width, height, data }, gw, gh) {
+  const sums = new Float64Array(gw * gh * 3);
+  const counts = new Float64Array(gw * gh);
   for (let y = 0; y < height; y++) {
-    const row = Math.min(GH - 1, Math.floor((y * GH) / height)) * GW;
+    const row = Math.min(gh - 1, Math.floor((y * gh) / height)) * gw;
     for (let x = 0; x < width; x++) {
-      const c = row + Math.min(GW - 1, Math.floor((x * GW) / width));
+      const c = row + Math.min(gw - 1, Math.floor((x * gw) / width));
       const i = 4 * (y * width + x);
       sums[3 * c] += data[i];
       sums[3 * c + 1] += data[i + 1];
@@ -36,9 +42,49 @@ export function signature({ width, height, data }) {
       counts[c]++;
     }
   }
-  const cells = new Float32Array(GW * GH * 3);
-  for (let c = 0; c < GW * GH; c++) for (let k = 0; k < 3; k++) cells[3 * c + k] = counts[c] ? sums[3 * c + k] / counts[c] : 0;
-  return { aspect: width / height, cells };
+  const cells = new Float32Array(gw * gh * 3);
+  for (let c = 0; c < gw * gh; c++) for (let k = 0; k < 3; k++) cells[3 * c + k] = counts[c] ? sums[3 * c + k] / counts[c] : 0;
+  return cells;
+}
+export function signature(pixels) {
+  return { aspect: pixels.width / pixels.height, cells: cellMeans(pixels, GW, GH) };
+}
+
+// A finer look, for the places of the sample's objects: a 256 by 192 grid
+// (4 px blocks at 1024x768).
+export const FW = 256, FH = 192;
+export function fineGrid(pixels) {
+  return cellMeans(pixels, FW, FH);
+}
+
+// Where each object on the sample's surface sits, as cells of the fine
+// grid: its bounds grown by 6 px, and 8 px more below for its shade.
+export function objectBoxes(room) {
+  const cx = (x) => Math.min(FW - 1, Math.max(0, Math.floor((x * FW) / room.width)));
+  const cy = (y) => Math.min(FH - 1, Math.max(0, Math.floor((y * FH) / room.height)));
+  return room.objects.filter((o) => o.on_surface).map((o) => ({
+    id: o.id, x0: cx(o.bounds.x0 - 6), y0: cy(o.bounds.y0 - 6), x1: cx(o.bounds.x1 + 6), y1: cy(o.bounds.y1 + 6 + 8),
+  }));
+}
+
+// The largest mean colour difference over any one object's box, all three
+// channels: a faithful copy stays low there (a JPEG at quality 40 reaches
+// 4.0, an 800x600 copy 4.7); an object moved by 8 px leaves its box and
+// reaches 7 or more.
+export const MATCH_BOX = 6.5;
+export function worstBox(fine, ref, boxes) {
+  let worst = 0;
+  for (const b of boxes) {
+    let sum = 0, n = 0;
+    for (let y = b.y0; y <= b.y1; y++) {
+      for (let x = b.x0; x <= b.x1; x++) {
+        for (let k = 0; k < 3; k++) sum += Math.abs(fine[3 * (y * FW + x) + k] - ref[3 * (y * FW + x) + k]);
+        n += 3;
+      }
+    }
+    if (n && sum / n > worst) worst = sum / n;
+  }
+  return worst;
 }
 
 // How far a picture's fingerprint is from a sample's: the mean and the
@@ -56,10 +102,11 @@ export function sigDistance(sig, ref) {
   return { mean: sum / sig.cells.length, max };
 }
 
-// A faithful copy (re-encoded, resized) stays within these; an edited copy
-// (an object erased, moved or pasted, a crop, a shift, a colour change)
-// does not: a faithful JPEG at quality 40 reaches 0.6 and 2.5, one coin
-// erased reaches 15.9 in its cell.
+// A faithful copy (re-encoded, resized) stays within these; a large edit
+// (an object erased or pasted, every object moved, a crop, a shift, a
+// colour change) does not: a faithful JPEG at quality 40 reaches 0.6 and
+// 2.5, one coin erased reaches 15.9 in its cell. One coin moved a few px
+// inside its 32 px cell stays under them.
 export const MATCH_MEAN = 1.5;
 export const MATCH_CELL = 8;
 
@@ -132,7 +179,8 @@ export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNo
 //   preview(file) -> { picture }: decoded and shrunk on the device, never sent
 //   readPhoto(file) -> { sha256, blob, picture, pixels, width, height }
 //   send(blob, onWords) -> the server's reply
-//   samples: [{ id, title, sig }], the sample pictures' fingerprints
+//   samples: [{ id, title, sig, fine, boxes }], the sample pictures'
+//     fingerprints, fine grids and object boxes
 //   stored(photo) -> a level kept on this device for this photo, or null
 // Returns one of:
 //   { kind: 'kept', picture, words }     MOCK: shown here, nothing sent
@@ -152,6 +200,11 @@ export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, onWords = (
     const titleOf = (id) => ((deps.samples || []).find((s) => s.id === id) || { title: id }).title;
     const v = rehearsalVerdict(matched, rehearsalRoom, titleOf);
     if (!v.ok) return { kind: 'refused', picture: photo.picture, words: v.why };
+    // and every object where the sample has it, looked at more finely
+    const s = deps.samples.find((x) => x.id === matched);
+    if (!s.fine || !s.boxes || worstBox(fineGrid(photo.pixels), s.fine, s.boxes) > MATCH_BOX) {
+      return { kind: 'refused', picture: photo.picture, words: `This is an edited copy of the sample picture of ${titleOf(matched)}: an object in it is not where the sample has it. Nothing was sent, and no level is made from it.` };
+    }
   }
   const ref = { kind: 'photo', sha256: photo.sha256 };
   const kept = deps.stored ? deps.stored(photo) : null;
