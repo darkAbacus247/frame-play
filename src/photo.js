@@ -124,18 +124,25 @@ export async function sendPhoto(blob, onProgress, url = 'api/room') {
       f(msg);
     }
   };
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buf += dec.decode(value, { stream: true });
-    const nl = buf.lastIndexOf('\n');
-    if (nl >= 0) {
-      each(buf.slice(0, nl), (msg) => { if (msg.type === 'progress' && onProgress) onProgress(msg); });
-      buf = buf.slice(nl + 1);
+  // a stream cut mid-way says so in the page's own words, never the
+  // browser's ('network error')
+  const STOPPED = 'The server stopped before it answered. Please try again.';
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) buf += dec.decode(value, { stream: true });
+      const nl = buf.lastIndexOf('\n');
+      if (nl >= 0) {
+        each(buf.slice(0, nl), (msg) => { if (msg.type === 'progress' && onProgress) onProgress(msg); });
+        buf = buf.slice(nl + 1);
+      }
+      if (done) break;
     }
-    if (done) break;
+  } catch {
+    throw new Error(STOPPED);
   }
   let reply = null;
   each((await whole) || '', (msg) => { if (msg.type === 'reply') reply = msg.reply; });
-  if (!reply) throw new Error('The server stopped before it answered. Please try again.');
+  if (!reply) throw new Error(STOPPED);
   return reply;
 }

@@ -257,6 +257,22 @@ class OverHttp(unittest.TestCase):
         self.assertIn(b'Transfer-Encoding: chunked', head)
         self.assertTrue(rest.endswith(b'\r\n0\r\n\r\n'), 'the stream says it is complete')
 
+    def test_a_read_that_breaks_after_the_headers_still_ends_the_stream_in_words(self):
+        def broken(photo, progress=None):
+            progress('read', 'Reading your room')
+            raise RuntimeError('broken mid-way')
+        self.pipe.run = broken
+        status, h, body = self.post('application/x-ndjson')
+        self.assertEqual(status, 200)
+        lines = [json.loads(x) for x in body.decode().splitlines()]
+        self.assertEqual([x['type'] for x in lines], ['progress', 'reply'])
+        reply = lines[-1]['reply']
+        self.assertEqual(reply['status'], 'error')
+        self.assertEqual(reply['provenance']['mode'], 'rehearsal')
+        self.assertEqual(reply['error']['message'], 'The server could not finish reading this photo. Please try again.')
+        self.assertNotIn('broken mid-way', body.decode(), 'no internal error text reaches the page')
+        self.assertEqual(self.limits.counters()['photos_in_flight'], 0)
+
     def test_one_json_object_without_the_stream(self):
         self.fake.on('/chat/completions', spark_answer(READ))
         status, h, body = self.post()

@@ -187,6 +187,20 @@ test('the reply stream is read whole as well as line by line, so the browser rec
   }
 });
 
+test('a reply stream cut mid-way shows the page’s own sentence, never the browser’s error', async () => {
+  const { sendPhoto } = await import('../src/photo.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode('{"type":"progress","words":"Reading your room"}\n')); },
+    pull(c) { c.error(new TypeError('network error')); },
+  }), { headers: { 'Content-Type': 'application/x-ndjson' } });
+  try {
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}), { message: 'The server stopped before it answered. Please try again.' });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('the page shell: in-flow grid, no inline styles or scripts, labels in place', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));

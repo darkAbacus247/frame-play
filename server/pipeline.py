@@ -279,11 +279,27 @@ class Pipeline:
                 text = config.redact(json.dumps(obj, ensure_ascii=False), self.settings.key)
                 chunk(text.encode('utf-8') + b'\n')
 
-            reply = self.run(photo, progress=lambda stage, words: line({'type': 'progress', 'stage': stage, 'words': words, 'mode': self.settings.mode}))
+            try:
+                reply = self.run(photo, progress=lambda stage, words: line({'type': 'progress', 'stage': stage, 'words': words, 'mode': self.settings.mode}))
+            except Exception as e:  # noqa: BLE001 - after the headers, the stream itself must say so
+                if self.log is not None:
+                    self.log.write(event='photo_failed', error=type(e).__name__)
+                reply = self.failed_reply()
             line({'type': 'reply', 'reply': reply})
             chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:
             self.limits.finish()
+
+    def failed_reply(self):
+        """A read that broke after the stream began: an error reply in this
+        server's mode, in words, with nothing in it to build from."""
+        s = self.settings
+        prov = {'mode': s.mode, 'label': s.label, 'models': [], 'calls': [], 'image_retained': False}
+        if s.mode == 'rehearsal':
+            prov['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
+        return {'schema': REPLY_SCHEMA, 'request_id': uuid.uuid4().hex, 'status': 'error', 'provenance': prov,
+                'objects': [], 'warnings': [],
+                'error': {'code': 'server_error', 'message': 'The server could not finish reading this photo. Please try again.'}}
 
     # ---- the pipeline ----
     def model_words(self, model):
