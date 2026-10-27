@@ -1,5 +1,6 @@
 import hashlib
 import random
+import re
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,100 @@ class OneBit(unittest.TestCase):
             decode_mask('one_bit', '!', 5, 5)
         self.assertEqual(caught.exception.code, 'invalid_mask_payload')
         self.assertIsInstance(caught.exception, ValueError)
+
+
+# The reference library's README publishes one answer with two lossless masks
+# (a 320 x 334 frame); both are rounded rectangles that fill their boxes.
+README_ANSWER = (
+    '<0f>0<|box;x1=211;y1=228;x2=270;y2=254;w=320;h=334|>'
+    "<|mask;x=0;y=0;data=27,60,~!!!!M!0c[0o91w?q1!pIH4pPRVp2B3'7`e.ioeAf6-k/#Xd8%dX9x(|>"
+    ',1<|box;x1=155;y1=228;x2=202;y2=254;w=320;h=334|>'
+    '<|mask;x=0;y=0;data=27,48,~!!!!J!0c[q=Pj_zs=*4C4(/./x#:/`S_GnD`=o3?X{emCgO$y@|>\n')
+README_DATA = [part.split('|>')[0] for part in README_ANSWER.split('data=')[1:]]
+
+
+def rows_of(raster, w):
+    return [''.join('#' if v else '.' for v in raster[i:i + w]) for i in range(0, len(raster), w)]
+
+
+class PublishedExamples(unittest.TestCase):
+    def test_the_readme_lossless_masks_decode_to_rounded_boxes(self):
+        (a, aw, ah), (b, bw, bh) = (decode_data(d) for d in README_DATA)
+        self.assertEqual((aw, ah, len(a), sum(a)), (60, 27, 1620, 1539))
+        self.assertEqual((bw, bh, len(b), sum(b)), (48, 27, 1296, 1236))
+        ra, rb = rows_of(a, aw), rows_of(b, bw)
+        self.assertEqual(ra[0], '.....' + '#' * 49 + '......')
+        self.assertEqual(ra[8], '#' * 60)
+        self.assertEqual(ra[-1], '.......' + '#' * 45 + '........')
+        self.assertEqual(rb[0], '....' + '#' * 39 + '.....')
+        self.assertEqual(rb[10], '#' * 48)
+        self.assertEqual(rb[-1], '......' + '#' * 36 + '......')
+        for rows in (ra, rb):                    # convex: every row one run, every column too
+            self.assertTrue(all(re.fullmatch(r'\.*#+\.*', r) for r in rows))
+            self.assertTrue(all(re.fullmatch(r'\.*#+\.*', ''.join(c)) for c in zip(*rows)))
+
+    def test_lossless_accepts_trailing_bytes_as_the_notes_allow(self):
+        payload = README_DATA[0].split(',')[2]
+        longer = '~' + pack(unpack(payload[1:]) + b'\x00\x07')
+        self.assertEqual(decode_mask('lossless', longer, 60, 27), decode_mask('lossless', payload, 60, 27))
+
+    def test_the_doc_example_is_stable(self):
+        self.assertEqual(rows_of(decode_mask('one_bit', DOC_PAYLOAD, 5, 5), 5),
+                         ['#..#.', '..##.', '.....', '#.###', '#...#'])
+
+
+class Rejected(unittest.TestCase):
+    """Invalid payloads are refused as the reference refuses them, message for message."""
+
+    LOSSLESS = README_DATA[0].split(',')[2]
+
+    def refuse(self, message, encoding, payload, width=5, height=5):
+        with self.assertRaises(InvalidMaskError) as caught:
+            decode_mask(encoding, payload, width, height)
+        self.assertEqual(str(caught.exception), message)
+
+    def test_encoding_dimensions_and_type(self):
+        self.refuse('Unsupported complete mask encoding: rle.', 'rle', DOC_PAYLOAD)
+        for w, h in ((0, 5), (5, -1), (True, 5), (2.5, 5), ('5', 5), (None, 5), (2 ** 53, 1), (float('inf'), 5)):
+            self.refuse('Mask dimensions must be positive safe integers.', 'one_bit', DOC_PAYLOAD, w, h)
+        self.refuse('Mask dimensions produce an unsafe decoded area.', 'one_bit', DOC_PAYLOAD, 2 ** 27, 2 ** 27)
+        self.refuse('Mask payload must be a string.', 'one_bit', DOC_PAYLOAD.encode())
+        self.refuse('one_bit mask payloads must start with !.', 'one_bit', self.LOSSLESS)
+        self.refuse('lossless mask payloads must start with ~.', 'lossless', DOC_PAYLOAD)
+        self.assertEqual(decode_mask('one_bit', DOC_PAYLOAD, 5.0, 5), decode_mask('one_bit', DOC_PAYLOAD, 5, 5))
+
+    def test_envelope(self):
+        self.refuse('Mask payload is missing its length prefix.', 'one_bit', '!abc')
+        self.refuse('Mask payload contains an invalid character.', 'one_bit', '!!!!}' + DOC_PAYLOAD[5:])
+        self.refuse('Mask payload contains an invalid character.', 'one_bit', DOC_PAYLOAD[:-1] + 'é')
+        self.refuse('Mask payload contains an invalid character.', 'one_bit', DOC_PAYLOAD[:-1] + '~')
+        self.refuse('Mask payload length does not match its prefix.', 'one_bit', DOC_PAYLOAD[:-1])   # truncated
+        self.refuse('Mask payload length does not match its prefix.', 'one_bit', DOC_PAYLOAD + '!')  # trailing
+        self.refuse('Mask payload length does not match its prefix.', 'one_bit', DOC_PAYLOAD[:-1] + '\U0001F600')
+        self.refuse('Mask payload contains an out-of-range group.', 'one_bit', '!!!!!&{{{{{')
+        self.refuse('Mask payload contains an out-of-range tail.', 'one_bit', '!!!!!#{{')
+        self.refuse('Mask payload is not in canonical form.', 'one_bit', '!!!!!#!#')  # same byte, other spelling
+
+    def test_one_bit_coding(self):
+        body = unpack(DOC_PAYLOAD[1:])
+        self.refuse('Mask payload is missing its finalization.', 'one_bit', '!' + pack(b'\x00\x00'))
+        self.refuse('Mask payload ended before decoding completed.', 'one_bit', DOC_PAYLOAD, 50, 50)
+        self.refuse('Mask payload ended before decoding completed.', 'one_bit', '!' + pack(body[:-1]))
+        self.refuse('Mask payload is not canonical or has invalid finalization.', 'one_bit',
+                    '!' + pack(body + b'\x00'))                                       # a trailing byte
+        self.refuse('Mask payload is not canonical or has invalid finalization.', 'one_bit', DOC_PAYLOAD, 4, 4)
+
+    def test_lossless_coding(self):
+        body = unpack(self.LOSSLESS[1:])
+        self.refuse('Lossless mask payload is truncated.', 'lossless', '~' + pack(bytes(4)))
+        self.refuse('Lossless mask payload uses an invalid predictor.', 'lossless',
+                    '~' + pack(b'\x09' + body[1:]), 60, 27)
+        self.refuse('Mask payload ended before decoding completed.', 'lossless', self.LOSSLESS, 60, 40)
+
+    def test_data_values(self):
+        for data in ('5,5', '5;5,' + DOC_PAYLOAD, 'x,5,' + DOC_PAYLOAD, '5,5,abc', '-5,5,' + DOC_PAYLOAD):
+            with self.assertRaises(InvalidMaskError):
+                decode_data(data)
 
 
 class Licence(unittest.TestCase):
