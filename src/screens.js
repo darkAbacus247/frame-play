@@ -390,11 +390,12 @@ export function roomGoneView(slot, isPhoto) {
 }
 
 // ---- free play ----
+export const FREE_LINE = 'Pick any room: the three sample rooms, and your own room once it is made. Rounds here do not change your road.';
 export function freeView() {
   const cards = el('div', { class: 'room-cards' });
   const section = el('section', { class: 'screen' }, [
     el('h1', { text: 'Free play' }),
-    el('p', { text: 'Pick any room. Rounds here do not change your road.' }),
+    el('p', { text: FREE_LINE }),
     cards,
   ]);
   return { section, cards };
@@ -621,8 +622,9 @@ export function aiLine(level, summary) {
   return `Muse Spark named ${things(named)} ${photo} and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
-// actions: { freePlay, playAgain(ref, title), ownRoom, startOver }
-export function closingView({ rooms, mode, primaryLabel, actions }) {
+// actions: { freePlay, playAgain(ref, title), ownRoom, startOver };
+// canReplay: this server can replay our kitchen photo's recorded answer
+export function closingView({ rooms, mode, primaryLabel, actions, canReplay = false }) {
   const sends = mode === 'live' || mode === 'rehearsal';
   // the rooms on the road, whether or not their levels are in memory
   const made = rooms.filter((r) => r.ref).length;
@@ -650,9 +652,11 @@ export function closingView({ rooms, mode, primaryLabel, actions }) {
     ]))),
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),
-      el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own`, onclick: actions.ownRoom }),
+      el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own, or use ours`, onclick: actions.ownRoom }),
       el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
     ]),
-    sends || rooms[OWN_SLOT].ref ? null : el('p', { class: 'why', text: 'In MOCK no model reads a photo: your own room is a photo you mark yourself.' }),
+    sends || rooms[OWN_SLOT].ref ? null : el('p', { class: 'why', text: canReplay
+      ? 'In MOCK no model reads a photo: your own room is a photo you mark yourself, or ours, with Meta’s recorded answer replayed.'
+      : 'In MOCK no model reads a photo: your own room is a photo you mark yourself.' }),
   ]);
 }

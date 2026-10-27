@@ -917,7 +917,7 @@ async function screenEnd(main, token) {
     summaries: entries.map((e) => (e ? e.summary : null)),
   });
   main.replaceChildren(closingView({
-    rooms, mode: A.mode, primaryLabel: R.primaryLabel(A.road),
+    rooms, mode: A.mode, primaryLabel: R.primaryLabel(A.road), canReplay: canReplay(),
     actions: {
       freePlay: () => setRoad(R.startFreePlay(A.road)),
       playAgain: (ref) => { A.free = ref; setRoad(R.startFreePlay(A.road)); },

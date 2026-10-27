@@ -236,4 +236,10 @@ test('the naive walker, in MOCK with a server, plays the three sample rooms, the
   assert.equal(rows.length, 4);
   assert.match(rows[3], /^Your own room: our kitchen Won/);
   assert.deepEqual(posted(app), ['api/replay/kitchen']);
+  // Free play lists the three sample rooms and our kitchen, tagged a replay
+  app.mainPrimary().click();
+  await app.settle();
+  const cards = app.$('main').querySelectorAll('.room-card').map(textOf);
+  assert.deepEqual(cards.map((t) => t.replace(/ (MOCK|REPLAY) · .*$/, '')), ['The Desk Top', 'The Living Room', 'The Apartment', 'Your own room: our kitchen']);
+  assert.match(cards[3], /REPLAY · recorded answer/);
 });

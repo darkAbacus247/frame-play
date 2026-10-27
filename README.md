@@ -93,7 +93,8 @@ area, every outline a decoded mask, walls and doorways.
   sent.
 - **MOCK** (no key): no model reads the photo, so nothing is invented. The
   photo is shown on your device only, and Mark your room, right under it,
-  is the way on: you mark the room yourself. Nothing is sent.
+  is the way on: you mark the room yourself. Nothing is sent. (Or use ours:
+  see below.)
 - **REHEARSAL** (the local stand-in): the stand-in only knows its sample
   room's own picture, which the page offers to save. Any other photo, or a
   copy of that picture edited enough for the page's check to see (an
@@ -111,6 +112,43 @@ area, every outline a decoded mask, walls and doorways.
   the key, and the page turns the picker off with Check again, as LIVE does
   after an account problem). A refused photo, or a read that fails, can be
   marked as in MOCK.
+
+### Don't have a photo? Use ours
+
+Beside **Choose a photo**, your own room offers **Don't have a photo? Use
+ours**: `rooms/kitchen.jpg`, a photo of a real kitchen. It is the author's
+own photo, taken by the author, with its camera data removed (1024 x 399,
+no people), and it is released with this repository under its license.
+
+- **LIVE**: it goes through Meta's models fresh, exactly like a photo you
+  choose: shrunk and stripped on the device, one read (one Muse Spark call,
+  then SAM 3.1), kept on the device like any photo's level, so pressing it
+  again loads that level and sends nothing. Its words say it is our kitchen
+  photo, read now, not yours.
+- **MOCK and REHEARSAL** (no model may be called; also LIVE while the live
+  AI is unavailable): the server replays Meta's real recorded answer for
+  this exact photo, taken on 2026-10-27: one muse-spark-1.3 answer and six
+  sam-3.1 answers (the stove, the kitchen island, the refrigerator, the
+  counter, the floor and the door, with real one_bit masks), kept byte for
+  byte in `server/replay/kitchen/`. `POST /api/replay/kitchen` (`server/replay.py`)
+  runs the very same pipeline a live photo goes through, its transport
+  answering each call with its recorded answer in place of the network, so
+  the same reader, mask decoder, match choice, floor and outlines run, and
+  nothing is sent anywhere. The reply's mode is `replay`: it claims no
+  model called now, its calls are marked replayed, its cost is zero, and
+  the server replays nothing for a photo whose fingerprint is not the
+  recorded one. The page checks the same fingerprint, builds the room from
+  SAM 3.1's masks, and every screen that shows it says: "Meta's models read
+  this photo on Oct 27, 2026; this copy replays their recorded answer; no
+  model was called now." The replay makes the room the live read made:
+  Muse Spark named 8 things (5 on the floor, 3 as scenery), SAM 3.1's
+  masks gave 5 exact outlines plus the floor, code made 2 changes, and the
+  room can be won.
+
+In MOCK, where a server answers, Use ours is the one primary on your own
+room (it is the one room a model's answer can make there); with no server
+at all it is off, and says why. A replayed room is never kept on the
+device: on a return visit it is replayed again in place.
 
 **Floors, walls and doorways.** Where a room's floor is known (drawn by
 code in a sample room, or grown by code from a LIVE or REHEARSAL read),
@@ -152,12 +190,16 @@ boxes) and the level are kept on this device under the photo's
 fingerprint, taken on the device, never the photo, so after a reload the
 same photo picked again brings the room back in place.
 
-The road ends on a closing screen (the counter's last step) that says the
-circuit is complete: each room with whether you won and your best route,
-one sentence on what the AI did in it, and the ways on: Free play, Play
-again for any room, Try your own room, and Start over, which asks first
-and clears nothing unless you confirm. While a card or the settings are open, a round in play holds
-still, so no round ends under them. Free play always opens on the list of rooms; a replay lasts only
+The road ends on a closing screen (Step 15, the counter's last step) that
+says the circuit is complete: each of the four rooms (the three sample
+rooms, then your own room: yours, ours, or not made) with whether you won
+and your best route, a line on what the AI did in it (for ours replayed,
+the replay's own words), and the ways on: Free play, Play again for any
+room, Try your own room (a photo of yours, or ours), and Start over, which
+asks first and clears nothing unless you confirm. While a card or the settings are open, a round in play holds
+still, so no round ends under them. Free play always opens on the list of rooms (the three sample rooms, and
+your own room once made: our kitchen carries its REPLAY tag where it was
+replayed); a replay of a room there lasts only
 while you stay on it, and its rounds never change the road's results (its
 end card says so). Your own room, when made, stays on the road: going
 back to its step and choosing Continue to the end keeps it, its result and
@@ -204,7 +246,7 @@ started for another room would answer with its own room, so nothing is
 sent). Your own room always offers Continue to the end; where this copy
 cannot make it (a LIVE or REHEARSAL room reopened in MOCK, or one whose
 level kept here was made in the other mode) the screen says so and that is
-the way on. A first or second room this copy cannot make is picked again on
+the way on. A sample step's room this copy cannot make is picked again on
 its own step, with ←. No primary button ever moves the step counter back.
 On the closing screen such a room says on which step it can be made again,
 or that this copy cannot make it again.
@@ -259,7 +301,9 @@ python server/server.py
 
 The page is at `http://127.0.0.1:8191/`. Without `MODEL_API_KEY` and
 `FRAMEPLAY_LIVE=yes` in the operator's own environment the server runs in
-MOCK mode: sample rooms drawn by code, labeled MOCK, and no model is called.
+MOCK mode: sample rooms drawn by code, labeled MOCK, and no model is called;
+our kitchen photo's recorded answer is replayed there (`POST
+/api/replay/kitchen`, served in every mode, costs nothing and sends nothing).
 
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
 day, and stops for the day at an estimated $5. A photo is one Muse Spark
@@ -298,8 +342,9 @@ picture through them.
 
 ## Known limits (so far)
 
-- Live mode has been run against Meta once (2026-10-27, the desk sample
-  picture). Those calls showed that the first reader of sam-3.1's answer
+- Live mode has been run against Meta on 2026-10-27: the desk sample
+  picture, then our kitchen photo, whose answers the server replays. The
+  first calls showed that the first reader of sam-3.1's answer
   text, written from a summary of Meta's documents, did not match the real
   grammar, so every box was dropped. The reader is now written from those
   recorded answers and tested against them
@@ -363,7 +408,9 @@ MOCK.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The sample kitchen photo, `rooms/kitchen.jpg`,
+is the author's own photo, released with this repository under the same
+license.
 
 **NOTICE.** `server/sam_mask.py` is derived from Meta's meta-sam-parser 0.1.0
 (its mask codec, including the canonical one_bit encoder the stand-in

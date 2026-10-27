@@ -181,6 +181,8 @@ export function screens(mode) {
   const samples = [mockLevel('desk'), mockLevel('living'), mockLevel('apartment')];
   const closing = V.closingRooms({ road, mode, levels: [...samples, own ? liveRead().level : null], summaries: [null, null, null, { named: 9 }] });
   out.push({ name: 'The end', step: R.LAST_STEP, section: V.closingView({ rooms: closing, mode, primaryLabel: 'Free play', actions: {} }), road });
+  // and where a server can replay ours (MOCK says so in its last line)
+  out.push({ name: 'The end, ours can be replayed', step: R.LAST_STEP, section: V.closingView({ rooms: closing, mode, primaryLabel: 'Free play', actions: {}, canReplay: true }), road });
   const markedRoad = { ...road, own: null, rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, true, true], best: [1.24, null, 2.31, 1.1] };
   const markedRows = V.closingRooms({ road: markedRoad, mode, levels: [...samples, markedLevel()] });
   out.push({ name: 'The end, your own room marked', step: R.LAST_STEP, section: V.closingView({ rooms: markedRows, mode, primaryLabel: 'Free play', actions: {} }), road: markedRoad });

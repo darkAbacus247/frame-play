@@ -191,6 +191,9 @@ test('a room not in memory names its own step, and only what this mode can do', 
   const mockText = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {} }));
   assert.match(mockText, /That is the whole road: three rooms, and how each was made\./, 'MOCK: no AI did anything');
   assert.equal((mockText.match(/no model reads a photo/g) || []).length, 1, 'one sentence on why, and what your own room is in MOCK');
+  assert.match(mockText, /your own room is a photo you mark yourself\.$/, 'with no server to replay ours, only marking is offered');
+  const withReplay = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {}, canReplay: true }));
+  assert.match(withReplay, /In MOCK no model reads a photo: your own room is a photo you mark yourself, or ours, with Meta’s recorded answer replayed\./);
 });
 
 function view(mode, own) {
