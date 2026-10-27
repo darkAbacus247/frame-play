@@ -98,7 +98,7 @@ export function screens(mode) {
     ? [{ ...liveRead(), fromDevice: true, step: R.OWN_STEP + 1 }]
     : [{ level: mockLevel('desk'), step: 3 }, { level: mockLevel('living'), step: 6 }];
   for (const f of found) {
-    const v = V.foundView({ level: f.level, summary: f.summary || null, fromDevice: !!f.fromDevice, actions: { play: noop, describe: noop, walls: noop } });
+    const v = V.foundView({ level: f.level, summary: f.summary || null, fromDevice: !!f.fromDevice, slot: R.slotOf(f.step), actions: { play: noop, describe: noop, walls: noop, leave: noop } });
     out.push({ name: `What the AI found (${f.level.title})`, step: f.step, section: v.section, reveal: { v, level: f.level } });
   }
   const cmp = V.compareView({ primaryLabel: R.primaryLabel({ step: 8 }), onContinue: noop });
@@ -131,7 +131,7 @@ export function screens(mode) {
   }
   {
     const level = markedLevel();
-    const v = V.foundView({ level, summary: null, fromDevice: true, actions: { play: noop, describe: noop, walls: noop, remark: noop } });
+    const v = V.foundView({ level, summary: null, fromDevice: true, slot: 2, actions: { play: noop, describe: noop, walls: noop, remark: noop, leave: noop } });
     out.push({ name: 'Your room, from your marks', step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, false] }, reveal: { v, level } });
   }
   const own = mode !== 'mock';

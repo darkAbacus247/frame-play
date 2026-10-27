@@ -155,18 +155,36 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 // A send is stopped after 120 s in all (waits included), or at once when
 // the page's own signal aborts (its Cancel button). Either way the request
 // itself is aborted, and the send rejects with an Error whose `code` says
-// which: 'too_long' or 'canceled'.
+// which: 'too_long' or 'canceled'. Both may pass, so both carry retrySame:
+// the page offers the same photo again.
 export const READ_LIMIT_MS = 120000;
-export const TOO_LONG_WORDS = 'The read took too long and was stopped. Please try again.';
+export const TOO_LONG_WORDS = 'The read took too long, so this page stopped it after 120 seconds.';
 export const CANCELED_WORDS = 'The read was canceled, so nothing was made from this photo.';
 function stopped(code) {
   const e = new Error(code === 'canceled' ? CANCELED_WORDS : TOO_LONG_WORDS);
   e.code = code;
+  e.retrySame = true;
   return e;
 }
 
+// A refusal the server sends as its own status (503 live_unavailable, 429
+// busy, the hourly and daily stops): its words, and what the page acts on,
+// `code` (null when the body names none), the HTTP `status`, `retryAfter`
+// in seconds (or null), and `retrySame` for the one that may pass on the
+// same photo (every reader busy, after the waits here).
+export const RETRY_SAME_CODES = new Set(['busy']);
+function refused(words, code, res) {
+  return Object.assign(new Error(words), {
+    code: code || null,
+    status: res.status,
+    retryAfter: retryAfterSeconds(res.headers.get('Retry-After')),
+    retrySame: RETRY_SAME_CODES.has(code),
+  });
+}
+
 // Send the copy. Progress lines arrive first, then the reply. Throws an
-// Error in words for a refusal the server sends as its own status.
+// Error in words, carrying its code, for a refusal the server sends as its
+// own status (refused, above).
 // opts.signal: an AbortSignal for the page's Cancel; opts.timeoutMs: the
 // limit (120 s); opts.sleep(ms) stands in for the timer in tests.
 export async function sendPhoto(blob, onProgress, url = 'api/room', opts = {}) {
@@ -218,7 +236,7 @@ async function readThrough(blob, onProgress, url, sleep, signal) {
       if (res.ok && j && j.schema) return j;
     } catch { /* not JSON */ }
     const left = BUSY_WAIT_MS - waited;
-    if (res.status !== 429 || code !== 'busy' || send >= BUSY_TRIES || left < 1000) throw new Error(words);
+    if (res.status !== 429 || code !== 'busy' || send >= BUSY_TRIES || left < 1000) throw refused(words, code, res);
     const asked = retryAfterSeconds(res.headers.get('Retry-After'));
     let s = Math.max(1, Math.min(Math.floor(left / 1000), asked == null ? BUSY_DEFAULT_S : asked));
     waited += s * 1000;

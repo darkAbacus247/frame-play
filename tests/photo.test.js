@@ -204,6 +204,32 @@ test('D1: the hourly, daily and spending stops and other refusals are not sent a
   });
 });
 
+test('W4c: a refusal sent as the server’s own status carries its code, status and Retry-After; only busy may be tried again', async () => {
+  const cases = [
+    [503, 'live_unavailable', '120', 120, false],
+    [429, 'hour_cap', '600', 600, false],
+    [429, 'day_cap', null, null, false],
+    [400, 'bad_photo', null, null, false],
+  ];
+  for (const [status, code, after, retryAfter, retrySame] of cases) {
+    await withFetch([json(status, { status: 'error', error: { code, message: `Stopped: ${code}.` } }, after ? { 'Retry-After': after } : {})], async () => {
+      await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: async () => {} }), (e) => {
+        assert.equal(e.message, `Stopped: ${code}.`);
+        assert.deepEqual({ code: e.code, status: e.status, retryAfter: e.retryAfter, retrySame: e.retrySame }, { code, status, retryAfter, retrySame });
+        return true;
+      });
+    });
+  }
+  // every reader still busy after the waits: its code, and the same photo may work again
+  await withFetch([busy(5)], async () => {
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: async () => {} }), (e) => e.code === 'busy' && e.status === 429 && e.retrySame === true && e.retryAfter === 5);
+  });
+  // a body that names no code: none is made up
+  await withFetch([new Response('slow down', { status: 502 })], async () => {
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { sleep: async () => {} }), (e) => e.code === null && e.status === 502 && e.retrySame === false);
+  });
+});
+
 test('D1: Retry-After read as seconds or as a date', () => {
   assert.equal(retryAfterSeconds('5'), 5);
   assert.equal(retryAfterSeconds(null), null);
@@ -289,7 +315,7 @@ test('D3: a read that never answers is stopped at the limit, in the page’s wor
   assert.equal(READ_LIMIT_MS, 120000);
   await withFetch([() => new Promise(() => {})], async (calls) => {
     const t0 = Date.now();
-    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { timeoutMs: 30 }), (e) => e.message === TOO_LONG_WORDS && e.code === 'too_long');
+    await assert.rejects(sendPhoto(new Blob(['x']), () => {}, 'u', { timeoutMs: 30 }), (e) => e.message === TOO_LONG_WORDS && e.code === 'too_long' && e.retrySame === true);
     assert.ok(Date.now() - t0 < 2000);
     assert.equal(calls[0].init.signal.aborted, true, 'the request itself is aborted');
   });

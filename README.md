@@ -99,6 +99,12 @@ end card says so). Your own room, when made, stays on the road: going
 back to its step and choosing Continue to the end keeps it, its result and
 its place in Free play.
 
+Every room's reveal and play steps have a plain **Choose a different
+room** button (**Choose a different photo** for your own room) that goes
+back to the step where the room was picked, to pick again. It is never the
+primary button. With a round under way it asks first ("Leave this room?
+Your round so far is not kept."), and Keep playing is the default.
+
 **Phone photos.** The browser's own decoder decides what a photo is, not
 the file's label, so a HEIC or HEIF photo is tried wherever the browser can
 open it, and one it cannot open is refused in words that say how to get a
