@@ -90,7 +90,9 @@ test('every path segment keeps the explorer clear of walls; ends are right', () 
     paths++;
     const pts = res.points;
     assert.deepEqual(pts[0], [sx, sy]);
-    if (!res.snapped) assert.deepEqual(pts[pts.length - 1], [gx, gy]);
+    // floor the body fits on but no free cell covers is walked by the
+    // exact field: such a goal is reached too
+    if (!res.snapped || res.reached) assert.deepEqual(pts[pts.length - 1], [gx, gy]);
     else assert.deepEqual(pts[pts.length - 1], cellCenter(nav, res.goalCell));
     for (let i = 1; i < pts.length; i++) {
       const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];

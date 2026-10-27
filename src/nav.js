@@ -4,10 +4,14 @@
 // reachability. Paths hug the real outlines; there are no tiles in play.
 import { edt, sampleField } from './distance.js';
 
+// The explorer's body on the floor: a disc of this radius at its feet. It is
+// what collides, and seen from above it is what is drawn (src/render.js).
+export const bodyRadius = (L) => 0.011 * L;
+
 export function navParams(width, height) {
   const L = Math.max(width, height);
   const cell = Math.max(2, Math.round(L / 256));
-  const radius = 0.011 * L;
+  const radius = bodyRadius(L);
   return {
     L,
     cell,
@@ -338,8 +342,76 @@ export function findPath(nav, sx, sy, gx, gy) {
   const pts = [[sx, sy]];
   for (const c of cells) pts.push(cellCenter(nav, c));
   if (exactGoal) pts.push([gx, gy]);
-  const smooth = smoothPath(nav, pts);
-  return { points: smooth, length: polylineLength(smooth), snapped: !exactGoal, goalCell: g };
+  let smooth = smoothPath(nav, pts);
+  // the grid keeps a planning margin, so floor the body fits but no free
+  // cell covers (a narrow end of a corridor) is walked by the exact field:
+  // from where the explorer stands to its grid, and from the grid to the
+  // point asked for
+  if (!nav.pass[cellOf(nav, sx, sy)]) {
+    const leg = exactLeg(nav, [sx, sy], smooth.length > 1 ? smooth[1] : cellCenter(nav, s));
+    if (leg) smooth = [...leg, ...smooth.slice(2)];
+  }
+  let reached = exactGoal;
+  if (!exactGoal) {
+    const leg = exactLeg(nav, smooth[smooth.length - 1], [gx, gy]);
+    if (leg) { smooth = [...smooth.slice(0, -1), ...leg]; reached = true; }
+  }
+  return { points: smooth, length: polylineLength(smooth), snapped: !exactGoal, reached, goalCell: g };
+}
+
+// Whether the body fits all along a segment (the exact distance field).
+function clearLine(nav, a, b) {
+  const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2));
+  for (let k = 0; k <= n; k++) {
+    if (sampleField(nav.field, nav.w, nav.h, a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n) < nav.radius) return false;
+  }
+  return true;
+}
+
+// A short way between two points over the pixels the body fits on, near
+// them (within a few planning radii of b), string pulled: [a, ..., b], or
+// null when b is not free or no such way is near.
+export function exactLeg(nav, a, b) {
+  const { w, h, field, radius } = nav;
+  if (sampleField(field, w, h, b[0], b[1]) < radius || sampleField(field, w, h, a[0], a[1]) < radius) return null;
+  if (clearLine(nav, a, b)) return [a, b];
+  const R = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) + 4 * nav.planRadius);
+  const x0 = Math.max(0, Math.round(b[0]) - R), y0 = Math.max(0, Math.round(b[1]) - R);
+  const x1 = Math.min(w - 1, Math.round(b[0]) + R), y1 = Math.min(h - 1, Math.round(b[1]) + R);
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  const prev = new Int32Array(bw * bh).fill(-2);
+  const free = (x, y) => field[y * w + x] >= radius;
+  const ax = Math.round(a[0]), ay = Math.round(a[1]), gx = Math.round(b[0]), gy = Math.round(b[1]);
+  if (ax < x0 || ax > x1 || ay < y0 || ay > y1 || !free(gx, gy) || !free(ax, ay)) return null;
+  const q = new Int32Array(bw * bh);
+  let head = 0, tail = 0;
+  const g0 = (gy - y0) * bw + (gx - x0), a0 = (ay - y0) * bw + (ax - x0);
+  prev[g0] = -1; q[tail++] = g0;
+  while (head < tail && prev[a0] === -2) {
+    const c = q[head++], cx = c % bw, cy = (c - cx) / bw;
+    for (const [dx, dy] of N8) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+      const nc = ny * bw + nx;
+      if (prev[nc] !== -2 || !free(nx + x0, ny + y0)) continue;
+      if (dx && dy && (!free(cx + dx + x0, cy + y0) || !free(cx + x0, cy + dy + y0))) continue;
+      prev[nc] = c; q[tail++] = nc;
+    }
+  }
+  if (prev[a0] === -2) return null;
+  const raw = [a];
+  for (let c = prev[a0]; c >= 0 && c !== g0; c = prev[c]) raw.push([(c % bw) + x0, Math.floor(c / bw) + y0]);
+  raw.push(b);
+  // string pulling over the exact field
+  const out = [raw[0]];
+  let i = 0;
+  while (i < raw.length - 1) {
+    let j = raw.length - 1;
+    while (j > i + 1 && !clearLine(nav, raw[i], raw[j])) j--;
+    out.push(raw[j]);
+    i = j;
+  }
+  return out;
 }
 
 export function pathToCell(nav, sx, sy, g) {

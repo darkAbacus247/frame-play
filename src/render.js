@@ -5,6 +5,7 @@
 // tested without a browser; nothing at module level touches the page.
 import { boxesOverlap, bounds, pointInShape, distToRings } from './geom.js';
 import { stampRect } from './rooms.js';
+import { bodyRadius } from './nav.js';
 
 export const ROLE_STYLE = {
   collect: { color: '#f5c542', dash: [], width: 2.25, badge: 'star' },
@@ -14,8 +15,15 @@ export const ROLE_STYLE = {
   flat: { color: '#f3efe6', dash: [2, 5], width: 1.25, badge: null },
 };
 
-// The explorer's sprite box in picture pixels, from its feet.
-export function spriteBox(L, feet) {
+// The explorer's sprite box in picture pixels, from its feet. Seen from
+// above (a floor plan) the explorer is drawn as seen from above: its body
+// disc and no more, so what is drawn is what collides and it never stands
+// over a wall or a thing; at eye level it stands up from its feet.
+export function spriteBox(L, feet, topDown = false) {
+  if (topDown) {
+    const r = bodyRadius(L);
+    return { x0: feet[0] - r, y0: feet[1] - r, x1: feet[0] + r, y1: feet[1] + r };
+  }
   const h = 0.05 * L, w = 0.032 * L;
   return { x0: feet[0] - w / 2, y0: feet[1] - h, x1: feet[0] + w / 2, y1: feet[1] + 0.012 * L };
 }
@@ -37,11 +45,13 @@ export function drawPlan(level, feet, opts = {}) {
     if (level.origin === 'mock') ops.push({ op: 'stamp' });
     return ops;
   }
-  const sb = spriteBox(L, feet);
+  const above = level.view === 'top_down';
+  const sb = spriteBox(L, feet, above);
   ops.push({ op: 'path' }, { op: 'shadow' }, { op: 'explorer' });
   const nearer = [];
   level.objects.forEach((o, k) => {
-    if (!o.on_surface || o.role === 'flat') return;
+    // seen from above, nothing stands over the explorer
+    if (above || !o.on_surface || o.role === 'flat') return;
     if (!(o.baseline_y > feet[1])) return;
     if (!boxesOverlap(bounds(o.outline.rings), sb)) return;
     nearer.push(k);
@@ -130,6 +140,14 @@ function ringsPath(rings) {
     for (let i = 1; i < r.length; i++) p.lineTo(r[i][0], r[i][1]);
     p.closePath();
   }
+  return p;
+}
+
+// Seen from above: the body disc (inset so its outline stays inside it).
+function explorerPathAbove(L, feet) {
+  const p = new Path2D();
+  p.arc(feet[0], feet[1], 0.86 * bodyRadius(L), 0, Math.PI * 2);
+  p.closePath();
   return p;
 }
 
@@ -245,7 +263,8 @@ export class Renderer {
     const feet = state.pos;
     const reduced = !!ui.reducedMotion;
     const bob = state.moving && !reduced ? Math.sin((state.tick || 0) * 0.45) * 0.0035 * L : 0;
-    const body = explorerPath(L, feet, bob);
+    const above = level.view === 'top_down';
+    const body = above ? explorerPathAbove(L, feet) : explorerPath(L, feet, bob);
     const plan = drawPlan(level, feet, { outlines: ui.outlines !== false, walls: !!ui.walls, explorer: !ui.reveal });
     for (const step of plan) {
       switch (step.op) {
@@ -269,7 +288,8 @@ export class Renderer {
           ctx.save();
           ctx.fillStyle = 'rgba(0,0,0,0.32)';
           ctx.beginPath();
-          ctx.ellipse(feet[0], feet[1], 0.019 * L, 0.006 * L, 0, 0, Math.PI * 2);
+          if (above) ctx.arc(feet[0], feet[1], bodyRadius(L), 0, Math.PI * 2);
+          else ctx.ellipse(feet[0], feet[1], 0.019 * L, 0.006 * L, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
           break;
@@ -310,12 +330,37 @@ export class Renderer {
   drawExplorer(body, feet, state, ui) {
     const { ctx, L } = this;
     ctx.save();
+    if (this.level.view === 'top_down') {
+      // nothing drawn past the body disc, however thick the outline
+      ctx.beginPath();
+      ctx.arc(feet[0], feet[1], bodyRadius(L), 0, Math.PI * 2);
+      ctx.clip();
+    }
     ctx.fillStyle = ui.highContrast ? '#00e5cc' : '#22b8a8';
     ctx.fill(body, 'nonzero');
     ctx.lineWidth = this.px(ui.highContrast ? 2.5 : 1.75);
     ctx.strokeStyle = '#0a2422';
     ctx.stroke(body);
     // face: a light visor with two eyes looking where it walks
+    if (this.level.view === 'top_down') {
+      // from above, the visor sits inside the disc on the side it faces
+      const r = bodyRadius(L);
+      const [fx, fy] = state.facing;
+      const vx = feet[0] + fx * r * 0.42, vy = feet[1] + fy * r * 0.42;
+      const a = Math.atan2(fy, fx) + Math.PI / 2;
+      ctx.fillStyle = '#f7f4ec';
+      ctx.beginPath();
+      ctx.ellipse(vx, vy, r * 0.5, r * 0.26, a, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#10201f';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(vx + Math.cos(a) * s * r * 0.22, vy + Math.sin(a) * s * r * 0.22, r * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      return;
+    }
     const w = 0.032 * L, h = 0.05 * L;
     const bob = state.moving && !ui.reducedMotion ? Math.sin((state.tick || 0) * 0.45) * 0.0035 * L : 0;
     const top = feet[1] - h * 0.6 + bob;
