@@ -3,7 +3,7 @@ import time
 import unittest
 from unittest import mock
 
-from server import config
+from server import config, meta_api
 from server.config import KeyHolder
 from server.meta_api import CallError, Transport, retry_after_seconds
 from server.tests.fakemeta import FakeMeta, ok_json
@@ -71,6 +71,8 @@ class AgainstAFake(unittest.TestCase):
             self.assertEqual(len(self.fake.requests), sends, f'{status} {headers}')
             self.assertEqual(self.slept, sleeps, f'{status} {headers}')
             self.assertEqual(c.exception.status, status)
+            self.assertEqual(c.exception.transient, status in (429, 500, 502, 503, 504), status)
+            self.assertTrue(c.exception.message.endswith('.'), status)
 
     def test_a_retry_can_succeed(self):
         self.fake.on('/x', (500, {}, b''), ok_json({'ok': 2}))
@@ -88,6 +90,7 @@ class AgainstAFake(unittest.TestCase):
         with self.assertRaises(CallError) as c:
             self.post()
         self.assertEqual(c.exception.code, 'malformed')
+        self.assertFalse(c.exception.transient)
         self.assertEqual(len(self.fake.requests), 1)
         self.assertLessEqual(len(c.exception.excerpt), 300)
         self.assertNotIn(TEST_VALUE, c.exception.excerpt)
@@ -110,6 +113,8 @@ class AgainstAFake(unittest.TestCase):
         with self.assertRaises(CallError) as c:
             self.t.post_once('/x', {}, 0.4)
         self.assertEqual(c.exception.code, 'timeout')
+        self.assertTrue(c.exception.transient)
+        self.assertEqual(c.exception.message, 'The Model API did not answer in time. Please try the same photo again.')
         self.assertLess(time.monotonic() - t0, 1.5, 'the timer covers the trickling body, not just each read')
 
     def test_answer_caps(self):
@@ -137,6 +142,34 @@ class AgainstAFake(unittest.TestCase):
             self.t.post_once('/x', {}, 5)
         self.assertIn(c.exception.code, ('network', 'malformed'))
         self.assertTrue(c.exception.retryable or c.exception.code == 'malformed')
+
+
+class Words(unittest.TestCase):
+    def test_every_failure_is_whole_sentences(self):
+        texts = list(meta_api.WORDS.values()) + [
+            meta_api.TIMEOUT_WORDS, meta_api.NETWORK_WORDS, meta_api.OUT_OF_TIME_WORDS, meta_api.REDIRECT_WORDS,
+            meta_api.TOO_LARGE_WORDS, meta_api.MALFORMED_WORDS, meta_api.QUOTA_WORDS, meta_api.LIVE_UNAVAILABLE,
+            meta_api.other_status_words(418), meta_api.other_status_words(599)]
+        for text in texts:
+            self.assertTrue(text.endswith('.'), text)
+            self.assertRegex(text, r'^[A-Z]', text)
+            self.assertNotRegex(text, r'[a-z] [A-Z][a-z]+ [a-z]', 'no sentence runs into the next: ' + text)
+
+    def test_the_advice_fits_the_fault(self):
+        for status in (429, 500, 502, 503, 504):
+            self.assertIn('same photo again', meta_api.WORDS[status], status)
+        for status in (401, 402, 403, 404):
+            self.assertIn('owner', meta_api.WORDS[status], status)
+            self.assertIn('sample rooms still work', meta_api.WORDS[status], status)
+        self.assertIn('owner', meta_api.QUOTA_WORDS)
+        self.assertIn('same photo again', meta_api.TIMEOUT_WORDS)
+
+    def test_transient_means_a_passing_fault(self):
+        for status, quota, want in ((429, False, True), (429, True, False), (500, False, True), (503, False, True),
+                                    (504, False, True), (400, False, False), (401, False, False), (402, False, False),
+                                    (404, False, False), (413, False, False)):
+            self.assertEqual(meta_api.is_transient(status, quota), want, (status, quota))
+        self.assertFalse(CallError('x', 'y.').transient, 'absent means not transient')
 
 
 class Latch(unittest.TestCase):

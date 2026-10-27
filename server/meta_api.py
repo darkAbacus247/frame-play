@@ -27,29 +27,55 @@ from server.config import KeyHolder, redact
 
 RETRY_STATUSES = {429, 500, 502}
 NEVER_RETRY = {400, 401, 402, 403, 404, 413, 504}
+# Every failure in whole sentences, with the step that helps. "The same photo
+# again" for passing faults; the owner for account or model problems.
+AGAIN = 'Please try the same photo again.'
+AGAIN_SOON = 'Please try the same photo again in a minute.'
+OWNER = 'The owner of this server must fix this; the sample rooms still work.'
 WORDS = {
-    400: 'The Model API refused the request as malformed',
-    401: 'The Model API did not accept the key',
-    402: 'The Model API account needs a payment method or credit',
-    403: 'The Model API refused access',
-    404: 'The Model API does not know this address or model',
-    413: 'The photo was too large for the Model API',
-    429: 'The Model API asked us to slow down',
-    500: 'The Model API had an internal error',
-    502: 'The Model API had a gateway error',
-    503: 'The Model API is unavailable for now',
-    504: 'The Model API timed out',
+    400: 'The Model API could not accept this request. Please try another photo.',
+    401: f"The Model API did not accept this server's key. {OWNER}",
+    402: f'The Model API account behind this server needs a payment method or credit. {OWNER}',
+    403: f'The Model API refused this server access. {OWNER}',
+    404: f'The Model API does not know this model or address (it may have been renamed or retired). {OWNER}',
+    413: 'The photo was too large for the Model API. Please try a smaller photo.',
+    429: f'The Model API is busy. {AGAIN_SOON}',
+    500: f'The Model API had a problem on its side. {AGAIN}',
+    502: f'The Model API had a problem on its side. {AGAIN}',
+    503: f'The Model API is unavailable for now. {AGAIN_SOON}',
+    504: f'The Model API took too long on its side. {AGAIN}',
 }
+TIMEOUT_WORDS = f'The Model API did not answer in time. {AGAIN}'
+NETWORK_WORDS = f'The Model API could not be reached (a network error). {AGAIN}'
+OUT_OF_TIME_WORDS = f'This photo ran out of time before every answer came back. {AGAIN}'
+REDIRECT_WORDS = 'The Model API answered with a redirect, which this app never follows. Please try again later.'
+TOO_LARGE_WORDS = "The Model API's answer was larger than this app allows. Please try another photo."
+MALFORMED_WORDS = f"The Model API's answer could not be read. {AGAIN}"
 # Account or model problems: no photo can be read until the owner fixes them.
 BROKEN_STATUSES = {401, 402, 403}
 MODEL_ROUTES = {'/chat/completions', '/responses'}
-QUOTA_WORDS = 'The Model API account behind this server has used up its quota'
+QUOTA_WORDS = f'The Model API account behind this server has used up its quota. {OWNER}'
 LIVE_UNAVAILABLE = ('The live AI is unavailable on this server right now (an account or model problem '
                     'the owner must fix). The sample rooms still work.')
 
 
+def other_status_words(status):
+    if status >= 500:
+        return f'The Model API had a problem on its side (it answered {status}). {AGAIN}'
+    return f'The Model API refused this request (it answered {status}). Please try another photo.'
+
+
+def is_transient(status, quota=False):
+    """A passing fault: the same photo, again, later, may well work."""
+    return (status == 429 and not quota) or (status is not None and status >= 500)
+
+
 class CallError(Exception):
-    def __init__(self, code, message, status=None, retry_after=None, retryable=False, billed=True, excerpt=None):
+    """transient: a passing fault (a 429 that is not quota, a 5xx, a timeout or
+    a network error); the page offers the same photo again."""
+
+    def __init__(self, code, message, status=None, retry_after=None, retryable=False, billed=True, excerpt=None,
+                 transient=False):
         super().__init__(message)
         self.code = code
         self.message = message
@@ -58,6 +84,7 @@ class CallError(Exception):
         self.retryable = retryable
         self.billed = billed
         self.excerpt = excerpt
+        self.transient = bool(transient)
         self.latched = False  # True when this answer marked the transport broken
 
 
@@ -199,17 +226,17 @@ class Transport:
             status = r.status
             retry = retry_after_seconds(r.getheader('Retry-After'))
             if 300 <= status < 400:
-                raise CallError('redirect', 'The Model API answered with a redirect, which is never followed', status)
+                raise CallError('redirect', REDIRECT_WORDS, status)
             cap = config.MAX_ANSWER_BYTES if status < 400 else config.MAX_ERROR_BYTES
             data = r.read(cap + 1)
             if len(data) > cap:
-                raise CallError('too_large', 'The answer was larger than allowed', status)
+                raise CallError('too_large', TOO_LARGE_WORDS, status)
         except CallError:
             raise
         except (OSError, http.client.HTTPException, ValueError) as e:
             if fired.is_set():
-                raise CallError('timeout', 'The Model API did not answer in time', retryable=True) from None
-            raise CallError('network', f'A network error: {type(e).__name__}', retryable=True) from None
+                raise CallError('timeout', TIMEOUT_WORDS, retryable=True, transient=True) from None
+            raise CallError('network', NETWORK_WORDS, retryable=True, excerpt=type(e).__name__, transient=True) from None
         finally:
             timer.cancel()
             try:
@@ -217,16 +244,16 @@ class Transport:
             except OSError:
                 pass
         if fired.is_set():
-            raise CallError('timeout', 'The Model API did not answer in time', retryable=True)
+            raise CallError('timeout', TIMEOUT_WORDS, retryable=True, transient=True)
         if status >= 400:
             code = _error_code(data) or f'http_{status}'
             quota = status == 429 and 'quota' in code.lower()
             retryable = status in RETRY_STATUSES or (status == 503 and retry is not None and retry <= 3)
             if status in NEVER_RETRY or quota:
                 retryable = False
-            words = QUOTA_WORDS if quota else WORDS.get(status, f'The Model API answered {status}')
-            e = CallError(code, words, status, retry, retryable,
-                          billed=False, excerpt=excerpt(data, self.holder) if data else None)
+            words = QUOTA_WORDS if quota else WORDS.get(status) or other_status_words(status)
+            e = CallError(code, words, status, retry, retryable, billed=False,
+                          excerpt=excerpt(data, self.holder) if data else None, transient=is_transient(status, quota))
             if self.latching and (status in BROKEN_STATUSES or quota
                                   or (status == 404 and (route in MODEL_ROUTES or code == 'model_not_found'))):
                 self._trip(code, words)
@@ -236,7 +263,7 @@ class Transport:
         try:
             return status, json.loads(data.decode('utf-8'))
         except (UnicodeDecodeError, ValueError):
-            raise CallError('malformed', 'The answer could not be read', status, excerpt=excerpt(data, self.holder)) from None
+            raise CallError('malformed', MALFORMED_WORDS, status, excerpt=excerpt(data, self.holder)) from None
 
     def post(self, route, body, deadline, sleep=time.sleep, clock=time.monotonic):
         """With the retry table. Returns (parsed JSON, attempts, ms)."""
@@ -245,7 +272,7 @@ class Transport:
         while True:
             left = deadline - clock()
             if left <= 0:
-                raise CallError('timeout', 'The photo ran out of time', retryable=False)
+                raise CallError('timeout', OUT_OF_TIME_WORDS, retryable=False, transient=True)
             try:
                 _, j = self.post_once(route, body, min(config.CALL_TIMEOUT_S, left))
                 return j, attempt, int((clock() - t0) * 1000)

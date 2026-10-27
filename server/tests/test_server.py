@@ -10,7 +10,7 @@ from server.config import settings_from
 from server.limits import Limits
 from server.meta_api import Transport
 from server.pipeline import Pipeline
-from server.server import CSP, FramePlayServer, Log, build_server, is_loopback, main, static_file
+from server.server import CSP, FramePlayServer, Log, build_server, error_body, is_loopback, main, sentence, static_file
 from server.tests import images
 from server.tests.fakemeta import FakeMeta, ok_json
 
@@ -107,6 +107,18 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(self.run_.request('DELETE', '/')[0], 405)
         self.assertEqual(self.run_.request('PUT', '/nothing')[0], 404)
         self.assertEqual(self.run_.request('POST', '/api/other', b'x', {'X-FramePlay-Request': '1'})[0], 404)
+
+    def test_every_refusal_is_whole_sentences(self):
+        answers = [self.run_.request('GET', '/nothing'), self.run_.request('GET', '/api/room'),
+                   self.run_.request('POST', '/api/health'),
+                   self.run_.request('POST', '/api/room', images.jpeg(), {'Content-Type': 'image/jpeg'}),
+                   self.run_.request('POST', '/api/room', images.jpeg(), {'X-FramePlay-Request': '1'})]
+        for status, _, body in answers:
+            msg = json.loads(body)['error']['message']
+            self.assertTrue(msg.endswith('.'), (status, msg))
+        self.assertEqual(sentence('The photo is odd'), 'The photo is odd.')
+        self.assertEqual(sentence('Already whole. '), 'Already whole.')
+        self.assertEqual(error_body('x', 'No period')['error']['message'], 'No period.')
 
     def test_logs_never_hold_the_address_or_headers(self):
         self.run_.request('GET', '/api/health', headers={'User-Agent': 'secret-agent', 'Cookie': 'c=1'})

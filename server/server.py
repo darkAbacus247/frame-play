@@ -88,8 +88,14 @@ class Log:
                     pass
 
 
+def sentence(text):
+    """Words end with a full stop, so the page can add its advice after them."""
+    text = str(text).strip()
+    return text if text[-1:] in '.!?' else text + '.'
+
+
 def error_body(code, message):
-    return {'status': 'error', 'error': {'code': code, 'message': message}}
+    return {'status': 'error', 'error': {'code': code, 'message': sentence(message)}}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -137,10 +143,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/health':
             return self.send_json(200, self.server.health(), head=head)
         if route == '/api/room':
-            return self.send_json(405, error_body('method', 'Use POST for /api/room'), {'Allow': 'POST'}, head)
+            return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'}, head)
         f = static_file(route)
         if f is None:
-            return self.send_json(404, error_body('not_found', 'There is nothing here'), head=head)
+            return self.send_json(404, error_body('not_found', 'There is nothing here.'), head=head)
         return self.send_bytes(200, f.read_bytes(), TYPES.get(f.suffix, 'application/octet-stream'), head=head)
 
     def do_HEAD(self):
@@ -151,18 +157,18 @@ class Handler(BaseHTTPRequestHandler):
         if route != '/api/room':
             self.close_connection = True  # its body is never read
             if route == '/api/health' or static_file(route) is not None:
-                return self.send_json(405, error_body('method', 'This address only answers GET'), {'Allow': 'GET'})
-            return self.send_json(404, error_body('not_found', 'There is nothing here'))
+                return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
+            return self.send_json(404, error_body('not_found', 'There is nothing here.'))
         self.post_room()
 
     def other_method(self):
         route = self.route
         self.close_connection = True
         if route == '/api/room':
-            return self.send_json(405, error_body('method', 'Use POST for /api/room'), {'Allow': 'POST'})
+            return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'})
         if route == '/api/health' or static_file(route) is not None:
-            return self.send_json(405, error_body('method', 'This address only answers GET'), {'Allow': 'GET'})
-        return self.send_json(404, error_body('not_found', 'There is nothing here'))
+            return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
+        return self.send_json(404, error_body('not_found', 'There is nothing here.'))
 
     do_PUT = do_DELETE = do_PATCH = do_OPTIONS = other_method
 
@@ -170,10 +176,10 @@ class Handler(BaseHTTPRequestHandler):
         s = self.server.settings
         if self.headers.get('X-FramePlay-Request') != '1':
             self.close_connection = True
-            return self.send_json(403, error_body('forbidden', 'This address only answers the FRAME//PLAY page'))
+            return self.send_json(403, error_body('forbidden', 'This address only answers the FRAME//PLAY page. Please open the page itself.'))
         if (self.headers.get('Sec-Fetch-Site') or '').lower() == 'cross-site':
             self.close_connection = True
-            return self.send_json(403, error_body('forbidden', 'A request from another site is refused'))
+            return self.send_json(403, error_body('forbidden', 'A request from another site is refused. Please open the FRAME//PLAY page itself.'))
         if s.mode == 'mock':
             self.close_connection = True
             return self.send_json(409, error_body('live_off', 'This server is in MOCK mode, so it sends no photo anywhere. Play the sample rooms.'))
@@ -196,24 +202,24 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', ''))
         except ValueError:
             self.close_connection = True
-            return self.send_json(411, error_body('length', 'The photo must come with its length'))
+            return self.send_json(411, error_body('length', 'The photo must come with its length. Please try again from the page.'))
         if length < 0:
             self.close_connection = True
-            return self.send_json(400, error_body('length', 'The length cannot be read'))
+            return self.send_json(400, error_body('length', 'The length of the photo cannot be read. Please try again from the page.'))
         if length > config.MAX_BODY:
             self.close_connection = True
             return self.send_json(413, error_body('too_large', 'The photo is larger than 4 MiB. The page shrinks it first; please try again from the page.'))
         data = self.rfile.read(length)
         if len(data) != length:
             self.close_connection = True
-            return self.send_json(400, error_body('short', 'The photo arrived incomplete'))
+            return self.send_json(400, error_body('short', 'The photo arrived incomplete. Please try the same photo again.'))
         try:
             photo = check_photo(data, config.MAX_SIDE)
         except ImageError as e:
             return self.send_json(415, error_body('bad_image', str(e)))
         pipeline = self.server.pipeline
         if pipeline is None:
-            return self.send_json(503, error_body('not_ready', 'The live path is not available on this server'))
+            return self.send_json(503, error_body('not_ready', 'The live path is not available on this server. The sample rooms still work.'))
         stream = 'application/x-ndjson' in (self.headers.get('Accept') or '')
         pipeline.handle(self, photo, stream)
 
