@@ -27,7 +27,14 @@ const isBox = (b, W, H) => Array.isArray(b) && b.length === 4 && b.every((v) => 
 
 // A reply is accepted only from a server that said it is in the same mode
 // (LIVE only from a live server, REHEARSAL only from a rehearsing one), for
-// the very copy that was sent. Returns { ok, why }.
+// the very copy that was sent. Returns { ok, why, dropped, words }.
+// An object whose box is not usable (outside the picture, empty, not
+// numbers) is left out rather than sinking the whole reply, and so is an
+// unusable surface: the reply is cleaned in place (the page goes on with
+// the same object), `reply.dropped` says how many objects went and whether
+// the surface did, each one gets a `not used:` warning, and `words` says
+// so in one sentence ('' when nothing was left out). The reply is refused
+// only when no object is left.
 export function acceptReply(healthMode, reply, copy) {
   const no = (why) => ({ ok: false, why });
   if (!reply || typeof reply !== 'object' || reply.schema !== REPLY_SCHEMA) return no('The server answered in a shape this page does not know.');
@@ -40,12 +47,26 @@ export function acceptReply(healthMode, reply, copy) {
   const r = reply.received || {};
   if (r.width !== copy.width || r.height !== copy.height) return no('The reply is for a picture of a different size, so it is not used.');
   if (!Array.isArray(reply.objects) || !reply.objects.length) return no('The reply holds no objects.');
-  for (const o of reply.objects) {
-    if (!o || typeof o.name !== 'string' || !isBox(o.box, copy.width, copy.height)) return no('An object in the reply has no usable box.');
-  }
-  if (reply.surface && !isBox(reply.surface.box, copy.width, copy.height)) return no('The surface in the reply has no usable box.');
-  return { ok: true, why: '' };
+  const usable = (o) => !!o && typeof o.name === 'string' && isBox(o.box, copy.width, copy.height);
+  const good = reply.objects.filter(usable);
+  const lost = reply.objects.filter((o) => !usable(o));
+  if (!good.length) return no(`No object in the reply has a usable box (${plural(lost.length, 'box', 'boxes')} lay outside the picture or were empty), so nothing could be made from it.`);
+  const surfaceLost = !!reply.surface && !isBox(reply.surface.box, copy.width, copy.height);
+  if (!lost.length && !surfaceLost) return { ok: true, why: '', dropped: 0, words: '' };
+  const warnings = Array.isArray(reply.warnings) ? reply.warnings : (reply.warnings = []);
+  for (const o of lost) warnings.push(`not used: ${o && typeof o.name === 'string' ? o.name : 'an unnamed object'} (its box lay outside the picture or was empty)`);
+  if (surfaceLost) warnings.push(`not used: ${String(reply.surface.name || 'the surface')} (the play surface; its box lay outside the picture or was empty)`);
+  reply.objects = good;
+  if (surfaceLost) reply.surface = null;
+  reply.dropped = { objects: lost.length, surface: surfaceLost };
+  const said = [];
+  if (lost.length) said.push(`${plural(lost.length, 'object', 'objects')} in the reply had a box outside the picture or an empty one`);
+  if (surfaceLost) said.push(`${lost.length ? 'the' : 'The'} surface’s box was not usable`);
+  const words = `${said.join(', and ')}, so ${lost.length + (surfaceLost ? 1 : 0) > 1 ? 'they were' : 'it was'} left out.`;
+  return { ok: true, why: '', dropped: lost.length, words: words[0].toUpperCase() + words.slice(1) };
 }
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // A refusal or an error, in words, ending as a sentence ends (the server's
 // own words may not), so the words after it read on.
