@@ -124,7 +124,10 @@
      "matches": 4,
      "usd": 0.0025,
      "surface": true,
-     "kept": 4
+     "kept": 4,
+     "diagnostics": [
+      "mask_undecodable"
+     ]
     },
     {
      "stage": "find",

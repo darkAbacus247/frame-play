@@ -21,7 +21,7 @@ import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from server import config, samtext
+from server import config, sam_mask, samtext
 from server.limits import SAM_COST, SPARK_WORST, Refusal, spark_cost
 from server.meta_api import CallError, Transport, excerpt
 
@@ -378,7 +378,30 @@ def surface_from(records):
         return None
     boxes = [r['box'] for r in keep]
     return {'box': [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)],
-            'confidence': max(_conf(r) for r in keep), 'matches': len(keep), 'boxes': boxes[:MAX_FLOOR_BOXES]}
+            'confidence': max(_conf(r) for r in keep), 'matches': len(keep), 'boxes': boxes[:MAX_FLOOR_BOXES],
+            'records': keep[:MAX_FLOOR_BOXES]}
+
+
+def floor_mask(shapes, W, H):
+    """SAM's floor: the decoded masks of its floor matches laid on the
+    picture together (a pixel is floor when any match holds it), as the
+    game's shapes: rings (the floor's outline and its holes, which are the
+    footprints of the things standing on it), area and bounds; None for no
+    floor pixel."""
+    full = bytearray(W * H)
+    for shape in shapes:
+        r = shape['raster']
+        w, data = r['width'], r['data']
+        for row in range(r['height']):
+            line = data[row * w:(row + 1) * w]
+            if 1 not in line:
+                continue
+            at = (r['top'] + row) * W + r['left']
+            full[at:at + w] = bytes(a | b for a, b in zip(full[at:at + w], line))
+    if 1 not in full:
+        return None
+    shape = sam_mask.mask_shape(bytes(full), W, H)
+    return {'rings': shape['rings'], 'area': shape['area'], 'bounds': shape['bounds'], 'matches': len(shapes)}
 
 
 def _reach(p, box, W, H):
@@ -733,13 +756,15 @@ class Pipeline:
         mask_notes = {}
 
         def shape_of(record, noun):
+            # noun: the call to note a failure on (None: the call is noted elsewhere)
             if record.get('mask') is None:
                 return None
             if 'shape' not in record['mask'] and self.clock() >= deadline:
-                mask_notes.setdefault(noun, set()).add('mask_time')
+                if noun:
+                    mask_notes.setdefault(noun, set()).add('mask_time')
                 return None
             shape = samtext.mask_shape(record, (W, H))
-            if shape is None:
+            if shape is None and noun:
                 mask_notes.setdefault(noun, set()).add('mask_undecodable')
             return shape
 
@@ -909,6 +934,7 @@ class Pipeline:
         surface_matches = 0
         surface_err = None
         floor_boxes = []
+        floor_records = []
         if room['surface']:
             parsed, surface_err = answers[('surface', room['surface'])]
             if parsed is not None and not ('size_mismatch' in parsed.errors) and parsed.records:
@@ -917,6 +943,7 @@ class Pipeline:
                     surface = {'name': room['surface'], 'box': whole['box'], 'confidence': whole['confidence']}
                     surface_matches = whole['matches']
                     floor_boxes = whole['boxes']
+                    floor_records = whole['records']
         # which matches are which object: each name's own choice (boxes held
         # to the picture), then no box kept by two names
         picks = []
@@ -947,6 +974,7 @@ class Pipeline:
             picks = [q for q in picks if not any(q is a for a, _ in absorbed)]
             boxes = [q[2]['box'] for q, _ in absorbed]
             floor_boxes = (floor_boxes + boxes)[:MAX_FLOOR_BOXES]
+            floor_records = (floor_records + [q[2] for q, _ in absorbed])[:MAX_FLOOR_BOXES]
             if surface is None:
                 named = any(why == 'named' for _, why in absorbed)
                 biggest = max(absorbed, key=lambda a: (a[0][2]['box'][2] - a[0][2]['box'][0]) * (a[0][2]['box'][3] - a[0][2]['box'][1]))
@@ -1047,9 +1075,18 @@ class Pipeline:
                              'payload_chars': mask.get('payload_chars'), **exact},
                     'outline_source': 'sam_mask' if shape else 'traced_in_box',
                 })
+        # the floor SAM found, from its masks: the play area, when any decodes
+        floor_shapes = []
+        for k, rec in enumerate(floor_records):
+            # the surface call's own matches come first; absorbed things after
+            shape = shape_of(rec, 'surface:' + room['surface'] if k < surface_matches else None)
+            if shape:
+                floor_shapes.append(shape)
+        exact_floor = floor_mask(floor_shapes, W, H) if floor_shapes else None
         for c in calls:
-            if c['stage'] == 'find' and c.get('noun') in mask_notes and not c.get('surface'):
-                c['diagnostics'] = c.get('diagnostics', []) + sorted(mask_notes[c['noun']])
+            key = 'surface:' + c.get('noun', '') if c.get('surface') else c.get('noun')
+            if c['stage'] == 'find' and key in mask_notes:
+                c['diagnostics'] = c.get('diagnostics', []) + sorted(mask_notes[key])
         by_sam = sum(1 for o in objects if o['found_by'] == 'sam')
         sent = [answers[('object', n)] for n in nouns]
         errs = [e for _, e in sent if e is not None]
@@ -1082,9 +1119,13 @@ class Pipeline:
         found['points'] = len(objects) - by_sam
         if found['points']:
             stages['find'] = 'points' if not by_sam else 'some_points'
-        # the floor, for the page to grow from Muse Spark's points inside
-        # SAM's floor boxes (with none of either, it keeps to the horizon)
+        # the floor: SAM's own mask of it, which the page takes as the play
+        # area; without one, the page grows the floor from Muse Spark's
+        # points inside SAM's floor boxes (with none of either, it keeps to
+        # the horizon)
         floor = {'view': room['view'], 'seeds': room['floor_seeds'], 'boxes': floor_boxes}
+        if exact_floor:
+            floor['mask'] = exact_floor
         # no last check of the clock: every call kept to the photo's time,
         # and what was found is kept
         return reply('ok', None, scene=scene, surface=surface, objects=objects, floor=floor)

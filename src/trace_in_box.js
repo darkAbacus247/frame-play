@@ -25,6 +25,7 @@
 //    falls back to its box, labeled that way.
 import { traceMask, components, fillHoles, maskBounds, offsetRings } from './raster.js';
 import { simplifyShape } from './geom.js';
+import { floorFromMask } from './floor_mask.js';
 
 export const MAX_CELLS = 96;
 export const K = 4;
@@ -740,11 +741,13 @@ function boxBlur3(src, w, h, alongX) {
 }
 
 // The floor for a level from a reply, to lay over the level's input:
-// { view, floor, surface? }. surface, when there, is the traced floor
-// ({ name, rings, source: 'traced_floor' }); floor says in words where the
-// play area came from, honest by mode. With no floor traced there is no
-// surface here (the reply's own box stays, setting the horizon; seen from
-// above, the whole picture is the play area).
+// { view, floor, surface? }. surface, when there, is SAM's own mask of the
+// floor ({ name, rings, source: 'sam_mask' }: the server decoded it, and
+// pieces a crack apart are joined here, src/floor_mask.js), else the floor
+// code grew from the picture ({ ..., source: 'traced_floor' }); floor says
+// in words where the play area came from, honest by mode. With neither there
+// is no surface here (the reply's own box stays, setting the horizon; seen
+// from above, the whole picture is the play area).
 export function floorFromReply(reply, pixels) {
   const f = reply && reply.floor && typeof reply.floor === 'object' ? reply.floor : null;
   const view = f && ['eye_level', 'top_down', 'angled'].includes(f.view) ? f.view : null;
@@ -754,7 +757,18 @@ export function floorFromReply(reply, pixels) {
   const rest = view === 'top_down' ? 'the whole picture is the play area' : 'the play area is everything below the horizon';
   const fallback = (why) => ({ view, floor: { source: 'horizon', words: `${why}, so ${rest}.` } });
   if (!f) return fallback('The read said nothing of the floor');
-  const W = pixels.width, H = pixels.height;
+  const W = (reply.received && reply.received.width) || pixels.width, H = (reply.received && reply.received.height) || pixels.height;
+  const name = (reply.surface && reply.surface.name) || 'floor';
+  const exact = floorFromMask(f, W, H);
+  if (exact) {
+    const Sam = sam[0].toUpperCase() + sam.slice(1);
+    const joined = exact.joins ? `; code joined ${exact.joins === 1 ? 'one gap' : `${exact.joins} gaps`} of one or two squares between its pieces` : '';
+    return {
+      view,
+      surface: { name, rings: exact.rings, source: 'sam_mask' },
+      floor: { source: 'sam_mask', words: `${Sam}’s mask of the ${name} is the play area${joined}; everything else is wall.` },
+    };
+  }
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
   const boxes = (Array.isArray(f.boxes) ? f.boxes : [])
     .filter((b) => Array.isArray(b) && b.length === 4 && b.every(num))
@@ -771,7 +785,6 @@ export function floorFromReply(reply, pixels) {
     return fallback(why[0].toUpperCase() + why.slice(1));
   }
   const n = t.seeds.length;
-  const name = (reply.surface && reply.surface.name) || 'floor';
   return {
     view,
     surface: { name, rings: t.rings, source: 'traced_floor' },

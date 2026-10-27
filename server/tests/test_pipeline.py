@@ -281,6 +281,8 @@ class TheFloor(WithFake):
         r = self.pipe.run(photo())
         self.assertEqual(r['status'], 'ok')
         self.assertEqual(r['scene']['view'], 'top_down')
+        mask = r['floor'].pop('mask')
+        self.assertEqual((mask['matches'], len(mask['rings'])), (2, 2), 'the masks of both floor matches, laid together')
         self.assertEqual(r['floor'], {'view': 'top_down', 'seeds': [[6.4, 43.2], [57.6, 43.2]],
                                       'boxes': [[0, 20, 31, 48], [34, 20, 64, 48]]},
                          'points off the grid are dropped; a match under 0.35 is no floor')
@@ -289,6 +291,7 @@ class TheFloor(WithFake):
     def test_a_read_from_before_says_nothing_of_the_view(self):
         self.fake.on('/chat/completions', spark_answer(dict(READ, view='sideways')))
         r = self.pipe.run(photo())
+        self.assertEqual(r['floor'].pop('mask')['matches'], 1)
         self.assertEqual(r['floor'], {'view': None, 'seeds': [], 'boxes': [[0, 20, 64, 48]]})
 
     def test_no_floor_found_sends_no_boxes(self):
@@ -799,7 +802,9 @@ class Choosing(unittest.TestCase):
         recs = [self.rec(0, [0, 400, 500, 768], 0.8), self.rec(1, [500, 380, 1024, 768], 0.7), self.rec(2, [0, 0, 50, 50], 0.2)]
         # W1a: and each match's own box goes on, for the page to grow the
         # floor in (a floor plan's floor is one match a room)
-        self.assertEqual(surface_from(recs), {'box': [0, 380, 1024, 768], 'confidence': 0.8, 'matches': 2,
+        whole = surface_from(recs)
+        self.assertEqual([r['id'] for r in whole.pop('records')], [0, 1], 'the matches whose masks make the floor')
+        self.assertEqual(whole, {'box': [0, 380, 1024, 768], 'confidence': 0.8, 'matches': 2,
                                               'boxes': [[0, 400, 500, 768], [500, 380, 1024, 768]]})
         self.assertIsNone(surface_from([self.rec(0, [0, 0, 9, 9], 0.3)]))
 

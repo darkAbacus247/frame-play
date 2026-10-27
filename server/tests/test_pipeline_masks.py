@@ -9,7 +9,7 @@ from server import config, samtext
 from server.config import settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
-from server.pipeline import Pipeline, choose_matches, on_mask
+from server.pipeline import Pipeline, choose_matches, floor_mask, on_mask
 from server.sam_mask import _signed_area, decode_data, encode_one_bit, mask_shape
 from server.tests import images, recorded
 
@@ -153,6 +153,45 @@ class Shapes(unittest.TestCase):
         self.assertFalse(on_mask(shape, (30, 30)))
         self.assertFalse(on_mask(shape, (5, 5)))
         self.assertFalse(on_mask(None, (10, 10)))
+
+
+
+class Floor(unittest.TestCase):
+    """SAM's floor (or surface) mask is the play area the page uses."""
+
+    def test_the_recorded_desk_mask_is_sent_as_the_floor(self):
+        r = recorded.run()
+        m = r['floor']['mask']
+        self.assertEqual(m['matches'], 1)
+        self.assertEqual(m['bounds'], [0, 319, 1024, 687])
+        self.assertGreater(len(m['rings']), 1, 'the desk, and holes where things stand on it')
+        outer = [ring for ring in m['rings'] if _signed_area(ring) > 0]
+        holes = [ring for ring in m['rings'] if _signed_area(ring) < 0]
+        self.assertTrue(outer and holes)
+        self.assertNotIn('diagnostics', next(c for c in r['provenance']['calls'] if c.get('surface')))
+        # the desk's own box stays for the reply's surface and for the page's fallback
+        self.assertEqual(r['floor']['boxes'], [[0, 319, 1024, 687]])
+
+    def test_a_floor_in_several_matches_is_their_union(self):
+        left = encode_one_bit(bytes([1]) * (40 * 30), 40, 30)
+        right = encode_one_bit(ring_raster(30, 30), 30, 30)
+        text = samtext.compose([{'box': [10, 10, 49, 39], 'confidence': 0.9, 'payload': left},
+                                {'box': [60, 10, 89, 39], 'confidence': 0.8, 'payload': right}], 100, 100)
+        shapes = [samtext.mask_shape(rec, (100, 100)) for rec in samtext.parse(text, 100, 100).records]
+        m = floor_mask(shapes, 100, 100)
+        self.assertEqual(m['area'], 40 * 30 + sum(ring_raster(30, 30)))
+        self.assertEqual(m['bounds'], [10, 10, 90, 40])
+        self.assertEqual(m['matches'], 2)
+        self.assertEqual(len(m['rings']), 3, 'two pieces, and the hole in the frame')
+        self.assertIsNone(floor_mask([], 100, 100))
+
+    def test_a_floor_mask_that_does_not_decode_leaves_the_page_to_grow_the_floor(self):
+        r = recorded.run({'desk': recorded.spoilt(recorded.FIXTURE['answers']['desk'])})
+        self.assertEqual(r['status'], 'ok')
+        self.assertNotIn('mask', r['floor'])
+        self.assertEqual(r['floor']['boxes'], [[0, 319, 1024, 687]], 'the box stays: the page grows the floor in it')
+        surface_call = next(c for c in r['provenance']['calls'] if c.get('surface'))
+        self.assertEqual(surface_call['diagnostics'], ['mask_undecodable'])
 
 
 if __name__ == '__main__':

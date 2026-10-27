@@ -52,11 +52,20 @@ floor grown on the picture, walls and doorways.
   3.1's masks gave 9 exact outlines; code traced 0"). Muse Spark also says
   how the camera sees the room (at eye level, from above as in a floor
   plan, or at a slant) and gives points on the open floor, one or more a
-  room; SAM 3.1 answers "floor" with one match a room. Code grows the floor
-  from those points, by colour and edges, inside SAM's floor boxes, and
-  that floor, less what stands on it, is where the explorer may walk:
-  everything else is wall, and a doorway is where the floor runs on from
-  one room into the next. Seen from above, a thing blocks its whole
+  room; SAM 3.1 answers "floor" (or the desk, the table) with one match a
+  room. **SAM 3.1's floor mask is the play area:** the server lays the
+  masks of SAM's floor matches together, and that floor is where the
+  explorer may walk; its holes are the footprints of the things standing on
+  it, and their walls are their exact outlines, read even-odd (a mug's
+  handle stays open). Everything else is wall. Pieces of the mask that
+  touch only at a corner or lie one or two squares of the explorer's grid
+  apart (a seam in the mask, never a real wall) are joined, with a passage
+  the explorer fits through, so no coin is cut off, and the words say how
+  many gaps were joined. A doorway is where the floor runs on from one room
+  into the next, and where it meets the exit's outline. The proof that the
+  room can be won runs on this floor. Only when no floor mask decodes does
+  code grow the floor from Muse Spark's points, by colour and edges, inside
+  SAM's floor boxes, as before. Seen from above, a thing blocks its whole
   outline. With no floor found (no points, no floor match, or too little
   floor around the points) the play area is everything below the horizon
   (from above, the whole picture), and the level's provenance says so in

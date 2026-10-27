@@ -5,6 +5,7 @@ import { fillRings, maskBounds, traceMaskInBounds, fillHoles, components } from 
 import { ringsInside, bounds } from './geom.js';
 import { edt } from './distance.js';
 import { navParams, buildNav, gridDistances, cellCenter, findPath } from './nav.js';
+import { exitDoorway } from './floor_mask.js';
 
 export const LEVEL_SCHEMA = 'frameplay.level/2';
 export const ORIGINS = ['mock', 'live', 'rehearsal', 'marked'];
@@ -23,8 +24,10 @@ export const OUTLINE_SOURCES = ['exact', 'sam_mask', 'traced_in_box', 'box', 'tr
 // blocks its whole outline and there is no horizon.
 export const VIEWS = ['eye_level', 'top_down', 'angled'];
 // Surfaces that are the floor itself, so they fence the play area: walls
-// are everything else. A surface known only as a box sets the horizon.
-export const FLOOR_SOURCES = ['exact', 'traced_floor'];
+// are everything else (drawn by code, SAM 3.1's own mask of the floor, or
+// grown by code from the picture). A surface known only as a box sets the
+// horizon.
+export const FLOOR_SOURCES = ['exact', 'sam_mask', 'traced_floor'];
 // Doorways: the floor narrower than twice this share of the long side
 // between two rooms (each at least ROOM_AREA of the picture).
 export const DOOR_HALF = 0.045;
@@ -656,7 +659,13 @@ export function buildLevel(input) {
 // Where the play area came from, in words, when the input does not say.
 function floorWords(surface, view) {
   if (surface && FLOOR_SOURCES.includes(surface.source)) {
-    return { source: surface.source, words: surface.source === 'exact' ? `The play area is the ${surface.name || 'floor'} as code drew it; everything else is wall.` : `Code traced the ${surface.name || 'floor'}; everything else is wall.` };
+    const name = surface.name || 'floor';
+    const words = {
+      exact: `The play area is the ${name} as code drew it; everything else is wall.`,
+      sam_mask: `SAM 3.1’s mask of the ${name} is the play area; everything else is wall.`,
+      traced_floor: `Code traced the ${name}; everything else is wall.`,
+    }[surface.source];
+    return { source: surface.source, words };
   }
   return { source: 'horizon', words: view === 'top_down' ? 'No floor was traced, so the whole picture is the play area.' : 'No floor was traced, so the play area is everything below the horizon.' };
 }
@@ -723,6 +732,11 @@ function finishLevel(level, rt, start, proof) {
       const f = floorRooms(rt.floor, rt.W, rt.H);
       level.surface.rooms = f.rooms;
       level.surface.doorways = f.doorways.map((d) => ({ x: d.x, y: d.y, width: d.width }));
+      // on SAM's own floor, the exit is a doorway too: where the floor
+      // meets its outline
+      const k = roleIndexes(level, 'exit')[0];
+      const door = level.surface.source === 'sam_mask' && k !== undefined ? exitDoorway(rt.floor, rt.objs[k].mask, rt.W, rt.H) : null;
+      if (door) level.surface.doorways.push(door);
     }
   }
   level.rules = {

@@ -162,17 +162,30 @@ test('REHEARSAL: both old rooms through the stand-in get a traced floor and stay
   }
 });
 
-test('the recorded desk read (from before floor points) keeps the horizon, said in words', { timeout: 120000 }, async () => {
+test('the recorded desk read: SAM 3.1’s own mask of the desk is the play area, said in words', { timeout: 120000 }, async () => {
   const reply = recordedReply();
   const room = loadRoom(JSON.parse(readFileSync(new URL('../rooms/desk.json', import.meta.url), 'utf8')));
-  const pixels = { width: room.width, height: room.height, data: jpegLike(paintRoom(room).rgba, room.width, room.height, 90) };
-  const entry = await levelFromReply(reply, { width: room.width, height: room.height }, pixels, { kind: 'photo', sha256: 'recorded' }, () => Promise.resolve());
-  const { level } = entry.built;
+  const W = room.width, H = room.height;
+  const pixels = { width: W, height: H, data: jpegLike(paintRoom(room).rgba, W, H, 90) };
+  const entry = await levelFromReply(reply, { width: W, height: H }, pixels, { kind: 'photo', sha256: 'recorded' }, () => Promise.resolve());
+  const { level, rt } = entry.built;
   assert.ok(level.proof.winnable);
   assert.equal(level.view, 'eye_level');
   // played back under a rehearsal's settings, so the words name the stand-in
-  assert.deepEqual(level.provenance.floor, { source: 'horizon', words: 'The stand-in for Muse Spark gave no points on the floor, so the play area is everything below the horizon.' });
-  assert.equal(level.surface.source, 'box');
+  assert.deepEqual(level.provenance.floor, { source: 'sam_mask', words: 'The stand-in for SAM 3.1’s mask of the desk is the play area; everything else is wall.' });
+  assert.equal(level.surface.source, 'sam_mask');
+  // the explorer stands only on the desk SAM drew, or behind a thing on it
+  const desk = fillRings(reply.floor.mask.rings, W, H);
+  // each thing filled on its own (two that overlap must not cancel out)
+  const things = new Uint8Array(W * H);
+  for (const o of level.objects) fillRings(o.outline.rings, W, H).forEach((v, i) => { if (v) things[i] = 1; });
+  let off = 0, on = 0;
+  for (let i = 0; i < W * H; i++) if (rt.walk[i]) { if (desk[i] || things[i]) on++; else off++; }
+  assert.equal(off, 0, 'no walkable pixel off the desk mask');
+  assert.ok(on > 0.2 * W * H);
+  const [sx, sy] = level.start;
+  assert.ok(desk[Math.floor(sy) * W + Math.floor(sx)], 'the start is on the desk');
+  assert.equal(rt.walk[300 * W + 512], 0, 'above the desk is a wall');
 });
 
 test('a sample room’s own floor is the play area; one room, no doorways', () => {
