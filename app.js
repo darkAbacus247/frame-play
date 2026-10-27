@@ -249,6 +249,15 @@ function cancelRead() {
   if (A.cancelRead && !A.cancelRead.signal.aborted) A.cancelRead.abort();
 }
 
+// A reply made while calls were failing (an object not looked for): played,
+// never kept on this device, so the same photo is read again next time.
+function degradedReply(reply) {
+  const p = reply && reply.provenance;
+  const calls = (p && Array.isArray(p.calls)) ? p.calls : [];
+  const warnings = (reply && Array.isArray(reply.warnings)) ? reply.warnings : [];
+  return calls.some((c) => c && c.status !== 200) || warnings.some((w) => typeof w === 'string' && /^not looked for: /.test(w));
+}
+
 // inPlace: the room is already on the road (its level was not in memory):
 // it is made again on the same step, never by moving the counter back.
 // again: reads the same photo once more, offered when a failure says so.
@@ -290,7 +299,9 @@ async function readThroughServer(blob, copy, picture, pictureRef, onWords, stand
   if (other) throw new Error(other);
   onWords('Tracing the outlines');
   await new Promise((r) => setTimeout(r, 0)); // let the words show
-  return levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
+  const entry = await levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
+  entry.degraded = degradedReply(reply);
+  return entry;
 }
 
 // Steps 2 and 5: only LIVE reads a photo here (MOCK and REHEARSAL have no
@@ -310,8 +321,9 @@ function choosePhoto(slot, file, panel, opts) {
       return { ref, entry: kept };
     }
     const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal);
-    // a cancelled read is not used, so not kept either
-    if (!entry.built.error && !signal.aborted) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
+    // a cancelled read is not used, so not kept either; nor one made while
+    // calls were failing
+    if (!entry.built.error && !entry.degraded && !signal.aborted) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
     return { ref, entry };
   }, { ...opts, again: () => choosePhoto(slot, file, panel, opts) });
 }
@@ -831,7 +843,8 @@ async function screenEnd(main, token) {
 const coarsePointer = mq('(pointer: coarse)');
 
 // signal: Cancel's; seen.reply: the server's reply, once one came (its
-// error's code and retry_same)
+// error's code and retry_same, and whether it was made while calls were
+// failing)
 function ownDeps(signal = null, seen = {}) {
   return {
     preview: previewPhoto,
@@ -935,7 +948,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     if (r.kind === 'built') {
       if (r.ref.kind === 'marked') say('Your marks for this photo were on this device: nothing was sent.');
       else if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
-      else S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
+      else if (!degradedReply(seen.reply)) S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
       A.live.set(refKey(r.ref), r.entry);
       if (inPlace) render();
       else setRoad(R.chooseRoom(A.road, 2, r.ref));

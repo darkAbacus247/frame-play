@@ -40,7 +40,7 @@ for (const [name, answer] of [['an answer', () => replyFor('desk', 'rehearsal')]
   });
 }
 
-// ---- LIVE: whole sentences, Try this photo again, Cancel ----
+// ---- LIVE: whole sentences, Try this photo again, Cancel, degraded levels ----
 // The test answers api/room through the fetch the app host installs (kept
 // through the setter); everything else goes to the app host's own.
 const AT9 = {
@@ -161,5 +161,37 @@ test('LIVE, Step 9: Cancel works on your own room too', async () => {
     assert.match(app.main(), /Cancelled: this page stopped waiting for the read/);
     assert.equal(app.step(), 9);
     assert.equal(app.button('Choose a photo').disabled, false);
+  } finally { s.restore(); }
+});
+
+// a reply made while calls were failing: a call that did not answer 200,
+// or a noun not looked for
+const degraded = (how) => {
+  const r = replyFor('desk', 'live');
+  if (how === 'call') r.provenance.calls = [{ stage: 'read', status: 200 }, { stage: 'find', status: 429 }];
+  else r.warnings = ['not looked for: lamp (SAM 3.1 is busy right now.)'];
+  return r;
+};
+
+for (const how of ['call', 'warning']) {
+  test(`LIVE, Step 2: a level read while calls were failing (${how}) is played but not kept, so the next pick reads again`, async () => {
+    const { app, s } = await live(road, (url) => (url === 'api/room' ? json(200, degraded(how)) : undefined));
+    try {
+      app.choose(photoFile(46));
+      await app.settle(80);
+      assert.equal(app.step(), 3, 'built and on the road');
+      assert.deepEqual(app.levels(), [], 'not kept');
+    } finally { s.restore(); }
+  });
+}
+
+test('LIVE, Step 9: your own room read while calls were failing is played but not kept', async () => {
+  const { app, s } = await live(AT9, (url) => (url === 'api/room' ? json(200, degraded('call')) : undefined));
+  try {
+    app.choose(photoFile(47));
+    await app.settle(80);
+    assert.equal(app.step(), 10, 'built and on the road');
+    assert.deepEqual(app.levels(), []);
+    assert.equal(s.posts.length, 1);
   } finally { s.restore(); }
 });
