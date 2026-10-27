@@ -28,7 +28,12 @@ AGAIN = 'Please try the same photo again.'
 REPLY_SCHEMA = 'frameplay.room.reply/2'
 ROLES = ('collect', 'avoid', 'exit', 'solid', 'flat')
 PER_NOUN = {'collect': 3, 'solid': 2, 'avoid': 1, 'exit': 1, 'flat': 1}
-MAX_OBJECTS = 12
+# Muse Spark's count for a name ("chair x2") raises its role's count up to
+# this, never past it: every chair is found, still one exit.
+MAX_PER_NOUN = {'collect': 3, 'solid': 4, 'avoid': 2, 'exit': 1, 'flat': 2}
+MAX_COUNT = 6
+MAX_NAMES = 11
+MAX_OBJECTS = 16
 MIN_CONFIDENCE = 0.35
 # Choosing among several matches for one name (choose_matches): a Muse Spark
 # point counts for a match up to 3% of the picture outside it (on the desk's
@@ -82,16 +87,21 @@ Return JSON only, in the given schema:
 - floor_seeds: points on bare, open play surface, on the 0 to 1000 grid: at least one in
   every room or floor area you can see (more where furniture or walls split it), never on
   a thing standing on it, a rug or a wall.
-- objects: 1 to 8 distinct things you can see. For each:
-  - name: 1 to 3 words, one singular generic noun phrase (such as "mug", "desk lamp").
+- objects: 1 to 11 kinds of things you can see, one entry for each kind. For each:
+  - name: 1 to 3 words, one singular generic noun phrase an image segmenter finds every
+    one of (such as "chair", "coffee table", "mug", "desk lamp"): the plain word for the
+    kind, no brand, style, colour or material unless two kinds need telling apart. Give
+    two chairs one entry "chair", never "wooden chair" and "armchair" for the same kind.
     No lists, no spatial words (left, top, behind ...), no people or body words.
+  - count: how many of this kind you can see (1 or more); put a seed on each one.
   - role: exactly one of collect, avoid, exit, solid, flat. Propose exactly one exit,
     1 to 3 collect and 0 to 2 avoid; the rest are solid (an obstacle) or flat (part of
     the surface, such as a rug or paper).
   - reason: why, in 80 characters or fewer, playful and plain.
   - on_surface: true if it stands or lies on the play surface; false for scenery such
     as a picture on the wall or a ceiling lamp.
-  - seeds: up to 3 points on the object, on a 0 to 1000 grid over the photo (x right, y down).
+  - seeds: up to 6 points, one on each of the kind's things (a few on a single big one), on a
+    0 to 1000 grid over the photo (x right, y down).
 - title: a game title for this room, 60 characters or fewer.
 - theme_line: one line of story, 120 characters or fewer."""
 
@@ -117,9 +127,10 @@ SCHEMA = {
             'type': 'array',
             'items': {
                 'type': 'object', 'additionalProperties': False,
-                'required': ['name', 'role', 'reason', 'on_surface', 'seeds'],
+                'required': ['name', 'count', 'role', 'reason', 'on_surface', 'seeds'],
                 'properties': {
                     'name': {'type': 'string'},
+                    'count': {'type': 'integer'},
                     'role': {'type': 'string', 'enum': list(ROLES)},
                     'reason': {'type': 'string'},
                     'on_surface': {'type': 'boolean'},
@@ -283,12 +294,13 @@ def grid_points(raw, W, H, n):
 
 def clean_read(read, W, H, warnings):
     """Keep what the server accepts from the read: names SAM can find, roles,
-    reasons of 80 characters, seeds in pixels. Merges repeated names."""
+    reasons of 80 characters, seeds in pixels, how many of each (None when
+    the read does not say). Merges repeated names, adding their counts."""
     objs = []
     by_name = {}
     unusable = 0  # things on the surface whose names were dropped
     raw = read.get('objects') if isinstance(read.get('objects'), list) else []
-    for o in raw[:8]:
+    for o in raw[:MAX_NAMES]:
         if not isinstance(o, dict):
             continue
         name = normalize_name(o.get('name', ''))
@@ -298,12 +310,17 @@ def clean_read(read, W, H, warnings):
             unusable += o.get('on_surface') is not False
             continue
         role = o.get('role') if o.get('role') in ROLES else 'solid'
-        seeds = grid_points(o.get('seeds'), W, H, 3)
+        seeds = grid_points(o.get('seeds'), W, H, MAX_COUNT)
+        c = o.get('count')
+        count = min(MAX_COUNT, c) if isinstance(c, int) and not isinstance(c, bool) and c >= 1 else None
         if name in by_name:
-            by_name[name]['seeds'] = (by_name[name]['seeds'] + seeds)[:6]
+            e = by_name[name]
+            e['seeds'] = (e['seeds'] + seeds)[:MAX_COUNT]
+            if count is not None:
+                e['count'] = min(MAX_COUNT, (e['count'] or 0) + count)
             continue
         entry = {'name': name, 'role': role, 'reason': clip(o.get('reason', ''), 80),
-                 'on_surface': o.get('on_surface') is not False, 'seeds': seeds}
+                 'on_surface': o.get('on_surface') is not False, 'seeds': seeds, 'count': count}
         by_name[name] = entry
         objs.append(entry)
     surface = normalize_name((read.get('surface') or {}).get('name', '')) if isinstance(read.get('surface'), dict) else ''
@@ -371,14 +388,24 @@ def _reach(p, box, W, H):
     return max(dx / W, dy / H)
 
 
-def choose_matches(records, seeds, role, W, H):
+def role_cap(role, count=None):
+    """How many matches one name keeps: its role's count, raised by Muse
+    Spark's own count for it up to MAX_PER_NOUN (one exit, ever)."""
+    cap = PER_NOUN.get(role, 1)
+    return min(MAX_PER_NOUN.get(role, 1), max(cap, count)) if count else cap
+
+
+def choose_matches(records, seeds, role, W, H, count=None):
     """Which of SAM's matches for one name are this object. A match that
     holds one of Muse Spark's points for it is kept (each point picks the
     match it falls in, or the nearest within SEED_REACH of the picture, since
-    the points are rough); with no point in any match, the most confident
-    matches at or above FLOOR. Never more than the role keeps.
+    the points are rough); when Muse Spark counted more of them than its
+    points found ("chair x2" with a point on one chair), the most confident
+    other matches at or above FLOOR (and RELATIVE of the best) make up the
+    count; with no point in any match, the most confident matches at or
+    above FLOOR. Never more than role_cap keeps.
     Returns (kept, dropped): kept as (record, seeded), dropped as (record, why)."""
-    cap = PER_NOUN.get(role, 1)
+    cap = role_cap(role, count)
     usable = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
     dropped = [(r, 'low') for r in records if _conf(r) < MIN_CONFIDENCE]
     picked = []
@@ -391,7 +418,22 @@ def choose_matches(records, seeds, role, W, H):
                 picked.append(k)
     if picked:
         kept = [(usable[k], True) for k in sorted(picked)]
-        dropped += [(r, 'no_point') for k, r in enumerate(usable) if k not in picked]
+        best = _conf(usable[0])
+        more = [k for k, r in enumerate(usable) if k not in picked]
+        if count and len(picked) < min(count, cap):
+            # the rest of the count: matches no point fell in, most
+            # confident first, each a thing of its own (not the same box)
+            for k in more:
+                r = usable[k]
+                if len(kept) >= min(count, cap):
+                    break
+                if _conf(r) < FLOOR or _conf(r) < RELATIVE * best:
+                    continue
+                if any(iou(r['box'], s['box']) >= SAME_BOX for s, _ in kept):
+                    continue
+                kept.append((r, False))
+        taken = {id(r) for r, _ in kept}
+        dropped += [(r, 'no_point') for k, r in enumerate(usable) if k not in picked and id(r) not in taken]
     else:
         best = _conf(usable[0]) if usable else 0.0
         kept = [(r, False) for r in usable if _conf(r) >= FLOOR and _conf(r) >= RELATIVE * best]
@@ -497,23 +539,25 @@ def union(boxes):
     return [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]
 
 
-def point_regions(seeds, role, W, H):
+def point_regions(seeds, role, W, H, count=None):
     """Where to trace a thing SAM did not find: around Muse Spark's own
     points for it, as half-open boxes with the points they hold. (A point
     may lie inside a box SAM found for another name: a coin on a notebook.)
     Things to collect may be several (Muse Spark gives a point on each
-    coin), so their points form one region per group of points closer than
-    POINT_GROUP of the picture's long side; any other role is one region.
+    coin), and so may anything Muse Spark counted more than one of ("chair
+    x2"), so their points form one region per group of points closer than
+    POINT_GROUP of the picture's long side; any other one is one region.
     Each region is the points' bounds grown by POINT_MARGIN of the long side:
     smaller than the thing may be, and said to be what it is."""
     pts = list(seeds)
     if not pts:
         return []
     side = max(W, H)
+    several = role == 'collect' or (count or 1) > 1
     groups = []
     for p in pts:
-        g = next((g for g in groups if role == 'collect' and any(math.dist(p, q) <= POINT_GROUP * side for q in g)), None)
-        if g is None and groups and role != 'collect':
+        g = next((g for g in groups if several and any(math.dist(p, q) <= POINT_GROUP * side for q in g)), None)
+        if g is None and groups and not several:
             g = groups[0]
         if g is None:
             groups.append([p])
@@ -521,7 +565,7 @@ def point_regions(seeds, role, W, H):
             g.append(p)
     m = max(16, round(POINT_MARGIN * side))
     out = []
-    for g in groups[:PER_NOUN.get(role, 1)]:
+    for g in groups[:role_cap(role, count)]:
         xs, ys = [p[0] for p in g], [p[1] for p in g]
         box = [max(0, math.floor(min(xs)) - m), max(0, math.floor(min(ys)) - m),
                min(W, math.floor(max(xs)) + 1 + m), min(H, math.floor(max(ys)) + 1 + m)]
@@ -848,7 +892,7 @@ class Pipeline:
             if err is not None or 'size_mismatch' in parsed.errors:
                 continue
             records, emptied = held_records(parsed.records, W, H)
-            kept, lost = choose_matches(records, o['seeds'], o['role'], W, H)
+            kept, lost = choose_matches(records, o['seeds'], o['role'], W, H, o.get('count'))
             picks += [(k, o['name'], r, seeded) for r, seeded in kept]
             dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost + [(r, 'empty_box') for r in emptied]]
         picks, lost = settle_claims(picks)
@@ -920,7 +964,7 @@ class Pipeline:
             if not picked:
                 # SAM found nothing usable: Muse Spark's own points, when it
                 # gave any, still say where the thing is
-                regions = point_regions(o['seeds'], o['role'], W, H)
+                regions = point_regions(o['seeds'], o['role'], W, H, o.get('count'))
                 said = (f'not found: {o["name"]}' if looked else f'not looked for: {o["name"]}') + (f' ({why})' if why else '')
                 if not regions:
                     warnings.append(said)

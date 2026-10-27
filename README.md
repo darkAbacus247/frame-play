@@ -24,7 +24,7 @@ so before you choose one.
   and stripped of its camera data on the device, then goes through this
   app's server to Meta's Model API for one read: one Muse Spark call, then
   one SAM 3.1 call for the surface and one for each kind of object on it,
-  at most 10 calls in all, each carrying the photo (a failed call may be
+  at most 13 calls in all, each carrying the photo (a failed call may be
   sent one more time, a busy answer twice; the room read is never sent
   again after a timeout). This app does not store the photo. The room is
   built from what the models found in it: Muse Spark names the things and
@@ -188,7 +188,10 @@ The page is at `http://127.0.0.1:8191/`. Without `MODEL_API_KEY` and
 MOCK mode: sample rooms drawn by code, labeled MOCK, and no model is called.
 
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
-day, and stops for the day at an estimated $5. If the Model API refuses the
+day, and stops for the day at an estimated $5. A photo is one Muse Spark
+call and at most 12 SAM 3.1 calls: at the published prices about four
+cents, and about six cents at worst (every call answered once; a call sent
+again costs again), so the stop allows at least 80 photos a day. If the Model API refuses the
 key, the account has no credit or quota, or a model is gone, the server
 stops sending photos, says so in health (live_state: unavailable), and lets
 one photo check again every 10 minutes.
@@ -232,11 +235,17 @@ picture through them.
 - SAM's mask payload (Meta's opaque one_bit encoding) is checked for its
   alphabet and its shape and not decoded; outlines are traced by code
   inside SAM's boxes instead.
-- When SAM gives several matches for one name, the ones holding one of
-  Muse Spark's points for it are kept (a point may fall up to 3% of the
-  picture beside a box: Muse Spark's points are rough), else the most
-  confident from 0.5 up; one box is never two things. What is dropped is
-  listed with the reveal.
+- Muse Spark names each kind of thing once, with the plain word SAM finds
+  every one of ("chair", not "wooden chair" and "armchair"), and says how
+  many it sees, up to 11 kinds. When SAM gives several matches for one
+  name, the ones holding one of Muse Spark's points for it are kept (a
+  point may fall up to 3% of the picture beside a box: Muse Spark's points
+  are rough); when Muse Spark counted more than its points found (two
+  chairs, a point on one), the most confident other matches, from 0.5 up
+  and at least 75% of the best, make up the count; with no point in any
+  match, the most confident from 0.5 up. A kind keeps at most 3 things to
+  collect, 4 obstacles, 2 hazards and one exit; one box is never two
+  things. What is dropped is listed with the reveal.
 - When SAM finds nothing usable for a thing, code traces around Muse
   Spark's own points for it instead, in a region a little larger than the
   points. These shapes are smaller and rougher than SAM's, carry no

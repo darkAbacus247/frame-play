@@ -29,7 +29,9 @@ CALL_TIMEOUT_S = 20.0
 SPARK_TIMEOUT_S = 30.0  # the room read, sent once; a timeout is not sent again
 PHOTO_TIMEOUT_S = 60.0
 SPARK_CALLS_PER_PHOTO = 1
-SAM_CALLS_PER_PHOTO = 9
+# One for the floor (or surface) and one for each kind of thing on it: a
+# room with eleven kinds of things is looked at whole.
+SAM_CALLS_PER_PHOTO = 12
 # Several judges at once: 4 photos in flight, 120 an hour. The day's cap and
 # the $5 stop stay the hard guards.
 IN_FLIGHT = 4
@@ -51,6 +53,12 @@ PRICE_SAM_IMAGE = 2.50 / 1000
 # The worst case a Spark call is reserved at before it is sent: a generous
 # input bound for one image and the instruction, plus the output ceiling.
 SPARK_WORST_IN_TOKENS = 12_000
+# A photo's worst estimate, every call answered once: the room read at its
+# worst ($0.032) and every SAM call ($0.030), about six cents; a read takes
+# about four (Muse Spark near one cent, SAM up to three). At the $5 stop that
+# is at least 80 photos a day.
+PHOTO_WORST_USD = (SPARK_WORST_IN_TOKENS * PRICE_SPARK_IN + SPARK_MAX_COMPLETION_TOKENS * PRICE_SPARK_OUT
+                   + SAM_CALLS_PER_PHOTO * PRICE_SAM_IMAGE)
 
 REHEARSAL_CREDENTIAL = 'rehearsal-dummy-credential'
 

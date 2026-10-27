@@ -167,10 +167,12 @@ class StandIn:
             box = pixel_box(o['shape'], W, H)
             seed = {'x': round(((box[0] + box[2] + 1) / 2) * 1000 / W), 'y': round(((box[1] + box[3] + 1) / 2) * 1000 / H)}
             if o['name'] in by_name:
-                if len(by_name[o['name']]['seeds']) < 3:
+                # one entry a kind, counted, with a point on each one
+                by_name[o['name']]['count'] += 1
+                if len(by_name[o['name']]['seeds']) < 6:
                     by_name[o['name']]['seeds'].append(seed)
                 continue
-            entry = {'name': o['name'], 'role': o['role'], 'reason': o['reason'],
+            entry = {'name': o['name'], 'count': 1, 'role': o['role'], 'reason': o['reason'],
                      'on_surface': o.get('on_surface') is not False, 'seeds': [seed]}
             by_name[o['name']] = entry
             objs.append(entry)
@@ -182,7 +184,7 @@ class StandIn:
             'view': self.room.get('view', 'eye_level'),
             # the room file's own points on open floor, one or more a room
             'floor_seeds': [grid(p) for p in surface.get('seeds', [])],
-            'objects': objs[:8],
+            'objects': objs[:11],
             'title': self.room['title'][:60],
             'theme_line': self.room['theme_line'][:120],
         }

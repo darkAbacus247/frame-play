@@ -298,6 +298,29 @@ class TheFloor(WithFake):
         self.assertEqual(len(room['floor_seeds']), 12)
 
 
+class MoreFound(WithFake):
+    """W1c: twelve SAM calls a photo (the floor and eleven kinds of things),
+    and Muse Spark's counts bring back every one of a kind."""
+
+    def test_eleven_kinds_and_the_floor_are_twelve_calls_and_both_chairs_come_back(self):
+        names = ['chair', 'coffee table', 'sofa', 'lamp', 'plant', 'rug', 'shelf', 'stool', 'vase', 'coin', 'door', 'clock']
+        objects = [{'name': n, 'count': 2 if n == 'chair' else 1, 'role': {'coin': 'collect', 'door': 'exit'}.get(n, 'solid'),
+                    'reason': 'x', 'on_surface': True, 'seeds': [{'x': 150, 'y': 600}] if n == 'chair' else []} for n in names]
+        self.fake.on('/chat/completions', spark_answer(dict(READ, objects=objects)))
+        answers = {n: ans((4 * k, 30, 4 * k + 2, 33, 0.9)) for k, n in enumerate(names)}
+        answers['chair'] = ans((8, 26, 11, 31, 0.92), (40, 26, 43, 31, 0.88))
+        self.fake.always('/responses', sam_by_noun(dict(ANSWERS, **answers)))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['usage']['sam_calls'], 12, 'the desk and eleven names')
+        sent = sorted(c['noun'] for c in r['provenance']['calls'] if c['stage'] == 'find')
+        self.assertEqual(sent, sorted(['desk'] + names[:11]), 'the twelfth name is past what the read keeps')
+        self.assertFalse(any(w.startswith('not sent') for w in r['warnings']))
+        chairs = [o for o in r['objects'] if o['name'] == 'chair']
+        self.assertEqual([c['box'] for c in chairs], [[8, 26, 12, 32], [40, 26, 44, 32]], 'both chairs, one point between them')
+        self.assertEqual(len(r['objects']), 12)
+
+
 class Raising:
     """A transport whose calls raise the given errors (route -> CallError),
     and otherwise answer as the recorded desk does."""
@@ -709,6 +732,48 @@ class Choosing(unittest.TestCase):
         self.assertEqual(sorted(why for _, why in dropped), ['low', 'over_count'])
         kept, _ = choose_matches(recs, [], 'exit', 100, 100)
         self.assertEqual(len(kept), 1)
+
+    def test_a_count_finds_every_one(self):
+        # W1c, the owner's walk: one chair picked up but not the other. Muse
+        # Spark says "chair x2" with a point on one chair only.
+        chairs = [self.rec(0, [10, 10, 30, 40], 0.91), self.rec(1, [60, 10, 80, 40], 0.86), self.rec(2, [40, 60, 45, 65], 0.42)]
+        kept, dropped = choose_matches(chairs, [[20, 20]], 'solid', 100, 100, count=2)
+        self.assertEqual([(r['id'], s) for r, s in kept], [(0, True), (1, False)], 'both chairs')
+        self.assertEqual([(r['id'], why) for r, why in dropped], [(2, 'no_point')], 'a weak third is no chair')
+        kept, dropped = choose_matches(chairs, [[20, 20]], 'solid', 100, 100)
+        self.assertEqual([r['id'] for r, _ in kept], [0], 'with no count, a point still decides, as before')
+        # the count never makes doubles, never a weak one, never past the role
+        twin = [self.rec(0, [10, 10, 30, 40], 0.91), self.rec(1, [11, 11, 31, 41], 0.9)]
+        kept, dropped = choose_matches(twin, [[20, 20]], 'solid', 100, 100, count=2)
+        self.assertEqual(([r['id'] for r, _ in kept], [why for _, why in dropped]), ([0], ['no_point']))
+        weak = [self.rec(0, [10, 10, 30, 40], 0.91), self.rec(1, [60, 10, 80, 40], 0.6)]
+        self.assertEqual(len(choose_matches(weak, [[20, 20]], 'solid', 100, 100, count=2)[0]), 1, 'under 75% of the best')
+        many = [self.rec(k, [12 * k, 0, 12 * k + 10, 10], 0.9 - k / 100) for k in range(6)]
+        self.assertEqual(len(choose_matches(many, [[5, 5]], 'solid', 100, 100, count=6)[0]), 4, 'at most 4 of a solid kind')
+        self.assertEqual(len(choose_matches(many, [[5, 5]], 'exit', 100, 100, count=3)[0]), 1, 'one exit, ever')
+        self.assertEqual(len(choose_matches(many, [], 'avoid', 100, 100, count=2)[0]), 2)
+        self.assertEqual(len(choose_matches(many, [], 'avoid', 100, 100)[0]), 1)
+
+    def test_a_count_reads_and_merges(self):
+        read = {'objects': [
+            {'name': 'Chair', 'count': 2, 'role': 'solid', 'reason': 'x', 'on_surface': True, 'seeds': [{'x': 100, 'y': 100}]},
+            {'name': 'chair', 'count': 1, 'role': 'solid', 'reason': 'x', 'on_surface': True, 'seeds': [{'x': 300, 'y': 100}]},
+            {'name': 'lamp', 'count': True, 'role': 'solid', 'reason': 'x', 'on_surface': True, 'seeds': []},
+            {'name': 'mug', 'role': 'solid', 'reason': 'x', 'on_surface': True, 'seeds': []},
+            {'name': 'coin', 'count': 40, 'role': 'collect', 'reason': 'x', 'on_surface': True, 'seeds': []},
+        ] + [{'name': f'thing {k}', 'count': 1, 'role': 'solid', 'reason': 'x', 'on_surface': True, 'seeds': []} for k in range(10)]}
+        room = clean_read(read, 1000, 1000, [])
+        by = {o['name']: o for o in room['objects']}
+        self.assertEqual((by['chair']['count'], by['chair']['seeds']), (3, [[100.0, 100.0], [300.0, 100.0]]))
+        self.assertEqual((by['lamp']['count'], by['mug']['count'], by['coin']['count']), (None, None, 6))
+        self.assertEqual(len(read['objects'][:11]), 11)
+        self.assertEqual(len(room['objects']), 10, 'eleven entries read, two of them one chair')
+
+    def test_point_regions_count_too(self):
+        # chairs SAM did not find: Muse Spark's points on two chairs are two
+        two = point_regions([[100, 100], [600, 100]], 'solid', 1024, 768, count=2)
+        self.assertEqual(len(two), 2)
+        self.assertEqual(len(point_regions([[100, 100], [600, 100]], 'solid', 1024, 768)), 1, 'with no count, as before')
 
     def test_point_regions(self):
         # a lamp's two points are one thing; three coins' points are three

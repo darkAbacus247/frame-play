@@ -1,6 +1,7 @@
 import copy
 import pickle
 import unittest
+from pathlib import Path
 
 from server import config
 from server.config import ConfigError, KeyHolder, loopback_base, redact, settings_from
@@ -65,6 +66,17 @@ class Ceilings(unittest.TestCase):
         self.assertEqual(config.SPARK_MAX_COMPLETION_TOKENS, 4000)
         from server.limits import SPARK_WORST
         self.assertLess(SPARK_WORST, 0.035, 'the worst Spark call is still reserved at a few cents')
+
+    def test_twelve_sam_calls_and_what_a_photo_costs_at_worst(self):
+        # W1c: the floor and up to eleven kinds of things
+        self.assertEqual((config.SPARK_CALLS_PER_PHOTO, config.SAM_CALLS_PER_PHOTO), (1, 12))
+        from server.limits import SAM_COST, SPARK_WORST
+        self.assertAlmostEqual(config.PHOTO_WORST_USD, SPARK_WORST + 12 * SAM_COST)
+        self.assertAlmostEqual(config.PHOTO_WORST_USD, 0.062, places=3, msg='about six cents, as config.py and the README say')
+        self.assertGreaterEqual(int(config.USD_STOP / config.PHOTO_WORST_USD), 80, 'at least 80 photos a day under the $5 stop')
+        readme = (Path(__file__).resolve().parents[2] / 'README.md').read_text(encoding='utf-8')
+        self.assertIn('at most 13 calls in all', ' '.join(readme.split()))
+        self.assertIn('about six cents', ' '.join(readme.split()))
 
     def test_room_for_several_judges_with_the_day_and_dollar_guards_kept(self):
         self.assertEqual((config.IN_FLIGHT, config.PER_HOUR), (4, 120))
