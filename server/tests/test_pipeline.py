@@ -209,8 +209,29 @@ class Reads(WithFake):
         self.assertEqual(line['event'], 'photo')
         self.assertEqual(line['request_id'], r['request_id'])
         self.assertEqual(line['sha256'], r['provenance']['image_sha256'])
-        for word in ('Spiky', 'coin', 'You are reading', 'base64'):
-            self.assertNotIn(word, self.lines[-1], 'no prompt, no answer, no photo in the log')
+        for word in ('Spiky', 'You are reading', 'base64', '<0f>', 'abc', '[5, 20', '0.91', '12.8'):
+            self.assertNotIn(word, self.lines[-1], 'no prompt, no reason, no answer text, no box, no point, no photo in the log')
+        # per name sent to SAM: how many matches it gave and how many were kept
+        self.assertEqual(line['found'], [
+            {'name': 'desk', 'matches': 1, 'kept': 1, 'surface': True},
+            {'name': 'box', 'matches': 1, 'kept': 1, 'points': 0},
+            {'name': 'cactus', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['over_count']},
+            {'name': 'coin', 'matches': 4, 'kept': 3, 'points': 0, 'dropped': ['over_count']},
+            {'name': 'lamp', 'matches': 0, 'kept': 0, 'points': 0},
+            {'name': 'mug', 'matches': 2, 'kept': 1, 'points': 0, 'dropped': ['low']},
+        ])
+
+    def test_the_log_shows_a_surprise_without_a_capture(self):
+        # SAM answers in a grammar the reader does not know: the log says
+        # which name, how many matches, and the reader's codes
+        self.fake.on('/chat/completions', spark_answer(READ))
+        odd = dict(ANSWERS, mug='<0f>0<|box;x1=5;y1=20;x2=14|>\n')
+        self.fake.always('/responses', sam_by_noun(odd))
+        self.pipe.run(photo())
+        line = json.loads(self.lines[-1])
+        mug = next(f for f in line['found'] if f['name'] == 'mug')
+        self.assertEqual(mug, {'name': 'mug', 'matches': 0, 'kept': 0, 'points': 1, 'diagnostics': ['malformed_record']})
+        self.assertNotIn('x1=', self.lines[-1])
 
 
 class RecordedDesk(unittest.TestCase):
@@ -240,6 +261,17 @@ class RecordedDesk(unittest.TestCase):
         self.assertEqual((calls['blue notebook']['matches'], calls['blue notebook']['kept'], calls['blue notebook']['dropped']), (2, 1, ['no_point']))
         self.assertEqual((calls['gold coin']['matches'], calls['gold coin']['kept']), (3, 3))
         self.assertNotIn('diagnostics', calls['gold coin'], 'the real answers parse with no surprise')
+
+    def test_the_log_line_for_the_recorded_desk(self):
+        lines = []
+        recorded.run(log=Log(stream=lines))
+        found = json.loads(lines[-1])['found']
+        self.assertEqual([(f['name'], f['matches'], f['kept']) for f in found], [
+            ('desk', 1, 1), ('blue notebook', 2, 1), ('book stack', 1, 1), ('cardboard box', 1, 1), ('coffee mug', 1, 1),
+            ('desk lamp', 1, 1), ('gold coin', 3, 3), ('potted cactus', 1, 1)])
+        self.assertEqual(found[1].get('dropped'), ['no_point'])
+        # on 10-27 this line would have read 0 kept for every name, with the
+        # reader's codes beside them, and no capture would have been needed
 
     def test_one_box_is_never_two_objects(self):
         # SAM answers "coffee mug" with the lamp: the lamp holds Muse Spark's

@@ -551,12 +551,15 @@ class Pipeline:
                 else:
                     self.limits.release(r)
                 note('find', config.SAM_MODEL, e.status or e.code, int((self.clock() - t) * 1000), getattr(e, 'attempt', 1),
-                     noun=noun, error=e.code, **({'excerpt': e.excerpt} if e.excerpt else {}))
+                     noun=noun, error=e.code, **({'excerpt': e.excerpt} if e.excerpt else {}),
+                     **({'surface': True} if kind == 'surface' else {}))
                 return job, None, e
             self.limits.settle(r, SAM_COST)
             text = sam_text(j)
             parsed = samtext.parse(text, W, H)
             extra = {'noun': noun, 'matches': len(parsed.records), 'usd': SAM_COST}
+            if kind == 'surface':
+                extra['surface'] = True
             if parsed.errors:
                 extra['diagnostics'] = parsed.errors + parsed.warnings
                 if 'no_frame' in parsed.errors or 'size_mismatch' in parsed.errors:
@@ -605,7 +608,9 @@ class Pipeline:
         for (k, name, r, seeded), winner in lost:
             dropped[name].append((r, f'the same box was kept for the {winner}', 'same_box'))
         for c in calls:
-            if c['stage'] == 'find' and c.get('noun') in dropped:
+            if c['stage'] == 'find' and c.get('surface'):
+                c['kept'] = 1 if surface else 0
+            elif c['stage'] == 'find' and c.get('noun') in dropped:
                 c['kept'] = sum(1 for q in picks if q[1] == c['noun'])
                 if dropped[c['noun']]:
                     c['dropped'] = sorted(why for _, _, why in dropped[c['noun']])
@@ -687,4 +692,35 @@ class Pipeline:
                        type=r['received']['type'], width=r['received']['width'], height=r['received']['height'],
                        sha256=r['provenance']['image_sha256'], stages=stages, calls=r['usage']['calls'],
                        tokens_in=r['usage']['tokens_in'], tokens_out=r['usage']['tokens_out'],
-                       estimated_usd=r['usage']['estimated_usd'], mode=r['provenance']['mode'])
+                       estimated_usd=r['usage']['estimated_usd'], mode=r['provenance']['mode'],
+                       found=found_counts(r))
+
+
+def found_counts(r):
+    """For the log, per name sent to SAM: how many matches SAM gave, how
+    many were kept, how many were placed by Muse Spark's points instead, and
+    the codes of what was dropped or surprised the reader. Names, counts and
+    codes only: never the photo, a box, a point, a reason, an answer text or
+    the key."""
+    points = {}
+    for o in r['objects']:
+        if o.get('found_by') == 'points':
+            points[o['name']] = points.get(o['name'], 0) + 1
+    out = []
+    for c in r['provenance']['calls']:
+        if c['stage'] != 'find' or 'noun' not in c:
+            continue
+        row = {'name': c['noun'], 'matches': c.get('matches', 0), 'kept': c.get('kept', 0)}
+        if c.get('surface'):
+            row['surface'] = True
+        else:
+            row['points'] = points.get(c['noun'], 0)
+        if c.get('dropped'):
+            row['dropped'] = c['dropped']
+        if c.get('diagnostics'):
+            row['diagnostics'] = c['diagnostics']
+        if c.get('error'):
+            row['error'] = c['error']
+        out.append(row)
+    # the calls finish in any order: the surface first, then by name
+    return sorted(out, key=lambda row: (not row.get('surface'), row['name']))
