@@ -61,6 +61,25 @@ test('the live line says what the room still needs to be winnable', () => {
   assert.equal(M.needs([coin, exit, exit]).line, 'Keep one exit: change or remove 1 of the 2.');
   assert.deepEqual(M.needs([coin, exit, wall]), { ready: true, line: 'Ready: 1 coin, the exit and 1 other box. Make the room, and code checks it can be won.' });
   for (const m of [[], [wall], [coin], [exit], [coin, exit, exit]]) assert.equal(M.needs(m).ready, false);
+  // no exit, but another box to make it from: the level builder repairs it
+  assert.deepEqual(M.needs([coin, coin, coin]), { ready: true, line: 'Ready: 3 coins, but no exit: code makes one box the exit and says which. Make the room, and code checks it can be won.' });
+  assert.match(M.needs([coin, wall]).line, /^Ready: 1 coin and 1 other box, but no exit:/);
+});
+
+test('a marked room with only coins and no exit is repaired: the farthest coin becomes the exit, in words', async () => {
+  const coins = [
+    { role: 'collect', box: [40, 180, 60, 200] },
+    { role: 'collect', box: [150, 120, 170, 140] },
+    { role: 'collect', box: [260, 60, 280, 80] },
+  ];
+  const r = await M.makeMarkedRoom({ marks: coins, picture: null, pixels: grey(320, 240), sha256: SHA, yieldNow: quick });
+  assert.equal(r.ok, true, r.words);
+  const { level } = r.entry.built;
+  // the start is at the bottom; coin 3, top right, is the farthest
+  assert.deepEqual(level.objects.map((o) => o.role), ['collect', 'collect', 'exit']);
+  assert.deepEqual(level.changes_by_code, [{ what: 'The coin 3 became the exit', why: 'No exit was found' }]);
+  assert.ok(level.proof.winnable);
+  assert.ok(validateLevel(JSON.parse(JSON.stringify(level))).ok);
 });
 
 test('marks read back from the device: only known roles and boxes big enough inside the photo', () => {

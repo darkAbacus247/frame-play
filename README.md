@@ -69,7 +69,8 @@ to the photo; a box cursor: the arrow keys move it, Shift with an arrow
 resizes it, Enter adds it, Space selects the box under it, Delete removes
 it, 1 to 4 pick what a box is, Ctrl+Z undoes). A box can be selected,
 changed or removed, and Undo takes back the last change. A line says what
-the room still needs to be winnable (a coin at least, and one exit). Make
+the room still needs to be winnable (a coin at least, and one exit; with
+no exit but another box, code makes one box the exit and lists it). Make
 the room then runs the same code a model's reply goes through: the marks
 become the same reply shape, code first finds the object's own bounds
 inside each of your boxes, then traces its outline there with the same

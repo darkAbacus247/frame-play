@@ -114,5 +114,5 @@ test('neither SAM nor the points make a room: it says so in words', async () => 
   const reply = recordedReply(['--sam', 'none']);
   reply.objects = reply.objects.filter((o) => o.name === 'coffee mug');
   const entry = await levelFromReply(reply, { width: W, height: H }, deskPixels, { kind: 'photo', sha256: 'recorded' }, () => Promise.resolve());
-  assert.match(entry.built.error, /^SAM 3\.1 found none of the things Muse Spark named, and code traced around Muse Spark’s points for 1 more, but together they do not make a room that can be won \(/);
+  assert.match(entry.built.error, /^SAM 3\.1 found none of the things Muse Spark named, and code traced around Muse Spark’s points for 1 more, but together they do not make a room that can be won\. Only one thing was found standing on the .+ \(the coffee mug\)\. A game needs an exit and at least one thing to collect\. Try a photo with three or more separate objects on a floor or desk\.$/);
 });

@@ -79,13 +79,19 @@ export function markNames(marks) {
 const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
 
 // What the marks still need before the room can be made, in words: a coin
-// at least, and exactly one exit. { ready, line }
+// at least, and at most one exit. With no exit, another box is needed: the
+// level builder makes one box the exit (src/level.js, repair 1) and lists
+// it among the changes by code. { ready, line }
 export function needs(marks) {
   const coins = marks.filter((m) => m.role === 'collect').length;
   const exits = marks.filter((m) => m.role === 'exit').length;
   if (exits > 1) return { ready: false, line: `Keep one exit: change or remove ${exits - 1} of the ${exits}.` };
   if (!coins && !exits) return { ready: false, line: marks.length ? 'Add at least one coin and an exit.' : 'Draw a box over an object to mark it. The room needs at least one coin and an exit.' };
-  if (!exits) return { ready: false, line: 'Add an exit.' };
+  if (!exits && marks.length < 2) return { ready: false, line: 'Add an exit.' };
+  if (!exits) {
+    const others = marks.length - coins;
+    return { ready: true, line: `Ready: ${plural(coins, 'coin', 'coins')}${others ? ` and ${plural(others, 'other box', 'other boxes')}` : ''}, but no exit: code makes one box the exit and says which. Make the room, and code checks it can be won.` };
+  }
   if (!coins) return { ready: false, line: 'Add at least one coin.' };
   return { ready: true, line: `Ready: ${plural(coins, 'coin', 'coins')}, the exit and ${plural(marks.length - coins - 1, 'other box', 'other boxes')}. Make the room, and code checks it can be won.` };
 }

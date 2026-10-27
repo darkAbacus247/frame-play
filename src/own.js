@@ -179,7 +179,7 @@ export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNo
   if (built.error && m) {
     // neither SAM's boxes nor Muse Spark's points made a room: say both
     const n = reply.objects.length - m;
-    built.error = `${n ? `SAM 3.1 found ${n} of the things Muse Spark named` : 'SAM 3.1 found none of the things Muse Spark named'}, and code traced around Muse Spark’s points for ${m} more, but together they do not make a room that can be won (${built.error}).`;
+    built.error = `${n ? `SAM 3.1 found ${n} of the things Muse Spark named` : 'SAM 3.1 found none of the things Muse Spark named'}, and code traced around Muse Spark’s points for ${m} more, but together they do not make a room that can be won. ${built.error.replace(/^No level from this picture: /, '')}`;
   }
   return { picture, built, summary: readSummary(reply) };
 }
