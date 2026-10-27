@@ -14,6 +14,7 @@ import { paintRoom } from '../src/painter.js';
 import { fillRings } from '../src/raster.js';
 import { acceptReply } from '../src/reply.js';
 import { levelFromReply } from '../src/own.js';
+import { foundWords, fromPoints, summaryLine } from '../src/screens.js';
 import { jpegLike } from './jpegsim.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -61,4 +62,57 @@ test('the recorded desk answers become the right nine objects and a winnable roo
     assert.ok(!used.has(best.id), `${o.name} ${o.instance} sits on ${best.id} twice`);
     used.add(best.id);
   }
+  assert.equal(foundWords(level), 'SAM 3.1 found 9');
+});
+
+// Where SAM finds nothing for a thing, code traces around Muse Spark's own
+// points for it: honest, smaller regions, said so in the reply and on the
+// reveal. Each shape must lie on a real thing of the picture (most of it
+// inside one painted object): no outline is invented on the bare desk.
+async function levelWithout(args) {
+  const reply = recordedReply(args);
+  assert.equal(reply.status, 'ok', reply.error && reply.error.message);
+  const entry = await levelFromReply(reply, { width: W, height: H }, deskPixels, { kind: 'photo', sha256: 'recorded' }, () => Promise.resolve());
+  assert.equal(entry.built.error, undefined, entry.built.error);
+  const { level } = entry.built;
+  assert.ok(level.proof.winnable, 'code proved the room can be won');
+  const painted = room.objects.filter((o) => o.on_surface).map((o) => fillRings(o.rings, W, H));
+  for (const o of level.objects.filter((x) => /points/.test(x.outline.source))) {
+    const got = fillRings(o.outline.rings, W, H);
+    let area = 0;
+    for (const v of got) area += v;
+    const inside = Math.max(...painted.map((p) => { let i = 0; for (let k = 0; k < got.length; k++) if (got[k] && p[k]) i++; return i / area; }));
+    if (o.outline.source === 'traced_at_points') assert.ok(inside >= 0.75, `${o.name} ${o.instance}: only ${inside.toFixed(2)} on a painted object`);
+    assert.equal(o.confidence, null, 'no confidence is made up');
+  }
+  return { reply, level, entry };
+}
+
+test('SAM finds some: the rest are traced around Muse Spark’s points, and the reveal says so', { timeout: 120000 }, async () => {
+  const { reply, level, entry } = await levelWithout(['--none-for', 'coffee mug,gold coin']);
+  assert.deepEqual(reply.provenance.found, { sam: 5, points: 4, words: 'The stand-in for SAM 3.1 found 5; for 4 more, code traces around Muse Spark’s points.' });
+  assert.equal(level.objects.length, 9);
+  assert.equal(fromPoints(level), 4);
+  assert.equal(level.provenance.outline_sources.traced_in_box, 5);
+  assert.deepEqual(level.objects.filter((o) => /points/.test(o.outline.source)).map((o) => o.name).sort(), ['coffee mug', 'gold coin', 'gold coin', 'gold coin']);
+  assert.match(summaryLine(level, entry.summary), /The stand-in for SAM 3\.1 found 5; for 4 more, code traced around Muse Spark’s points/);
+  assert.ok(entry.summary.warnings.includes('not found by SAM 3.1: coffee mug; code traces around Muse Spark’s points for it instead'));
+});
+
+test('SAM finds none: every thing is traced around Muse Spark’s points, and the room is still won', { timeout: 120000 }, async () => {
+  const { reply, level } = await levelWithout(['--sam', 'none']);
+  assert.equal(reply.provenance.found.sam, 0);
+  assert.equal(reply.provenance.found.points, 9);
+  assert.equal(fromPoints(level), 9);
+  assert.equal(level.objects[level.objects.findIndex((o) => o.id === level.rules.exit)].name, 'cardboard box');
+  assert.match(foundWords(level), /^SAM 3\.1 found 0; for 9 more, code traced around Muse Spark’s points/);
+});
+
+test('neither SAM nor the points make a room: it says so in words', async () => {
+  // one point, on bare desk far from everything: a single object cannot be
+  // a room (it would have to be the exit and the thing to collect)
+  const reply = recordedReply(['--sam', 'none']);
+  reply.objects = reply.objects.filter((o) => o.name === 'coffee mug');
+  const entry = await levelFromReply(reply, { width: W, height: H }, deskPixels, { kind: 'photo', sha256: 'recorded' }, () => Promise.resolve());
+  assert.match(entry.built.error, /^SAM 3\.1 found none of the things Muse Spark named, and code traced around Muse Spark’s points for 1 more, but together they do not make a room that can be won \(/);
 });

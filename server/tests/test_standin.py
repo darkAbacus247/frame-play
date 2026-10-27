@@ -163,13 +163,20 @@ class Rehearsal(unittest.TestCase):
             '404': ('error', 'model_not_found'),
             '503': ('error', 'unavailable'),
             'content_filter': ('refused', 'content_filter'),
-            'zero_matches': ('error', 'nothing_found'),
             'people': ('refused', 'people_present'),
         }
         for name, (status, code) in expect.items():
             self.drill(name)
             r = self.post()
             self.assertEqual((r['status'], r['error']['code']), (status, code), name)
+        # no match at all: every thing is placed by Muse Spark's points instead
+        self.drill('zero_matches')
+        r = self.post()
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['provenance']['found']['sam'], 0)
+        self.assertEqual(r['provenance']['found']['points'], len(r['objects']))
+        self.assertTrue(all(o['found_by'] == 'points' for o in r['objects']))
+        expect['zero_matches'] = None
         self.drill('429')
         r = self.post()
         self.assertEqual(r['status'], 'ok', 'a 429 with a short Retry-After is retried once')

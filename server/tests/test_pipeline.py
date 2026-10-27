@@ -10,7 +10,7 @@ from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import Transport
-from server.pipeline import Pipeline, choose_matches, clean_read, iou, name_problem, settle_claims
+from server.pipeline import Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims
 from server.samtext import compose
 from server.server import Log
 from server.tests import images, recorded
@@ -155,11 +155,25 @@ class Reads(WithFake):
         self.assertEqual(self.fake.count('/chat/completions'), 1)
         self.assertEqual(self.fake.count('/responses'), 0)
 
-    def test_zero_matches(self):
+    def test_zero_matches_fall_back_to_the_points(self):
         self.fake.on('/chat/completions', spark_answer(READ))
         self.fake.always('/responses', sam_answer('<0f>\n'))
         r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual([(o['name'], o['found_by'], o['confidence']) for o in r['objects']], [('mug', 'points', None)],
+                         'only the mug came with a point')
+        self.assertEqual(r['objects'][0]['seeds'], [[12.8, 24.0]])
+        self.assertEqual(r['provenance']['found'], {'sam': 0, 'points': 1, 'words': 'The stand-in for SAM 3.1 found 0; for 1 more, code traces around Muse Spark’s points.'})
+        self.assertIn('not found by SAM 3.1: mug; code traces around Muse Spark’s points for it instead', r['warnings'])
+        self.assertIn('not found: coin', r['warnings'], 'no point, no region')
+
+    def test_zero_matches_and_no_points(self):
+        read = {**READ, 'objects': [{**o, 'seeds': []} for o in READ['objects']]}
+        self.fake.on('/chat/completions', spark_answer(read))
+        self.fake.always('/responses', sam_answer('<0f>\n'))
+        r = self.pipe.run(photo())
         self.assertEqual((r['status'], r['error']['code']), ('error', 'nothing_found'))
+        self.assertEqual(r['error']['message'], 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.')
         self.assertIn('not found: mug', r['warnings'])
 
     def test_a_malformed_read_keeps_a_short_redacted_excerpt(self):
@@ -177,8 +191,9 @@ class Reads(WithFake):
         wrong = dict(ANSWERS, mug=ANSWERS['mug'].replace(f'w={W}', 'w=999'))
         self.fake.always('/responses', sam_by_noun(wrong))
         r = self.pipe.run(photo())
-        self.assertNotIn('mug', [o['name'] for o in r['objects']])
-        self.assertTrue(any('different picture size' in w for w in r['warnings']))
+        mug = next(o for o in r['objects'] if o['name'] == 'mug')
+        self.assertEqual(mug['found_by'], 'points', 'the box for another size is not used; the mug’s point is')
+        self.assertIn('not found by SAM 3.1: mug (the answer was for a different picture size); code traces around Muse Spark’s points for it instead', r['warnings'])
 
     def test_the_spend_stop(self):
         self.fake.on('/chat/completions', spark_answer(READ))
@@ -219,6 +234,8 @@ class RecordedDesk(unittest.TestCase):
     def test_what_was_dropped_is_said(self):
         r = recorded.run()
         self.assertEqual(r['warnings'], ['not used: a match for blue notebook at 59% (none of Muse Spark’s points for it fell in it)'])
+        self.assertEqual(r['provenance']['found'], {'sam': 9, 'points': 0, 'words': 'The stand-in for SAM 3.1 found 9.'})
+        self.assertTrue(all(o['found_by'] == 'sam' for o in r['objects']))
         calls = {c.get('noun'): c for c in r['provenance']['calls'] if c['stage'] == 'find'}
         self.assertEqual((calls['blue notebook']['matches'], calls['blue notebook']['kept'], calls['blue notebook']['dropped']), (2, 1, ['no_point']))
         self.assertEqual((calls['gold coin']['matches'], calls['gold coin']['kept']), (3, 3))
@@ -226,13 +243,15 @@ class RecordedDesk(unittest.TestCase):
 
     def test_one_box_is_never_two_objects(self):
         # SAM answers "coffee mug" with the lamp: the lamp holds Muse Spark's
-        # lamp points, so it stays the lamp, and the mug is not found
+        # lamp points, so it stays the lamp, and the mug is placed by its own
+        # point instead
         r = recorded.run({'coffee mug': recorded.FIXTURE['answers']['desk lamp']})
-        names = [o['name'] for o in r['objects']]
-        self.assertEqual(names.count('desk lamp'), 1)
-        self.assertNotIn('coffee mug', names)
+        found = [(o['name'], o['found_by']) for o in r['objects'] if o['name'] in ('desk lamp', 'coffee mug')]
+        self.assertEqual(found, [('coffee mug', 'points'), ('desk lamp', 'sam')])
+        mug = next(o for o in r['objects'] if o['name'] == 'coffee mug')
+        self.assertLess(iou(mug['box'], [161, 170, 298, 386]), 0.01, 'not on the lamp')
         self.assertIn('not used: a match for coffee mug at 82% (the same box was kept for the desk lamp)', r['warnings'])
-        self.assertIn('not found: coffee mug', r['warnings'])
+        self.assertIn('not found by SAM 3.1: coffee mug; code traces around Muse Spark’s points for it instead', r['warnings'])
 
 
 class Choosing(unittest.TestCase):
@@ -258,6 +277,18 @@ class Choosing(unittest.TestCase):
         self.assertEqual(sorted(why for _, why in dropped), ['low', 'over_count'])
         kept, _ = choose_matches(recs, [], 'exit', 100, 100)
         self.assertEqual(len(kept), 1)
+
+    def test_point_regions(self):
+        # a lamp's two points are one thing; three coins' points are three
+        lamp = point_regions([[251, 211], [257, 373]], 'solid', 1024, 768)
+        self.assertEqual(lamp, [([200, 160, 309, 425], [[251, 211], [257, 373]])])
+        coins = point_regions([[469.0, 342.5], [328.7, 454.7], [770.0, 561.4]], 'collect', 1024, 768)
+        self.assertEqual([len(g) for _, g in coins], [1, 1, 1])
+        notebook = point_regions([[394.2, 474.6], [460.8, 472.3]], 'collect', 1024, 768)
+        self.assertEqual(len(notebook), 1, 'points closer than 10% of the long side are one thing')
+        edge = point_regions([[2, 3]], 'exit', 1024, 768)
+        self.assertEqual(edge[0][0], [0, 0, 54, 55], 'held inside the picture')
+        self.assertEqual(point_regions([], 'solid', 1024, 768), [])
 
     def test_settle_claims(self):
         a = self.rec(0, [0, 0, 10, 10], 0.9)

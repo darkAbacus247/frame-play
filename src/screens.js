@@ -142,9 +142,18 @@ export const SOURCE_WORDS = {
   sam_mask: 'SAM’s own mask',
   traced_in_box: 'traced by code inside SAM’s box',
   box: 'SAM’s box (the trace was not tight enough)',
+  traced_at_points: 'SAM did not find it: traced by code around Muse Spark’s points',
+  points_box: 'SAM did not find it: a region around Muse Spark’s points (the trace did not hold)',
 };
 
 const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+
+// How many objects came from Muse Spark's points because SAM did not find
+// them, from the level's own counts.
+export const fromPoints = (level) => {
+  const c = level.provenance.outline_sources || {};
+  return (c.traced_at_points || 0) + (c.points_box || 0);
+};
 
 // How the outlines of a read were made, from the level's own counts (never
 // the number of objects): "traced 8 outlines inside SAM’s boxes and kept 1
@@ -154,6 +163,16 @@ export function tracedWords(level) {
   return `traced ${plural(c.traced_in_box || 0, 'outline', 'outlines')} inside SAM’s boxes and kept ${plural(c.box || 0, 'as a box', 'as boxes')}`;
 }
 
+// What SAM found, and what code traced around Muse Spark's points instead:
+// "SAM 3.1 found 5; for 4 more, code traced around Muse Spark’s points".
+export function foundWords(level, sam = 'SAM 3.1') {
+  const m = fromPoints(level);
+  const n = level.objects.length - m;
+  if (!m) return `${sam} found ${n}`;
+  const kept = (level.provenance.outline_sources || {}).points_box || 0;
+  return `${sam} found ${n}; for ${m} more, code traced around Muse Spark’s points${kept ? ` (and kept ${plural(kept, 'as a region around them', 'as regions around them')})` : ''}`;
+}
+
 export function summaryLine(level, summary) {
   if (level.origin === 'mock') {
     return 'This sample room was drawn by code: no model was called, and its outlines are the exact shapes code painted. Code proved the room can be won.';
@@ -161,6 +180,9 @@ export function summaryLine(level, summary) {
   const n = level.objects.length;
   const named = summary ? summary.named : n;
   const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
+  if (fromPoints(level)) {
+    return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. Code ${tracedWords(level)}, then proved the room can be won.`;
+  }
   return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
@@ -187,7 +209,8 @@ export function foundView({ level, summary, fromDevice, actions }) {
   const pic = el('div', { class: 'found-pic' });
   const list = el('ol', { class: 'obj-list' });
   level.objects.forEach((o, k) => {
-    const conf = o.confidence == null ? 'no confidence score (drawn by code)' : `confidence ${Math.round(o.confidence * 100)}%`;
+    const conf = o.confidence != null ? `confidence ${Math.round(o.confidence * 100)}%`
+      : /points/.test(o.outline.source) ? 'no confidence score (SAM did not find it)' : 'no confidence score (drawn by code)';
     list.append(el('li', {}, [
       el('span', { class: 'num', 'aria-hidden': 'true', text: String(k + 1) }),
       el('span', { class: 'obj' }, [
@@ -423,6 +446,7 @@ export function aiLine(level, summary) {
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
   if (level.origin === 'rehearsal') return `The local stand-in (not Meta) answered for its sample picture; code ${tracedWords(level)}, and proved the room can be won.`;
   const named = summary ? summary.named : n;
+  if (fromPoints(level)) return `Muse Spark named ${things(named)} in your photo and gave each a role; ${foundWords(level)}; and code ${tracedWords(level)}, then proved the room can be won.`;
   return `Muse Spark named ${things(named)} in your photo and gave each a role, SAM 3.1 found ${n} of them, and code ${tracedWords(level)}, then proved the room can be won.`;
 }
 

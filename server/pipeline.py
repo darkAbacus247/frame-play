@@ -11,6 +11,7 @@ empty.
 import base64
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -34,6 +35,11 @@ MIN_CONFIDENCE = 0.35
 SEED_REACH = 0.03
 FLOOR = 0.5
 SAME_BOX = 0.5
+# When SAM finds nothing usable for a thing (point_regions): a region around
+# Muse Spark's points, grown by 5% of the long side; points to collect less
+# than 10% apart are one thing.
+POINT_MARGIN = 0.05
+POINT_GROUP = 0.10
 
 PROMPT = """You are reading one photo of a room or a desk top for a small game.
 An explorer will walk on ONE play surface (such as floor, desk, table, bed or counter).
@@ -314,6 +320,38 @@ def settle_claims(picks):
     return kept, lost
 
 
+def point_regions(seeds, role, W, H):
+    """Where to trace a thing SAM did not find: around Muse Spark's own
+    points for it, as half-open boxes with the points they hold. (A point
+    may lie inside a box SAM found for another name: a coin on a notebook.)
+    Things to collect may be several (Muse Spark gives a point on each
+    coin), so their points form one region per group of points closer than
+    POINT_GROUP of the picture's long side; any other role is one region.
+    Each region is the points' bounds grown by POINT_MARGIN of the long side:
+    smaller than the thing may be, and said to be what it is."""
+    pts = list(seeds)
+    if not pts:
+        return []
+    side = max(W, H)
+    groups = []
+    for p in pts:
+        g = next((g for g in groups if role == 'collect' and any(math.dist(p, q) <= POINT_GROUP * side for q in g)), None)
+        if g is None and groups and role != 'collect':
+            g = groups[0]
+        if g is None:
+            groups.append([p])
+        else:
+            g.append(p)
+    m = max(16, round(POINT_MARGIN * side))
+    out = []
+    for g in groups[:PER_NOUN.get(role, 1)]:
+        xs, ys = [p[0] for p in g], [p[1] for p in g]
+        box = [max(0, math.floor(min(xs)) - m), max(0, math.floor(min(ys)) - m),
+               min(W, math.floor(max(xs)) + 1 + m), min(H, math.floor(max(ys)) + 1 + m)]
+        out.append((box, g))
+    return out
+
+
 DROP_WORDS = {
     'low': 'its confidence was under 0.35',
     'no_point': 'none of Muse Spark’s points for it fell in it',
@@ -404,6 +442,7 @@ class Pipeline:
         usage = {'calls': 0, 'spark_calls': 0, 'sam_calls': 0, 'tokens_in': 0, 'tokens_out': 0, 'reasoning_tokens': 0, 'estimated_usd': 0.0}
         lock = threading.Lock()
         stages = {}
+        found = {}
 
         def reply(status, error=None, scene=None, surface=None, objects=None):
             r = {
@@ -432,6 +471,10 @@ class Pipeline:
             }
             if s.mode == 'rehearsal':
                 r['provenance']['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
+            if found:
+                who = 'The stand-in for SAM 3.1' if s.mode == 'rehearsal' else 'SAM 3.1'
+                more = f'; for {found["points"]} more, code traces around Muse Spark’s points' if found['points'] else ''
+                r['provenance']['found'] = {**found, 'words': f'{who} found {found["sam"]}{more}.'}
             self._log_photo(r, stages)
             return r
 
@@ -573,18 +616,35 @@ class Pipeline:
                 warnings.append(f'not sent: {o["name"]} (over the call ceiling)')
                 continue
             parsed, err = answers[('object', o['name'])]
+            picked = []
             if err is not None:
-                warnings.append(f'not found: {o["name"]} ({err.message if isinstance(err, (CallError, Refusal)) else "error"})')
-                continue
-            if 'size_mismatch' in parsed.errors:
-                warnings.append(f'not used: {o["name"]} (the answer was for a different picture size)')
-                continue
-            for r, words, _ in sorted(dropped[o['name']], key=lambda d: d[0]['id']):
-                if r['confidence'] is not None and r['confidence'] >= MIN_CONFIDENCE:
-                    warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
-            picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
+                why = err.message if isinstance(err, (CallError, Refusal)) else 'error'
+            elif 'size_mismatch' in parsed.errors:
+                why = 'the answer was for a different picture size'
+            else:
+                for r, words, _ in sorted(dropped[o['name']], key=lambda d: d[0]['id']):
+                    if r['confidence'] is not None and r['confidence'] >= MIN_CONFIDENCE:
+                        warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
+                picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
+                why = None
             if not picked:
-                warnings.append(f'not found: {o["name"]}')
+                # SAM found nothing usable: Muse Spark's own points, when it
+                # gave any, still say where the thing is
+                regions = point_regions(o['seeds'], o['role'], W, H)
+                if not regions:
+                    warnings.append(f'not found: {o["name"]}' + (f' ({why})' if why else ''))
+                    continue
+                warnings.append(f'not found by SAM 3.1: {o["name"]}' + (f' ({why})' if why else '')
+                                + '; code traces around Muse Spark’s points for it instead')
+                for box, pts in regions:
+                    if len(objects) >= MAX_OBJECTS:
+                        break
+                    counts[o['name']] = counts.get(o['name'], 0) + 1
+                    objects.append({
+                        'id': f'o{len(objects) + 1}', 'name': o['name'], 'instance': counts[o['name']],
+                        'role': o['role'], 'reason': o['reason'], 'on_surface': True,
+                        'found_by': 'points', 'box': box, 'confidence': None, 'seeds': pts, 'mask': None,
+                    })
                 continue
             for m in picked:
                 if len(objects) >= MAX_OBJECTS:
@@ -599,17 +659,23 @@ class Pipeline:
                     'role': o['role'],
                     'reason': o['reason'],
                     'on_surface': True,
+                    'found_by': 'sam',
                     'box': m['box'],
                     'confidence': m['confidence'],
                     'seeds': seeds,
                     'mask': {'height': y1 - y0, 'width': x1 - x0, 'encoding': 'one_bit', 'decoded': False,
                              'payload_chars': (m['mask'] or {}).get('payload_chars')},
                 })
-        if spend_stopped and not objects:
+        by_sam = sum(1 for o in objects if o['found_by'] == 'sam')
+        if spend_stopped and not by_sam:
             return reply('refused', {'code': 'spend_stop', 'message': 'This server reached its spending stop while reading this photo.'}, scene=scene)
         if not objects:
             stages['find'] = 'nothing'
-            return reply('error', {'code': 'nothing_found', 'message': 'SAM 3.1 found none of the things Muse Spark named. Try another photo with clearer edges.'}, scene=scene, surface=surface)
+            return reply('error', {'code': 'nothing_found', 'message': 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.'}, scene=scene, surface=surface)
+        found['sam'] = by_sam
+        found['points'] = len(objects) - by_sam
+        if found['points']:
+            stages['find'] = 'points' if not by_sam else 'some_points'
         if self.clock() > deadline:
             return reply('error', {'code': 'timeout', 'message': 'The photo ran out of time. Please try again.'}, scene=scene)
         return reply('ok', None, scene=scene, surface=surface, objects=objects)

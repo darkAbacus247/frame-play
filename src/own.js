@@ -17,7 +17,7 @@
 // gating is tested in Node.
 import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from './reply.js';
 import { buildLevel } from './level.js';
-import { traceInBox } from './trace_in_box.js';
+import { traceInBox, traceAroundPoints } from './trace_in_box.js';
 
 export const MOCK_WORDS = 'Reading a real photo needs the live AI (Meta’s models). This copy is running without it, so your photo stays on your device and nothing is invented.';
 
@@ -152,16 +152,18 @@ export function keptLevel(kept, photo, mode) {
 }
 
 // Each object's outline: traced inside SAM's exact box, or the box itself
-// when the trace is not tight enough. Yields between objects, so the page's
-// progress words stay live.
+// when the trace is not tight enough; for a thing SAM did not find, traced
+// around Muse Spark's points, or the region around them. Yields between
+// objects, so the page's progress words stay live.
 export async function outlinesFor(reply, pixels, yieldNow = () => new Promise((r) => setTimeout(r, 0))) {
   const out = [];
   for (const o of reply.objects) {
+    const points = o.found_by === 'points';
     try {
-      const t = traceInBox(pixels, o.box, o.seeds || []);
+      const t = points ? traceAroundPoints(pixels, o.box, o.seeds || []) : traceInBox(pixels, o.box, o.seeds || []);
       out.push({ source: t.source, rings: t.rings });
     } catch {
-      out.push({ source: 'box', rings: boxRings(o.box) });
+      out.push({ source: points ? 'points_box' : 'box', rings: boxRings(o.box) });
     }
     await yieldNow();
   }
@@ -172,6 +174,12 @@ export async function outlinesFor(reply, pixels, yieldNow = () => new Promise((r
 export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNow) {
   const outlines = await outlinesFor(reply, pixels, yieldNow);
   const built = buildLevel(inputFromReply(reply, pictureRef, (o, k) => outlines[k]));
+  const m = reply.objects.filter((o) => o.found_by === 'points').length;
+  if (built.error && m) {
+    // neither SAM's boxes nor Muse Spark's points made a room: say both
+    const n = reply.objects.length - m;
+    built.error = `${n ? `SAM 3.1 found ${n} of the things Muse Spark named` : 'SAM 3.1 found none of the things Muse Spark named'}, and code traced around Muse Spark’s points for ${m} more, but together they do not make a room that can be won (${built.error}).`;
+  }
   return { picture, built, summary: readSummary(reply) };
 }
 
