@@ -59,6 +59,12 @@ POINT_MARGIN = 0.05
 POINT_GROUP = 0.10
 # SAM calls at once for one photo, the exit and the things to collect first
 SAM_WORKERS = 4
+# How the camera sees the room (Muse Spark's read); how many of its points on
+# the open floor are kept; how many of SAM's floor matches (one a room, in a
+# floor plan) go to the page, which grows the floor inside them.
+VIEWS = ('eye_level', 'top_down', 'angled')
+MAX_FLOOR_SEEDS = 12
+MAX_FLOOR_BOXES = 8
 JOB_ORDER = {'exit': 0, 'collect': 1, 'surface': 2, 'avoid': 3, 'solid': 4, 'flat': 5}
 
 PROMPT = """You are reading one photo of a room or a desk top for a small game.
@@ -70,6 +76,12 @@ Return JSON only, in the given schema:
 - people_present: true if any person or part of a person is visible. If true, the
   other fields may be empty.
 - surface.name: one noun phrase for the play surface that an image segmenter can find.
+  In a top-down picture of rooms (a floor plan, a photo from above) it is "floor".
+- view: how the camera sees it: eye_level (taken standing or sitting), top_down (straight
+  down, such as a floor plan) or angled (from high up, at a slant).
+- floor_seeds: points on bare, open play surface, on the 0 to 1000 grid: at least one in
+  every room or floor area you can see (more where furniture or walls split it), never on
+  a thing standing on it, a rug or a wall.
 - objects: 1 to 8 distinct things you can see. For each:
   - name: 1 to 3 words, one singular generic noun phrase (such as "mug", "desk lamp").
     No lists, no spatial words (left, top, behind ...), no people or body words.
@@ -86,12 +98,20 @@ Return JSON only, in the given schema:
 SCHEMA = {
     'type': 'object',
     'additionalProperties': False,
-    'required': ['people_present', 'surface', 'objects', 'title', 'theme_line'],
+    'required': ['people_present', 'surface', 'view', 'floor_seeds', 'objects', 'title', 'theme_line'],
     'properties': {
         'people_present': {'type': 'boolean'},
         'surface': {
             'type': 'object', 'additionalProperties': False, 'required': ['name'],
             'properties': {'name': {'type': 'string'}},
+        },
+        'view': {'type': 'string', 'enum': list(VIEWS)},
+        'floor_seeds': {
+            'type': 'array',
+            'items': {
+                'type': 'object', 'additionalProperties': False, 'required': ['x', 'y'],
+                'properties': {'x': {'type': 'integer'}, 'y': {'type': 'integer'}},
+            },
         },
         'objects': {
             'type': 'array',
@@ -251,6 +271,16 @@ def read_spark(j, holder=None):
     return read, tin, tout, reasoning
 
 
+def grid_points(raw, W, H, n):
+    """Points on Muse Spark's 0 to 1000 grid, in pixels; at most n."""
+    out = []
+    for s in (raw if isinstance(raw, list) else [])[:n]:
+        if isinstance(s, dict) and isinstance(s.get('x'), int) and isinstance(s.get('y'), int) \
+                and 0 <= s['x'] <= 1000 and 0 <= s['y'] <= 1000:
+            out.append([round(s['x'] * W / 1000, 1), round(s['y'] * H / 1000, 1)])
+    return out
+
+
 def clean_read(read, W, H, warnings):
     """Keep what the server accepts from the read: names SAM can find, roles,
     reasons of 80 characters, seeds in pixels. Merges repeated names."""
@@ -268,11 +298,7 @@ def clean_read(read, W, H, warnings):
             unusable += o.get('on_surface') is not False
             continue
         role = o.get('role') if o.get('role') in ROLES else 'solid'
-        seeds = []
-        for s in (o.get('seeds') or [])[:3]:
-            if isinstance(s, dict) and isinstance(s.get('x'), int) and isinstance(s.get('y'), int) \
-                    and 0 <= s['x'] <= 1000 and 0 <= s['y'] <= 1000:
-                seeds.append([round(s['x'] * W / 1000, 1), round(s['y'] * H / 1000, 1)])
+        seeds = grid_points(o.get('seeds'), W, H, 3)
         if name in by_name:
             by_name[name]['seeds'] = (by_name[name]['seeds'] + seeds)[:6]
             continue
@@ -288,6 +314,9 @@ def clean_read(read, W, H, warnings):
         'title': clip(read.get('title', ''), 60),
         'theme_line': clip(read.get('theme_line', ''), 120),
         'surface': surface,
+        # an earlier read (or a word not in the list) says nothing of the view
+        'view': read.get('view') if read.get('view') in VIEWS else None,
+        'floor_seeds': grid_points(read.get('floor_seeds'), W, H, MAX_FLOOR_SEEDS),
         'objects': objs,
         'unusable': unusable,
     }
@@ -322,14 +351,15 @@ def choose(records, role):
 
 def surface_from(records):
     """The play surface: one box around all of its matches at or above 0.35
-    (a floor split by a rug or a shadow is still one floor), with the best
-    confidence; or None."""
-    keep = [r for r in records if _conf(r) >= MIN_CONFIDENCE]
+    (a floor split by a rug or a shadow is still one floor; a floor plan's
+    floor is one match a room), with the best confidence, and the matches'
+    own boxes, most confident first (at most MAX_FLOOR_BOXES); or None."""
+    keep = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
     if not keep:
         return None
     boxes = [r['box'] for r in keep]
     return {'box': [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)],
-            'confidence': max(_conf(r) for r in keep), 'matches': len(keep)}
+            'confidence': max(_conf(r) for r in keep), 'matches': len(keep), 'boxes': boxes[:MAX_FLOOR_BOXES]}
 
 
 def _reach(p, box, W, H):
@@ -638,7 +668,7 @@ class Pipeline:
         stages = {}
         found = {}
 
-        def reply(status, error=None, scene=None, surface=None, objects=None):
+        def reply(status, error=None, scene=None, surface=None, objects=None, floor=None):
             r = {
                 'schema': REPLY_SCHEMA,
                 'request_id': rid,
@@ -658,6 +688,7 @@ class Pipeline:
                              'metadata_bytes_removed': photo.get('metadata_bytes_removed', 0), 'retained': False},
                 'scene': scene,
                 'surface': surface,
+                'floor': floor,
                 'objects': objects or [],
                 'usage': {**usage, 'estimated_usd': round(usage['estimated_usd'], 5)},
                 'warnings': warnings,
@@ -725,7 +756,7 @@ class Pipeline:
             return reply('refused', {'code': 'people_present', 'message': PEOPLE_WORDS},
                          scene={'title': '', 'theme_line': '', 'people_present': True})
         room = clean_read(read, W, H, warnings)
-        scene = {'title': room['title'], 'theme_line': room['theme_line'], 'people_present': False,
+        scene = {'title': room['title'], 'theme_line': room['theme_line'], 'people_present': False, 'view': room['view'],
                  'scenery': [{'name': o['name'], 'reason': o['reason']} for o in room['objects'] if not o['on_surface']]}
         on = [o for o in room['objects'] if o['on_surface']]
         if not on and room['unusable']:
@@ -797,6 +828,7 @@ class Pipeline:
         surface = None
         surface_matches = 0
         surface_err = None
+        floor_boxes = []
         if room['surface']:
             parsed, surface_err = answers[('surface', room['surface'])]
             if parsed is not None and not ('size_mismatch' in parsed.errors) and parsed.records:
@@ -804,6 +836,7 @@ class Pipeline:
                 if whole:
                     surface = {'name': room['surface'], 'box': whole['box'], 'confidence': whole['confidence']}
                     surface_matches = whole['matches']
+                    floor_boxes = whole['boxes']
         # which matches are which object: each name's own choice (boxes held
         # to the picture), then no box kept by two names
         picks = []
@@ -832,6 +865,7 @@ class Pipeline:
         if absorbed:
             picks = [q for q in picks if not any(q is a for a, _ in absorbed)]
             boxes = [q[2]['box'] for q, _ in absorbed]
+            floor_boxes = (floor_boxes + boxes)[:MAX_FLOOR_BOXES]
             if surface is None:
                 named = any(why == 'named' for _, why in absorbed)
                 biggest = max(absorbed, key=lambda a: (a[0][2]['box'][2] - a[0][2]['box'][0]) * (a[0][2]['box'][3] - a[0][2]['box'][1]))
@@ -955,9 +989,12 @@ class Pipeline:
         found['points'] = len(objects) - by_sam
         if found['points']:
             stages['find'] = 'points' if not by_sam else 'some_points'
+        # the floor, for the page to grow from Muse Spark's points inside
+        # SAM's floor boxes (with none of either, it keeps to the horizon)
+        floor = {'view': room['view'], 'seeds': room['floor_seeds'], 'boxes': floor_boxes}
         # no last check of the clock: every call kept to the photo's time,
         # and what was found is kept
-        return reply('ok', None, scene=scene, surface=surface, objects=objects)
+        return reply('ok', None, scene=scene, surface=surface, objects=objects, floor=floor)
 
     def _log_photo(self, r, stages):
         if self.log is None:

@@ -23,7 +23,7 @@
 //    otherwise it is traced again on a finer and a coarser grid
 //    (RETRY_CELLS), held to the same test, and failing that the object
 //    falls back to its box, labeled that way.
-import { traceMask, components, fillHoles, maskBounds } from './raster.js';
+import { traceMask, components, fillHoles, maskBounds, offsetRings } from './raster.js';
 import { simplifyShape } from './geom.js';
 
 export const MAX_CELLS = 96;
@@ -566,4 +566,218 @@ function traceOnce(pixels, box, seeds, opts) {
   const rings = simplifyShape(traceMask(pmask, aw, ah).map((r) => r.map(([x, y]) => [x + ax0, y + ay0])), opts.simplify ?? 0.75);
   if (!rings.length) return fallback('The traced shape had no outline');
   return { source: 'traced_in_box', rings, why: null };
+}
+
+// ---- the floor ----
+// The play area is the floor itself, not the picture below a horizon. Code
+// grows it from Muse Spark's points on the open floor, by colour and edges,
+// inside SAM's floor boxes (one a room, in a floor plan):
+// 1. Fence: the union of SAM's floor boxes, each grown by FLOOR.margin of the
+//    long side, so a doorway in the wall between two rooms' boxes is inside.
+// 2. Colour: CIELAB, smoothed by a 3 by 3 box.
+// 3. Growth, from each point in the fence that no earlier point's region
+//    holds: a pixel joins when its colour is close to the point's own floor
+//    (within a reach set by how much that floor varies), or when it is a
+//    small step from the pixel it is reached from and still within twice
+//    that reach (light falling off across a floor). A wall, a thing on the
+//    floor or a rug is a big step and far from the floor's colour: it stays
+//    out.
+// 4. Seams: a pixel between two floor pixels at most FLOOR.seam apart whose
+//    colour lies between theirs (a threshold where wood meets tile) joins;
+//    a dark wall line between two floors does not.
+// 5. Clean-up: specks under FLOOR.speck of the picture go, holes under
+//    FLOOR.hole are filled (a stain, a label; never a table).
+// Returns { source: 'traced_floor', rings, mask, area, seeds } or
+// { source: null, why } in words.
+export const FLOOR = {
+  margin: 0.02, // of the long side
+  seam: 0.004, // of the long side, at least 2 px
+  speck: 0.004, // of the picture
+  hole: 0.0004, // of the picture
+  least: 0.03, // a floor smaller than this share of the picture is not found
+  step: 5, // ΔE between neighbours along a gradual floor
+  seamSlack: 8, // ΔE a seam pixel may lie off the line between its sides
+};
+
+export function traceFloor(pixels, boxes, seeds) {
+  const W = pixels.width, H = pixels.height, data = pixels.data;
+  const L = Math.max(W, H);
+  const none = (why) => ({ source: null, why });
+  if (!boxes.length) return none('no floor boxes');
+  if (!seeds.length) return none('no floor points');
+  // 1. the fence
+  const m = Math.round(FLOOR.margin * L);
+  const held = boxes.map(([x0, y0, x1, y1]) => [Math.max(0, Math.floor(x0) - m), Math.max(0, Math.floor(y0) - m), Math.min(W, Math.ceil(x1) + m), Math.min(H, Math.ceil(y1) + m)]);
+  const fx0 = Math.min(...held.map((b) => b[0])), fy0 = Math.min(...held.map((b) => b[1]));
+  const fx1 = Math.max(...held.map((b) => b[2])), fy1 = Math.max(...held.map((b) => b[3]));
+  const fw = fx1 - fx0, fh = fy1 - fy0;
+  if (fw < 8 || fh < 8) return none('the floor boxes are empty');
+  const fence = new Uint8Array(fw * fh);
+  for (const [x0, y0, x1, y1] of held) {
+    for (let y = y0; y < y1; y++) fence.fill(1, (y - fy0) * fw + x0 - fx0, (y - fy0) * fw + x1 - fx0);
+  }
+  const inside = seeds
+    .map(([x, y]) => [Math.floor(x) - fx0, Math.floor(y) - fy0])
+    .filter(([x, y]) => x >= 0 && y >= 0 && x < fw && y < fh && fence[y * fw + x]);
+  if (!inside.length) return none('the floor points fell outside the floor boxes');
+  // 2. colour, smoothed
+  const raw = new Float64Array(fw * fh * 3);
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      const s = 4 * ((y + fy0) * W + x + fx0);
+      rgbToLab(data[s], data[s + 1], data[s + 2], raw, 3 * (y * fw + x));
+    }
+  }
+  const lab = boxBlur3(boxBlur3(raw, fw, fh, true), fw, fh, false);
+  const dE = (p, q) => Math.hypot(lab[p] - lab[q], lab[p + 1] - lab[q + 1], lab[p + 2] - lab[q + 2]);
+  // 3. growth
+  const label = new Int16Array(fw * fh);
+  const queue = new Int32Array(fw * fh);
+  const used = [];
+  for (const [sx, sy] of inside) {
+    const s = sy * fw + sx;
+    if (label[s]) continue;
+    const id = used.length + 1;
+    // the point's own floor: the mean and spread of a 7 by 7 patch
+    const ref = [0, 0, 0];
+    let n = 0;
+    for (let y = Math.max(0, sy - 3); y <= Math.min(fh - 1, sy + 3); y++) {
+      for (let x = Math.max(0, sx - 3); x <= Math.min(fw - 1, sx + 3); x++) {
+        const p = 3 * (y * fw + x);
+        ref[0] += lab[p]; ref[1] += lab[p + 1]; ref[2] += lab[p + 2]; n++;
+      }
+    }
+    for (let d = 0; d < 3; d++) ref[d] /= n;
+    let spread = 0;
+    for (let y = Math.max(0, sy - 3); y <= Math.min(fh - 1, sy + 3); y++) {
+      for (let x = Math.max(0, sx - 3); x <= Math.min(fw - 1, sx + 3); x++) {
+        const p = 3 * (y * fw + x);
+        spread += (lab[p] - ref[0]) ** 2 + (lab[p + 1] - ref[1]) ** 2 + (lab[p + 2] - ref[2]) ** 2;
+      }
+    }
+    spread = Math.sqrt(spread / n);
+    const reach = Math.min(22, Math.max(12, 9 + 2.5 * spread));
+    const far = (q) => Math.hypot(lab[q] - ref[0], lab[q + 1] - ref[1], lab[q + 2] - ref[2]);
+    let head = 0, tail = 0;
+    queue[tail++] = s;
+    label[s] = id;
+    let area = 0;
+    while (head < tail) {
+      const c = queue[head++];
+      area++;
+      const x = c % fw, y = (c - x) / fw;
+      for (let k = 0; k < 4; k++) {
+        const nx = k === 0 ? x + 1 : k === 1 ? x - 1 : x;
+        const ny = k === 2 ? y + 1 : k === 3 ? y - 1 : y;
+        if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) continue;
+        const q = ny * fw + nx;
+        if (label[q] || !fence[q]) continue;
+        const d = far(3 * q);
+        if (d <= reach || (d <= 2 * reach && dE(3 * q, 3 * c) <= FLOOR.step)) {
+          label[q] = id;
+          queue[tail++] = q;
+        }
+      }
+    }
+    used.push({ at: [sx + fx0, sy + fy0], area });
+  }
+  let mask = new Uint8Array(fw * fh);
+  for (let i = 0; i < mask.length; i++) mask[i] = label[i] ? 1 : 0;
+  // 4. seams
+  const r = Math.max(2, Math.round(FLOOR.seam * L));
+  const seam = mask.slice();
+  const DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  for (let y = 0; y < fh; y++) {
+    for (let x = 0; x < fw; x++) {
+      const i = y * fw + x;
+      if (mask[i] || !fence[i]) continue;
+      for (const [dx, dy] of DIRS) {
+        const side = (sgn) => {
+          for (let t = 1; t <= r; t++) {
+            const nx = x + sgn * t * dx, ny = y + sgn * t * dy;
+            if (nx < 0 || ny < 0 || nx >= fw || ny >= fh) return -1;
+            if (mask[ny * fw + nx]) return ny * fw + nx;
+          }
+          return -1;
+        };
+        const a = side(-1);
+        if (a < 0) continue;
+        const b = side(1);
+        if (b < 0) continue;
+        if (dE(3 * i, 3 * a) + dE(3 * i, 3 * b) <= dE(3 * a, 3 * b) + FLOOR.seamSlack) { seam[i] = 1; break; }
+      }
+    }
+  }
+  mask = seam;
+  // 5. clean-up
+  const { labels, count, sizes } = components(mask, fw, fh, 4);
+  const small = new Uint8Array(count + 1);
+  for (let l = 1; l <= count; l++) if (sizes[l] < FLOOR.speck * W * H) small[l] = 1;
+  for (let i = 0; i < mask.length; i++) if (small[labels[i]]) mask[i] = 0;
+  mask = fillHoles(mask, fw, fh, FLOOR.hole * W * H);
+  let area = 0;
+  for (let i = 0; i < mask.length; i++) area += mask[i];
+  if (area < FLOOR.least * W * H) return none('too little floor stood out around the floor points');
+  const rings = simplifyShape(offsetRings(traceMask(mask, fw, fh), fx0, fy0), 1);
+  if (!rings.length) return none('the floor had no outline');
+  const full = new Uint8Array(W * H);
+  for (let y = 0; y < fh; y++) full.set(mask.subarray(y * fw, (y + 1) * fw), (y + fy0) * W + fx0);
+  return { source: 'traced_floor', rings, mask: full, area, seeds: used };
+}
+
+// A 3-tap box blur of an interleaved Lab array, along x or y.
+function boxBlur3(src, w, h, alongX) {
+  const out = new Float64Array(src.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const a = alongX ? (x > 0 ? i - 1 : i) : (y > 0 ? i - w : i);
+      const b = alongX ? (x < w - 1 ? i + 1 : i) : (y < h - 1 ? i + w : i);
+      for (let d = 0; d < 3; d++) out[3 * i + d] = (src[3 * a + d] + src[3 * i + d] + src[3 * b + d]) / 3;
+    }
+  }
+  return out;
+}
+
+// The floor for a level from a reply, to lay over the level's input:
+// { view, floor, surface? }. surface, when there, is the traced floor
+// ({ name, rings, source: 'traced_floor' }); floor says in words where the
+// play area came from, honest by mode. With no floor traced there is no
+// surface here (the reply's own box stays, setting the horizon; seen from
+// above, the whole picture is the play area).
+export function floorFromReply(reply, pixels) {
+  const f = reply && reply.floor && typeof reply.floor === 'object' ? reply.floor : null;
+  const view = f && ['eye_level', 'top_down', 'angled'].includes(f.view) ? f.view : null;
+  const rehearsal = reply && reply.provenance && reply.provenance.mode === 'rehearsal';
+  const spark = rehearsal ? 'the stand-in for Muse Spark' : 'Muse Spark';
+  const sam = rehearsal ? 'the stand-in for SAM 3.1' : 'SAM 3.1';
+  const rest = view === 'top_down' ? 'the whole picture is the play area' : 'the play area is everything below the horizon';
+  const fallback = (why) => ({ view, floor: { source: 'horizon', words: `${why}, so ${rest}.` } });
+  if (!f) return fallback('The read said nothing of the floor');
+  const W = pixels.width, H = pixels.height;
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  const boxes = (Array.isArray(f.boxes) ? f.boxes : [])
+    .filter((b) => Array.isArray(b) && b.length === 4 && b.every(num))
+    .map(([x0, y0, x1, y1]) => [Math.max(0, x0), Math.max(0, y0), Math.min(W, x1), Math.min(H, y1)])
+    .filter(([x0, y0, x1, y1]) => x1 - x0 >= 2 && y1 - y0 >= 2);
+  const seeds = (Array.isArray(f.seeds) ? f.seeds : []).filter((p) => Array.isArray(p) && p.length === 2 && p.every(num));
+  if (!seeds.length) return fallback(`${spark[0].toUpperCase()}${spark.slice(1)} gave no points on the floor`);
+  if (!boxes.length) return fallback(`${sam[0].toUpperCase()}${sam.slice(1)} found no floor`);
+  const t = traceFloor(pixels, boxes, seeds);
+  if (!t.rings) {
+    const why = {
+      'the floor points fell outside the floor boxes': `${spark}’s points on the floor fell outside ${sam}’s floor boxes`,
+    }[t.why] || `No floor could be traced (${t.why})`;
+    return fallback(why[0].toUpperCase() + why.slice(1));
+  }
+  const n = t.seeds.length;
+  const name = (reply.surface && reply.surface.name) || 'floor';
+  return {
+    view,
+    surface: { name, rings: t.rings, source: 'traced_floor' },
+    floor: {
+      source: 'traced_floor',
+      words: `Code grew the ${name} from ${spark}’s ${n === 1 ? 'point' : `${n} points`} on it inside ${sam}’s ${boxes.length === 1 ? 'box' : `${boxes.length} boxes`} for it; everything else is wall.`,
+    },
+  };
 }

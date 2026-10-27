@@ -6,14 +6,16 @@ It answers for one sample room, chosen when it starts, in the documented
 shapes:
 - POST /v1/chat/completions: choices[0].message.content holds the strict
   JSON read of the room (from the room file's own objects, roles and
-  reasons), and usage includes reasoning tokens;
+  reasons, its view and its points on the open floor), and usage includes
+  reasoning tokens;
 - POST /v1/responses: the answer in the shape sam-3.1 gave on the first
   live calls (10-27): output[0].content[0].text (and no output_text field)
   in sam-3.1's own text grammar (samtext.py): ids from 0, exact inclusive
   boxes computed from the room's own shapes with the picture's size and a
   full-precision confidence, a mask token whose data is the box's rows and
   cols and a payload in the real alphabet (made up: it means nothing), and
-  a closing newline. No match is the frame marker alone.
+  a closing newline. No match is the frame marker alone. The floor is one
+  match a room when the room file draws it as several rings.
 
 Drills on demand (--drill, or POST /drill {"name": ...} from this machine):
 401, 404 (model_not_found), 429 (once, with Retry-After), 503,
@@ -140,6 +142,23 @@ class StandIn:
         self.requests = []
 
     # ---- answers ----
+    def floor_matches(self):
+        """The floor as SAM finds it: one match a room. A surface drawn as
+        several rings (a floor plan's rooms and the doorways between them)
+        is one match for each ring of 2% of the picture or more; any other
+        surface is one match."""
+        shape = self.room['surface']['shape']
+        rings = shape.get('rings')
+        if not rings:
+            return [('surface', shape)]
+        W, H = self.room['width'], self.room['height']
+        out = []
+        for k, ring in enumerate(rings):
+            b = pixel_box(ring, W, H)
+            if (b[2] - b[0] + 1) * (b[3] - b[1] + 1) >= 0.02 * W * H:
+                out.append((f'surface{k}', ring))
+        return out
+
     def read(self):
         W, H = self.room['width'], self.room['height']
         objs = []
@@ -155,9 +174,14 @@ class StandIn:
                      'on_surface': o.get('on_surface') is not False, 'seeds': [seed]}
             by_name[o['name']] = entry
             objs.append(entry)
+        surface = self.room.get('surface') or {}
+        grid = lambda p: {'x': round(p[0] * 1000 / W), 'y': round(p[1] * 1000 / H)}  # noqa: E731
         return {
             'people_present': self.drill == 'people',
-            'surface': {'name': self.room['surface']['name'] if self.room.get('surface') else 'floor'},
+            'surface': {'name': surface.get('name', 'floor')},
+            'view': self.room.get('view', 'eye_level'),
+            # the room file's own points on open floor, one or more a room
+            'floor_seeds': [grid(p) for p in surface.get('seeds', [])],
             'objects': objs[:8],
             'title': self.room['title'][:60],
             'theme_line': self.room['theme_line'][:120],
@@ -169,7 +193,7 @@ class StandIn:
         if self.drill == 'zero_matches':
             return samtext.compose([], W, H)
         if self.room.get('surface') and noun == self.room['surface']['name']:
-            matches = [('surface', self.room['surface']['shape'])]
+            matches = self.floor_matches()
         else:
             matches = [(o['id'], o['shape']) for o in self.room['objects'] if o['name'] == noun]
         found = []

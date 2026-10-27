@@ -265,6 +265,39 @@ class Reads(WithFake):
 SEEDLESS = {**READ, 'objects': [{**o, 'seeds': []} for o in READ['objects']]}
 
 
+class TheFloor(WithFake):
+    """W1a: the read names the camera's view and points on the open floor;
+    SAM's floor matches (one a room) go to the page with them."""
+
+    def test_the_view_the_points_and_every_floor_box(self):
+        read = dict(READ, view='top_down', floor_seeds=[{'x': 100, 'y': 900}, {'x': 900, 'y': 900}, {'x': 1200, 'y': 5}, 'x'])
+        self.fake.on('/chat/completions', spark_answer(read))
+        self.fake.always('/responses', sam_by_noun(dict(ANSWERS, desk=ans((0, 20, 30, 47, 0.97), (34, 20, 63, 47, 0.9), (1, 1, 2, 2, 0.1)))))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['scene']['view'], 'top_down')
+        self.assertEqual(r['floor'], {'view': 'top_down', 'seeds': [[6.4, 43.2], [57.6, 43.2]],
+                                      'boxes': [[0, 20, 31, 48], [34, 20, 64, 48]]},
+                         'points off the grid are dropped; a match under 0.35 is no floor')
+        self.assertEqual(r['surface']['box'], [0, 20, 64, 48], 'the surface is still one box around them')
+
+    def test_a_read_from_before_says_nothing_of_the_view(self):
+        self.fake.on('/chat/completions', spark_answer(dict(READ, view='sideways')))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['floor'], {'view': None, 'seeds': [], 'boxes': [[0, 20, 64, 48]]})
+
+    def test_no_floor_found_sends_no_boxes(self):
+        self.fake.on('/chat/completions', spark_answer(dict(READ, view='eye_level', floor_seeds=[{'x': 500, 'y': 900}])))
+        self.fake.always('/responses', sam_by_noun(dict(ANSWERS, desk=ans())))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['floor'], {'view': 'eye_level', 'seeds': [[32.0, 43.2]], 'boxes': []})
+        self.assertTrue(any(w.startswith('not found: desk (the play surface)') for w in r['warnings']))
+
+    def test_at_most_twelve_floor_points(self):
+        room = clean_read(dict(READ, floor_seeds=[{'x': 10 * k, 'y': 10} for k in range(20)]), 1000, 1000, [])
+        self.assertEqual(len(room['floor_seeds']), 12)
+
+
 class Raising:
     """A transport whose calls raise the given errors (route -> CallError),
     and otherwise answer as the recorded desk does."""
@@ -692,7 +725,10 @@ class Choosing(unittest.TestCase):
     def test_the_surface_is_every_match_together(self):
         # A3: a floor split in two is one floor; a weak match is left out
         recs = [self.rec(0, [0, 400, 500, 768], 0.8), self.rec(1, [500, 380, 1024, 768], 0.7), self.rec(2, [0, 0, 50, 50], 0.2)]
-        self.assertEqual(surface_from(recs), {'box': [0, 380, 1024, 768], 'confidence': 0.8, 'matches': 2})
+        # W1a: and each match's own box goes on, for the page to grow the
+        # floor in (a floor plan's floor is one match a room)
+        self.assertEqual(surface_from(recs), {'box': [0, 380, 1024, 768], 'confidence': 0.8, 'matches': 2,
+                                              'boxes': [[0, 400, 500, 768], [500, 380, 1024, 768]]})
         self.assertIsNone(surface_from([self.rec(0, [0, 0, 9, 9], 0.3)]))
 
     def test_a_far_weaker_extra_match_is_not_a_second_thing(self):

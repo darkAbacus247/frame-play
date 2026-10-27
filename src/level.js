@@ -1,8 +1,9 @@
 // The level: footprints, baselines, the walk region, the start, the proof
 // that the room can be won, the ordered repairs code may make (each one
 // listed), and validation. Pure logic: no page, no canvas.
-import { fillRings, maskBounds, traceMaskInBounds } from './raster.js';
+import { fillRings, maskBounds, traceMaskInBounds, fillHoles, components } from './raster.js';
 import { ringsInside, bounds } from './geom.js';
+import { edt } from './distance.js';
 import { navParams, buildNav, gridDistances, cellCenter, findPath } from './nav.js';
 
 export const LEVEL_SCHEMA = 'frameplay.level/2';
@@ -18,6 +19,16 @@ export const ROLES = ['collect', 'avoid', 'exit', 'solid', 'flat'];
 // traced_at_points and points_box: a thing SAM did not find, traced around
 // Muse Spark's points for it, or the region around them
 export const OUTLINE_SOURCES = ['exact', 'sam_mask', 'traced_in_box', 'box', 'traced_at_points', 'points_box'];
+// How the camera sees the room. Seen from above (a floor plan), a thing
+// blocks its whole outline and there is no horizon.
+export const VIEWS = ['eye_level', 'top_down', 'angled'];
+// Surfaces that are the floor itself, so they fence the play area: walls
+// are everything else. A surface known only as a box sets the horizon.
+export const FLOOR_SOURCES = ['exact', 'traced_floor'];
+// Doorways: the floor narrower than twice this share of the long side
+// between two rooms (each at least ROOM_AREA of the picture).
+export const DOOR_HALF = 0.045;
+export const ROOM_AREA = 0.01;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -60,6 +71,7 @@ export function prepare(level, opts = {}) {
   const p = navParams(W, H);
   if (level.nav && typeof level.nav.hazard_margin === 'number') p.hazardMargin = level.nav.hazard_margin;
   const L = p.L;
+  const topDown = level.view === 'top_down';
   const objs = level.objects.map((o) => {
     const mask = fillRings(o.outline.rings, W, H);
     return { mask, b: maskBounds(mask, W, H), footprint: null };
@@ -68,7 +80,8 @@ export function prepare(level, opts = {}) {
     const t = objs[k], o = level.objects[k];
     if (!t.b || !o.on_surface || o.role === 'flat') continue;
     const width = t.b.x1 - t.b.x0, height = t.b.y1 - t.b.y0;
-    const depth = Math.max(0.006 * L, Math.min(0.22 * width, 0.5 * height));
+    // seen from above, the whole thing stands on the floor
+    const depth = topDown ? height : Math.max(0.006 * L, Math.min(0.22 * width, 0.5 * height));
     const yTop = t.b.y1 - depth;
     const fp = new Uint8Array(W * H);
     let area = 0;
@@ -83,9 +96,11 @@ export function prepare(level, opts = {}) {
     const fb = maskBounds(fp, W, H);
     t.footprint = { mask: fp, depth, baseline: t.b.y1, top: yTop, bounds: fb, boundary: boundaryInBox(fp, W, fb), area };
   }
-  // An exact surface (drawn by code) fences the walk region. A surface known
-  // only as a box (a model's best match, perhaps one patch of the floor)
-  // sets the horizon and no more, and never above an object's footprint.
+  // The floor itself (drawn by code, or grown by code from the picture)
+  // fences the walk region: walls are everything that is not floor. A
+  // surface known only as a box (a model's best match, perhaps one patch of
+  // the floor) sets the horizon and no more, and never above an object's
+  // footprint. Seen from above there is no horizon.
   let top = Infinity;
   for (const t of objs) if (t.footprint && t.footprint.top < top) top = t.footprint.top;
   const byFeet = (top < Infinity ? top : 0.5 * H) - 0.03 * L;
@@ -93,19 +108,24 @@ export function prepare(level, opts = {}) {
   if (level.surface && level.surface.rings && level.surface.rings.length) {
     const mask = fillRings(level.surface.rings, W, H);
     const sb = maskBounds(mask, W, H);
-    if (sb) horizon = level.surface.source === 'exact' ? sb.y0 : Math.min(sb.y0, byFeet);
-    if (level.surface.source === 'exact') surfaceMask = mask;
+    const fenced = FLOOR_SOURCES.includes(level.surface.source);
+    if (sb) horizon = fenced ? sb.y0 : Math.min(sb.y0, byFeet);
+    if (fenced && sb) surfaceMask = mask;
   }
-  horizon = clamp(horizon, 0.12 * H, 0.75 * H);
+  horizon = topDown ? 0 : clamp(horizon, 0.12 * H, 0.75 * H);
 
   const walk = surfaceMask ? surfaceMask.slice() : new Uint8Array(W * H).fill(1);
+  // Things on the floor hide it; the explorer may stand where they are
+  // (behind them, or on a rug) unless their footprint blocks it. Seen from
+  // above, only where the floor surrounds them: a rug never opens a wall.
+  const within = surfaceMask && topDown ? fillHoles(surfaceMask, W, H) : null;
   for (let k = 0; k < objs.length; k++) {
     const t = objs[k];
     if (!level.objects[k].on_surface || !t.b) continue;
     for (let y = t.b.y0; y < t.b.y1; y++) {
       for (let x = t.b.x0; x < t.b.x1; x++) {
         const i = y * W + x;
-        if (t.mask[i]) walk[i] = 1;
+        if (t.mask[i] && (!within || within[i])) walk[i] = 1;
       }
     }
   }
@@ -155,7 +175,90 @@ export function prepare(level, opts = {}) {
     }
     return r;
   });
-  return { W, H, p, objs, walk, hazard: anyHazard ? hazard : null, nav, horizon, rings };
+  return { W, H, p, objs, walk, hazard: anyHazard ? hazard : null, nav, horizon, rings, floor: surfaceMask };
+}
+
+// The rooms of a floor and the doorways between them. Things standing on
+// the floor (holes in it) are not walls here. A room's core is floor at
+// least DOOR_HALF of the long side from any wall, of ROOM_AREA of the
+// picture or more; every floor pixel belongs to the core it is nearest
+// along the floor; a doorway is where two rooms meet: { x, y, width } at
+// its middle (where the floor is farthest from a wall), width in pixels.
+// Rooms joined by an opening wider than twice DOOR_HALF are one room.
+// Found on a grid of one cell per s by s pixels (s = round(L / 512), the
+// pixel at each cell's centre), then said in picture pixels.
+// Returns { rooms, doorways }.
+export function floorRooms(floor, W0, H0) {
+  const s = Math.max(1, Math.round(Math.max(W0, H0) / 512));
+  const W = Math.ceil(W0 / s), H = Math.ceil(H0 / s);
+  const small = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const sy = Math.min(H0 - 1, y * s + (s >> 1));
+    for (let x = 0; x < W; x++) small[y * W + x] = floor[sy * W0 + Math.min(W0 - 1, x * s + (s >> 1))];
+  }
+  const f = gridRooms(small, W, H);
+  return {
+    rooms: f.rooms,
+    doorways: f.doorways.map((d) => ({ x: (d.x - 0.5) * s + s / 2, y: (d.y - 0.5) * s + s / 2, width: d.width * s, rooms: d.rooms })),
+  };
+}
+
+function gridRooms(floor, W, H) {
+  const L = Math.max(W, H);
+  const R = DOOR_HALF * L;
+  const solid = fillHoles(floor, W, H);
+  const wall = new Uint8Array(W * H);
+  for (let i = 0; i < wall.length; i++) wall[i] = solid[i] ? 0 : 1;
+  // the picture's edge counts as wall
+  for (let x = 0; x < W; x++) { wall[x] = 1; wall[(H - 1) * W + x] = 1; }
+  for (let y = 0; y < H; y++) { wall[y * W] = 1; wall[y * W + W - 1] = 1; }
+  const d = edt(wall, W, H);
+  const core = new Uint8Array(W * H);
+  for (let i = 0; i < core.length; i++) core[i] = d[i] >= R ? 1 : 0;
+  const cores = components(core, W, H, 8);
+  const room = new Int32Array(W * H);
+  const queue = new Int32Array(W * H);
+  let n = 0, tail = 0;
+  const id = new Int32Array(cores.count + 1);
+  for (let l = 1; l <= cores.count; l++) if (cores.sizes[l] >= ROOM_AREA * W * H) id[l] = ++n;
+  for (let i = 0; i < core.length; i++) {
+    const r = id[cores.labels[i]];
+    if (r) { room[i] = r; queue[tail++] = i; }
+  }
+  // each floor pixel to the nearest room, along the floor
+  for (let head = 0; head < tail; head++) {
+    const i = queue[head], x = i % W;
+    for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
+      if (j < 0 || j >= room.length || wall[j] || room[j]) continue;
+      room[j] = room[i];
+      queue[tail++] = j;
+    }
+  }
+  // where two rooms meet
+  const seam = new Uint8Array(W * H);
+  const pair = new Map();
+  for (let i = 0; i < room.length; i++) {
+    if (!room[i]) continue;
+    const x = i % W;
+    for (const j of [x < W - 1 ? i + 1 : -1, i + W]) {
+      if (j < 0 || j >= room.length || !room[j] || room[j] === room[i]) continue;
+      seam[i] = 1;
+      pair.set(i, [Math.min(room[i], room[j]), Math.max(room[i], room[j])]);
+    }
+  }
+  const parts = components(seam, W, H, 8);
+  const mid = new Int32Array(parts.count + 1).fill(-1);
+  for (let i = 0; i < seam.length; i++) {
+    const l = parts.labels[i];
+    if (l && (mid[l] < 0 || d[i] > d[mid[l]])) mid[l] = i;
+  }
+  const doorways = [];
+  for (let l = 1; l <= parts.count; l++) {
+    const i = mid[l];
+    doorways.push({ x: (i % W) + 0.5, y: Math.floor(i / W) + 0.5, width: Math.round(2 * d[i]), rooms: pair.get(i) });
+  }
+  doorways.sort((a, b) => a.y - b.y || a.x - b.x);
+  return { rooms: n, doorways };
 }
 
 function roleIndexes(level, role) {
@@ -518,6 +621,14 @@ export function buildLevel(input) {
   return { level, rt };
 }
 
+// Where the play area came from, in words, when the input does not say.
+function floorWords(surface, view) {
+  if (surface && FLOOR_SOURCES.includes(surface.source)) {
+    return { source: surface.source, words: surface.source === 'exact' ? `The play area is the ${surface.name || 'floor'} as code drew it; everything else is wall.` : `Code traced the ${surface.name || 'floor'}; everything else is wall.` };
+  }
+  return { source: 'horizon', words: view === 'top_down' ? 'No floor was traced, so the whole picture is the play area.' : 'No floor was traced, so the play area is everything below the horizon.' };
+}
+
 function normalizeInput(input) {
   const objects = input.objects.map((o, k) => ({
     id: String(o.id ?? `obj${k + 1}`),
@@ -533,6 +644,8 @@ function normalizeInput(input) {
     on_surface: o.on_surface !== false,
   }));
   const origin = input.origin;
+  const view = VIEWS.includes(input.view) ? input.view : 'eye_level';
+  const surface = input.surface ? { name: input.surface.name, rings: input.surface.rings, source: input.surface.source, horizon_y: null } : null;
   return {
     schema: LEVEL_SCHEMA,
     origin,
@@ -540,7 +653,8 @@ function normalizeInput(input) {
     picture: { ...input.picture },
     title: input.title ?? '',
     theme_line: input.theme_line ?? '',
-    surface: input.surface ? { name: input.surface.name, rings: input.surface.rings, source: input.surface.source, horizon_y: null } : null,
+    view,
+    surface,
     objects,
     rules: { collect: [], avoid: [], exit: null },
     start: null,
@@ -552,6 +666,7 @@ function normalizeInput(input) {
       request_id: (input.provenance && input.provenance.request_id) || null,
       created: (input.provenance && input.provenance.created) || new Date().toISOString(),
       outline_sources: {},
+      floor: input.floor && typeof input.floor.words === 'string' ? { source: input.floor.source, words: input.floor.words } : floorWords(surface, view),
     },
   };
 }
@@ -569,7 +684,15 @@ function finishLevel(level, rt, start, proof) {
       o.baseline_y = t.b ? t.b.y1 : null;
     }
   });
-  if (level.surface) level.surface.horizon_y = r1(rt.horizon);
+  if (level.surface) {
+    level.surface.horizon_y = r1(rt.horizon);
+    // the floor's rooms and the doorways between them, for Show walls
+    if (rt.floor) {
+      const f = floorRooms(rt.floor, rt.W, rt.H);
+      level.surface.rooms = f.rooms;
+      level.surface.doorways = f.doorways.map((d) => ({ x: d.x, y: d.y, width: d.width }));
+    }
+  }
   level.rules = {
     collect: roleIndexes(level, 'collect').map((k) => level.objects[k].id),
     avoid: roleIndexes(level, 'avoid').map((k) => level.objects[k].id),
@@ -607,6 +730,8 @@ export function validateLevel(level) {
     if (!o.outline || !Array.isArray(o.outline.rings) || !ringsInside(o.outline.rings, W, H)) bad(`An outline of ${o.id} leaves the picture`);
   }
   if (level.surface && level.surface.rings && !ringsInside(level.surface.rings, W, H)) bad('The surface leaves the picture');
+  // a level kept from before views were read is seen at eye level
+  if (level.view !== undefined && !VIEWS.includes(level.view)) bad('Unknown view');
   const exits = level.objects.filter((o) => o.role === 'exit').length;
   if (exits !== 1) bad(`A level needs exactly one exit (found ${exits})`);
   if (!level.objects.some((o) => o.role === 'collect')) bad('A level needs at least one collectible');
@@ -626,6 +751,7 @@ export function inputFromRoom(room, created) {
     picture: { kind: 'sample', id: room.id, width: room.width, height: room.height },
     title: room.title,
     theme_line: room.theme_line,
+    view: room.view,
     surface: room.surface ? { name: room.surface.name, rings: room.surface.rings, source: 'exact' } : null,
     objects: room.objects.map((o) => ({
       id: o.id, name: o.name, instance: o.instance, role: o.role, reason: o.reason,

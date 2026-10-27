@@ -30,7 +30,18 @@ so before you choose one.
   built from what the models found in it: Muse Spark names the things and
   gives each a role and a few points on it; SAM 3.1 answers each name with
   its matches (boxes), and of several, the ones holding Muse Spark's points
-  are kept. Code traces each outline inside SAM's box. For a thing SAM
+  are kept. Code traces each outline inside SAM's box. Muse Spark also says
+  how the camera sees the room (at eye level, from above as in a floor
+  plan, or at a slant) and gives points on the open floor, one or more a
+  room; SAM 3.1 answers "floor" with one match a room. Code grows the floor
+  from those points, by colour and edges, inside SAM's floor boxes, and
+  that floor, less what stands on it, is where the explorer may walk:
+  everything else is wall, and a doorway is where the floor runs on from
+  one room into the next. Seen from above, a thing blocks its whole
+  outline. With no floor found (no points, no floor match, or too little
+  floor around the points) the play area is everything below the horizon
+  (from above, the whole picture), and the level's provenance says so in
+  words. For a thing SAM
   finds nothing usable for, code traces around Muse Spark's own points
   instead, with the same tracer, and the reveal says how many came each way
   ("SAM 3.1 found 5; for 4 more, code traced around Muse Spark's points").
@@ -226,6 +237,11 @@ picture through them.
   is not tight is traced again on a finer and a coarser grid, and if it is
   still not tight it falls back to its box, and the reveal says so. Small, low
   contrast objects are the hardest to trace.
+- The floor is grown by colour: a floor much like its walls (white boards
+  under white walls) can run past its edge, up to 2% of the picture beyond
+  SAM's floor boxes, and a thing much like the floor that SAM did not find
+  is walked over. A thing on the floor that SAM did not find, unlike the
+  floor, is a wall. Marked rooms keep the horizon.
 - A box you mark is looser than SAM's: code looks for the one shape that
   stands out inside it and traces that. A box over several things, or over
   a thing much like its background, keeps your box as you drew it, and the
