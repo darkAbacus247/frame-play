@@ -1,0 +1,834 @@
+{
+ "reply": {
+  "schema": "frameplay.room.reply/2",
+  "status": "ok",
+  "provenance": {
+   "mode": "rehearsal",
+   "label": "REHEARSAL · local stand-in, not Meta",
+   "models": [],
+   "stand_in_for": [
+    "muse-spark-1.3",
+    "sam-3.1"
+   ],
+   "calls": [
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "bed",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "cabinet",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "cactus",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "chair",
+     "matches": 2,
+     "usd": 0.0025,
+     "kept": 2
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "coffee table",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "coin",
+     "matches": 3,
+     "usd": 0.0025,
+     "kept": 3
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "dining table",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "door",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "floor",
+     "matches": 4,
+     "usd": 0.0025,
+     "surface": true,
+     "kept": 4
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "rug",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "find",
+     "model": "REHEARSAL stand-in for sam-3.1",
+     "status": 200,
+     "attempt": 1,
+     "noun": "sofa",
+     "matches": 1,
+     "usd": 0.0025,
+     "kept": 1
+    },
+    {
+     "stage": "read",
+     "model": "REHEARSAL stand-in for muse-spark-1.3",
+     "status": 200,
+     "attempt": 1,
+     "tokens_in": 2100,
+     "tokens_out": 1400,
+     "usd": 0.00857
+    }
+   ],
+   "image_retained": false,
+   "rehearsal": {
+    "stand_in_base": "http://127.0.0.1:9/v1",
+    "room": "apartment"
+   },
+   "found": {
+    "sam": 13,
+    "points": 0,
+    "words": "The stand-in for SAM 3.1 found 13."
+   }
+  },
+  "received": {
+   "bytes": 153,
+   "type": "image/jpeg",
+   "width": 1024,
+   "height": 768,
+   "metadata_bytes_removed": 95,
+   "retained": false
+  },
+  "scene": {
+   "title": "The Apartment",
+   "theme_line": "Three coins rolled into three rooms. Find them all, mind the cactus, and leave by the bedroom door.",
+   "people_present": false,
+   "view": "top_down",
+   "scenery": []
+  },
+  "surface": {
+   "name": "floor",
+   "box": [
+    54,
+    54,
+    970,
+    714
+   ],
+   "confidence": 0.9779928467515856
+  },
+  "floor": {
+   "view": "top_down",
+   "seeds": [
+    [
+     459.8,
+     250.4
+    ],
+    [
+     619.5,
+     149.8
+    ],
+    [
+     640,
+     559.9
+    ],
+    [
+     300,
+     599.8
+    ]
+   ],
+   "boxes": [
+    [
+     534,
+     54,
+     970,
+     380
+    ],
+    [
+     54,
+     434,
+     520,
+     714
+    ],
+    [
+     54,
+     54,
+     520,
+     420
+    ],
+    [
+     534,
+     394,
+     970,
+     714
+    ]
+   ]
+  },
+  "objects": [
+   {
+    "id": "o1",
+    "name": "rug",
+    "instance": 1,
+    "role": "flat",
+    "reason": "Soft underfoot; walk right over it",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     196,
+     146,
+     384,
+     304
+    ],
+    "confidence": 0.9352574198972434,
+    "seeds": [
+     [
+      289.8,
+      225
+     ]
+    ],
+    "mask": {
+     "height": 158,
+     "width": 188,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 495
+    }
+   },
+   {
+    "id": "o2",
+    "name": "sofa",
+    "instance": 1,
+    "role": "solid",
+    "reason": "Too comfy to climb over",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     72,
+     104,
+     146,
+     334
+    ],
+    "confidence": 0.9334047406539321,
+    "seeds": [
+     [
+      108.5,
+      218.9
+     ]
+    ],
+    "mask": {
+     "height": 230,
+     "width": 74,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 283
+    }
+   },
+   {
+    "id": "o3",
+    "name": "coffee table",
+    "instance": 1,
+    "role": "solid",
+    "reason": "Mind your shins",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     232,
+     190,
+     348,
+     260
+    ],
+    "confidence": 0.9541137355100363,
+    "seeds": [
+     [
+      289.8,
+      225
+     ]
+    ],
+    "mask": {
+     "height": 70,
+     "width": 116,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 135
+    }
+   },
+   {
+    "id": "o4",
+    "name": "coin",
+    "instance": 1,
+    "role": "collect",
+    "reason": "It rolled under the window",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     688,
+     458,
+     712,
+     482
+    ],
+    "confidence": 0.9509512691758573,
+    "seeds": [
+     [
+      700.4,
+      470
+     ]
+    ],
+    "mask": {
+     "height": 24,
+     "width": 24,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 16
+    }
+   },
+   {
+    "id": "o5",
+    "name": "coin",
+    "instance": 2,
+    "role": "collect",
+    "reason": "It rolled under the window",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     428,
+     88,
+     452,
+     112
+    ],
+    "confidence": 0.9258979262504726,
+    "seeds": [
+     [
+      440.3,
+      99.8
+     ]
+    ],
+    "mask": {
+     "height": 24,
+     "width": 24,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 16
+    }
+   },
+   {
+    "id": "o6",
+    "name": "coin",
+    "instance": 3,
+    "role": "collect",
+    "reason": "It rolled under the window",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     908,
+     318,
+     932,
+     342
+    ],
+    "confidence": 0.8665217953827232,
+    "seeds": [
+     [
+      919.6,
+      330.2
+     ]
+    ],
+    "mask": {
+     "height": 24,
+     "width": 24,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 16
+    }
+   },
+   {
+    "id": "o7",
+    "name": "dining table",
+    "instance": 1,
+    "role": "solid",
+    "reason": "Set for dinner, not for climbing",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     700,
+     120,
+     850,
+     210
+    ],
+    "confidence": 0.9511790719535201,
+    "seeds": [
+     [
+      775.2,
+      165.1
+     ]
+    ],
+    "mask": {
+     "height": 90,
+     "width": 150,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 225
+    }
+   },
+   {
+    "id": "o8",
+    "name": "chair",
+    "instance": 1,
+    "role": "solid",
+    "reason": "Pushed in, still in the way",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     770,
+     218,
+     810,
+     256
+    ],
+    "confidence": 0.9014745573326945,
+    "seeds": [
+     [
+      789.5,
+      237.3
+     ]
+    ],
+    "mask": {
+     "height": 38,
+     "width": 40,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 25
+    }
+   },
+   {
+    "id": "o9",
+    "name": "chair",
+    "instance": 2,
+    "role": "solid",
+    "reason": "Pushed in, still in the way",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     740,
+     74,
+     780,
+     112
+    ],
+    "confidence": 0.8860855305753648,
+    "seeds": [
+     [
+      759.8,
+      92.9
+     ]
+    ],
+    "mask": {
+     "height": 38,
+     "width": 40,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 25
+    }
+   },
+   {
+    "id": "o10",
+    "name": "cactus",
+    "instance": 1,
+    "role": "avoid",
+    "reason": "Prickly from every side",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     578,
+     296,
+     622,
+     340
+    ],
+    "confidence": 0.8919507832452654,
+    "seeds": [
+     [
+      600.1,
+      318
+     ]
+    ],
+    "mask": {
+     "height": 44,
+     "width": 44,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 32
+    }
+   },
+   {
+    "id": "o11",
+    "name": "bed",
+    "instance": 1,
+    "role": "solid",
+    "reason": "Made up neatly; no jumping",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     806,
+     470,
+     956,
+     702
+    ],
+    "confidence": 0.9422280226647853,
+    "seeds": [
+     [
+      880.6,
+      586
+     ]
+    ],
+    "mask": {
+     "height": 232,
+     "width": 150,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 580
+    }
+   },
+   {
+    "id": "o12",
+    "name": "door",
+    "instance": 1,
+    "role": "exit",
+    "reason": "The way out, once the coins are home",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     590,
+     694,
+     686,
+     712
+    ],
+    "confidence": 0.9135672691557556,
+    "seeds": [
+     [
+      638,
+      702.7
+     ]
+    ],
+    "mask": {
+     "height": 18,
+     "width": 96,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 28
+    }
+   },
+   {
+    "id": "o13",
+    "name": "cabinet",
+    "instance": 1,
+    "role": "solid",
+    "reason": "Full of shoes and umbrellas",
+    "on_surface": true,
+    "found_by": "sam",
+    "box": [
+     70,
+     452,
+     182,
+     494
+    ],
+    "confidence": 0.861066751042381,
+    "seeds": [
+     [
+      126,
+      473.1
+     ]
+    ],
+    "mask": {
+     "height": 42,
+     "width": 112,
+     "encoding": "one_bit",
+     "decoded": false,
+     "payload_chars": 78
+    }
+   }
+  ],
+  "usage": {
+   "calls": 12,
+   "spark_calls": 1,
+   "sam_calls": 11,
+   "tokens_in": 2100,
+   "tokens_out": 1400,
+   "reasoning_tokens": 800,
+   "estimated_usd": 0.03607
+  },
+  "warnings": [],
+  "error": null
+ },
+ "level": {
+  "view": "top_down",
+  "floor": {
+   "source": "traced_floor",
+   "words": "Code grew the floor from the stand-in for Muse Spark’s 4 points on it inside the stand-in for SAM 3.1’s 4 boxes for it; everything else is wall."
+  },
+  "surface": {
+   "name": "floor",
+   "source": "traced_floor",
+   "rooms": 4,
+   "doorways": [
+    {
+     "x": 525,
+     "y": 211,
+     "width": 64
+    },
+    {
+     "x": 731,
+     "y": 387,
+     "width": 64
+    },
+    {
+     "x": 231,
+     "y": 425,
+     "width": 64
+    }
+   ]
+  },
+  "objects": [
+   {
+    "id": "o1",
+    "name": "rug",
+    "instance": 1,
+    "role": "flat",
+    "box": [
+     196,
+     146,
+     384,
+     304
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o2",
+    "name": "sofa",
+    "instance": 1,
+    "role": "solid",
+    "box": [
+     72,
+     104,
+     146,
+     334
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o3",
+    "name": "coffee table",
+    "instance": 1,
+    "role": "solid",
+    "box": [
+     232,
+     190,
+     348,
+     260
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o4",
+    "name": "coin",
+    "instance": 1,
+    "role": "collect",
+    "box": [
+     688,
+     458,
+     712,
+     482
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o5",
+    "name": "coin",
+    "instance": 2,
+    "role": "collect",
+    "box": [
+     428,
+     88,
+     452,
+     112
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o6",
+    "name": "coin",
+    "instance": 3,
+    "role": "collect",
+    "box": [
+     908,
+     318,
+     932,
+     342
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o7",
+    "name": "dining table",
+    "instance": 1,
+    "role": "solid",
+    "box": [
+     700,
+     120,
+     850,
+     210
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o8",
+    "name": "chair",
+    "instance": 1,
+    "role": "solid",
+    "box": [
+     770,
+     218,
+     810,
+     256
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o9",
+    "name": "chair",
+    "instance": 2,
+    "role": "solid",
+    "box": [
+     740,
+     74,
+     780,
+     112
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o10",
+    "name": "cactus",
+    "instance": 1,
+    "role": "avoid",
+    "box": [
+     578,
+     296,
+     622,
+     340
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o11",
+    "name": "bed",
+    "instance": 1,
+    "role": "solid",
+    "box": [
+     806,
+     470,
+     956,
+     702
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o12",
+    "name": "door",
+    "instance": 1,
+    "role": "exit",
+    "box": [
+     590,
+     694,
+     686,
+     712
+    ],
+    "outline": "traced_in_box"
+   },
+   {
+    "id": "o13",
+    "name": "cabinet",
+    "instance": 1,
+    "role": "solid",
+    "box": [
+     70,
+     452,
+     182,
+     494
+    ],
+    "outline": "traced_in_box"
+   }
+  ],
+  "rules": {
+   "collect": [
+    "o4",
+    "o5",
+    "o6"
+   ],
+   "avoid": [
+    "o10"
+   ],
+   "exit": "o12"
+  },
+  "start": [
+   502,
+   694
+  ],
+  "proof": {
+   "order": [
+    "o5",
+    "o6",
+    "o4",
+    "o12"
+   ],
+   "route_length": 1690
+  },
+  "changes_by_code": []
+ }
+}

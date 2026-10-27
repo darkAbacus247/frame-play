@@ -18,7 +18,7 @@
 // gating is tested in Node.
 import { photoRefusal, acceptReply, inputFromReply, readSummary, boxRings } from './reply.js';
 import { buildLevel } from './level.js';
-import { traceInBox, traceAroundPoints } from './trace_in_box.js';
+import { traceInBox, traceAroundPoints, floorFromReply } from './trace_in_box.js';
 
 export const MOCK_WORDS = 'MOCK: no model reads photos in this copy. Your photo stays on this device, and you mark its objects yourself; code traces their outlines. Nothing is sent.';
 
@@ -174,7 +174,9 @@ export async function outlinesFor(reply, pixels, yieldNow = () => new Promise((r
 // A level from an accepted reply, traced on the very pixels that were sent.
 export async function levelFromReply(reply, picture, pixels, pictureRef, yieldNow) {
   const outlines = await outlinesFor(reply, pixels, yieldNow);
-  const built = buildLevel(inputFromReply(reply, pictureRef, (o, k) => outlines[k]));
+  // the play area: the floor grown by code from the read (or the horizon)
+  const floor = floorFromReply(reply, pixels);
+  const built = buildLevel({ ...inputFromReply(reply, pictureRef, (o, k) => outlines[k]), ...floor });
   const m = reply.objects.filter((o) => o.found_by === 'points').length;
   if (built.error && m) {
     // neither SAM's boxes nor Muse Spark's points made a room: say both

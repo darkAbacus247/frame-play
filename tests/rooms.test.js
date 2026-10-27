@@ -7,12 +7,13 @@ import { paintRoom } from '../src/painter.js';
 import { fillRings } from '../src/raster.js';
 import { sinCosDeg, boxesOverlap, bounds } from '../src/geom.js';
 
-const ROOMS = ['desk', 'living'];
+const ROOMS = ['desk', 'living', 'apartment'];
 // sha256 of each painted room's pixels. A change here means the pictures
 // changed: update deliberately, never to make a test pass.
 const GOLDEN = {
   desk: '9b093b4853d37324b03acaf32ec8f805c5541878dfdaea69926fa793b6bb2274',
   living: 'fce79f85324ab8a13f4c40b7e971c9a966c6e5e5bf0ad969266591d5c3095cb4',
+  apartment: 'b851e9703bc08ff4d24d78aadbb35d6fd7da9ae5ce41cfe5ae2f9658ef0de6f7',
 };
 
 function load(id) {

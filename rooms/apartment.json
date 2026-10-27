@@ -1,0 +1,162 @@
+{
+  "schema": "frameplay.room/1",
+  "id": "apartment",
+  "title": "The Apartment",
+  "theme_line": "Three coins rolled into three rooms. Find them all, mind the cactus, and leave by the bedroom door.",
+  "width": 1024,
+  "height": 768,
+  "seed": 1027,
+  "view": "top_down",
+  "background": [
+    { "shape": { "rect": [0, 0, 1024, 768] }, "paint": "#ece8e1", "grain": 2 },
+    { "shape": { "rect": [40, 40, 944, 688] }, "paint": "#34302c", "grain": 2 }
+  ],
+  "surface": {
+    "name": "floor",
+    "shape": { "rings": [
+      { "rect": [54, 54, 466, 366] },
+      { "rect": [534, 54, 436, 326] },
+      { "rect": [534, 394, 436, 320] },
+      { "rect": [54, 434, 466, 280] },
+      { "rect": [520, 180, 14, 64] },
+      { "rect": [700, 380, 64, 14] },
+      { "rect": [200, 420, 64, 14] }
+    ] },
+    "seeds": [[460, 250], [620, 150], [640, 560], [300, 600]],
+    "paint": { "linear": [0, 54, 0, 434], "stops": ["#c48e58", "#a97546"] },
+    "grain": 5
+  },
+  "foreground": [
+    { "shape": { "rings": [{ "rect": [534, 54, 436, 326] }, { "rect": [700, 380, 64, 14] }] }, "paint": "#d6dadd", "grain": 3 },
+    { "shape": { "rect": [582, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [630, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [678, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [726, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [774, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [822, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [870, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [918, 54, 1, 326] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 102, 436, 1] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 150, 436, 1] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 198, 436, 1] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 246, 436, 1] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 294, 436, 1] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 342, 436, 1] }, "paint": "#cbcfd2", "grain": 1 },
+    { "shape": { "rect": [534, 394, 436, 320] }, "paint": { "radial": [752, 554, 330], "stops": ["#90a1b5", "#7f90a5"] }, "grain": 5 },
+    { "shape": { "rect": [54, 434, 466, 280] }, "paint": "#cfc2a9", "grain": 3 }
+  ],
+  "shades": [],
+  "objects": [
+    {
+      "id": "rug", "name": "rug", "role": "flat",
+      "reason": "Soft underfoot; walk right over it",
+      "shape": { "rect": [196, 146, 188, 158], "r": 6 },
+      "paint": "#9d4b47",
+      "details": [
+        { "shape": { "rings": [{ "rect": [208, 158, 164, 134], "r": 4 }, { "rect": [214, 164, 152, 122], "r": 3 }] }, "paint": "#d9b36a" }
+      ]
+    },
+    {
+      "id": "sofa", "name": "sofa", "role": "solid",
+      "reason": "Too comfy to climb over",
+      "shape": { "rect": [72, 104, 74, 230], "r": 12 },
+      "paint": "#4f6d7a",
+      "details": [
+        { "shape": { "rect": [84, 116, 50, 64], "r": 8 }, "paint": "#5c7d8b" },
+        { "shape": { "rect": [84, 186, 50, 64], "r": 8 }, "paint": "#5c7d8b" },
+        { "shape": { "rect": [84, 256, 50, 64], "r": 8 }, "paint": "#5c7d8b" }
+      ]
+    },
+    {
+      "id": "coffeetable", "name": "coffee table", "role": "solid",
+      "reason": "Mind your shins",
+      "shape": { "rect": [232, 190, 116, 70], "r": 6 },
+      "paint": "#5a3a22",
+      "details": [
+        { "shape": { "rect": [240, 198, 100, 54], "r": 4 }, "paint": "#6e4a2d" }
+      ]
+    },
+    {
+      "id": "coin1", "name": "coin", "role": "collect",
+      "reason": "It rolled under the window",
+      "shape": { "ellipse": [440, 100, 12, 12] },
+      "paint": { "radial": [436, 96, 14], "stops": ["#fff2a8", "#e7b52c", "#a87512"] }
+    },
+    {
+      "id": "table", "name": "dining table", "role": "solid",
+      "reason": "Set for dinner, not for climbing",
+      "shape": { "rect": [700, 120, 150, 90], "r": 8 },
+      "paint": "#7a5434",
+      "details": [
+        { "shape": { "ellipse": [775, 165, 22, 14] }, "paint": "#e9e2d2" }
+      ]
+    },
+    {
+      "id": "chair1", "name": "chair", "role": "solid",
+      "reason": "Pushed in, still in the way",
+      "shape": { "rect": [740, 74, 40, 38], "r": 6 },
+      "paint": "#3d2a1c",
+      "details": [{ "shape": { "rect": [746, 80, 28, 26], "r": 4 }, "paint": "#8c3b2e" }]
+    },
+    {
+      "id": "chair2", "name": "chair", "role": "solid",
+      "reason": "Pushed in, still in the way",
+      "shape": { "rect": [770, 218, 40, 38], "r": 6 },
+      "paint": "#3d2a1c",
+      "details": [{ "shape": { "rect": [776, 224, 28, 26], "r": 4 }, "paint": "#8c3b2e" }]
+    },
+    {
+      "id": "coin2", "name": "coin", "role": "collect",
+      "reason": "Dropped by the fridge",
+      "shape": { "ellipse": [920, 330, 12, 12] },
+      "paint": { "radial": [916, 326, 14], "stops": ["#fff2a8", "#e7b52c", "#a87512"] }
+    },
+    {
+      "id": "cactus", "name": "cactus", "role": "avoid",
+      "reason": "Prickly from every side",
+      "shape": { "ellipse": [600, 318, 22, 22] },
+      "paint": "#a5552f",
+      "details": [
+        { "shape": { "ellipse": [600, 318, 15, 15] }, "paint": "#3f8a43" },
+        { "shape": { "ellipse": [600, 318, 6, 6] }, "paint": "#6dbb5a" }
+      ]
+    },
+    {
+      "id": "bed", "name": "bed", "role": "solid",
+      "reason": "Made up neatly; no jumping",
+      "shape": { "rect": [806, 470, 150, 232], "r": 10 },
+      "paint": "#e6e0d4",
+      "details": [
+        { "shape": { "rect": [818, 482, 56, 34], "r": 8 }, "paint": "#ffffff" },
+        { "shape": { "rect": [888, 482, 56, 34], "r": 8 }, "paint": "#ffffff" },
+        { "shape": { "rect": [806, 540, 150, 162], "r": 10 }, "paint": "#3e5f8a" }
+      ]
+    },
+    {
+      "id": "coin3", "name": "coin", "role": "collect",
+      "reason": "Hiding by the bed",
+      "shape": { "ellipse": [700, 470, 12, 12] },
+      "paint": { "radial": [696, 466, 14], "stops": ["#fff2a8", "#e7b52c", "#a87512"] }
+    },
+    {
+      "id": "door", "name": "door", "role": "exit",
+      "reason": "The way out, once the coins are home",
+      "shape": { "rect": [590, 694, 96, 18], "r": 3 },
+      "paint": "#3f7a4c",
+      "details": [
+        { "shape": { "rect": [596, 698, 84, 10], "r": 2 }, "paint": "#4f9460" },
+        { "shape": { "ellipse": [670, 703, 3, 3] }, "paint": "#e8d27a" }
+      ]
+    },
+    {
+      "id": "cabinet", "name": "cabinet", "role": "solid",
+      "reason": "Full of shoes and umbrellas",
+      "shape": { "rect": [70, 452, 112, 42], "r": 4 },
+      "paint": "#6b6f73",
+      "details": [
+        { "shape": { "rect": [76, 458, 48, 30], "r": 2 }, "paint": "#7c8084" },
+        { "shape": { "rect": [128, 458, 48, 30], "r": 2 }, "paint": "#7c8084" }
+      ]
+    }
+  ]
+}

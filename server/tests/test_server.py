@@ -84,7 +84,7 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(j['models_called'], [])
         self.assertEqual(j['outline_source'], 'traced_in_box')
         self.assertEqual(j['ceilings']['usd_stop_per_day'], 5.0)
-        self.assertEqual(j['ceilings']['sam_calls_per_photo'], 9)
+        self.assertEqual(j['ceilings']['sam_calls_per_photo'], 12)
         self.assertEqual((j['ceilings']['photos_in_flight'], j['ceilings']['photos_per_hour']), (4, 120))
         self.assertEqual(j['live_state'], 'off')
 

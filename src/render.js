@@ -27,6 +27,8 @@ export function drawPlan(level, feet, opts = {}) {
   const L = Math.max(level.picture.width, level.picture.height);
   const ops = [{ op: 'picture' }];
   if (opts.walls) ops.push({ op: 'walls' });
+  // a floor that fences the play area: its outline and its doorways
+  if (opts.walls && hasFloor(level)) ops.push({ op: 'floor' });
   ops.push({ op: 'halos' });
   if (opts.explorer === false) {
     // the reveal: outlines and numbered badges, no explorer
@@ -52,6 +54,16 @@ export function drawPlan(level, feet, opts = {}) {
   if (level.origin === 'mock') ops.push({ op: 'stamp' });
   return ops;
 }
+
+// Whether a level's floor fences its play area (drawn by code, or traced
+// from the picture): the level builder lists its doorways then.
+export function hasFloor(level) {
+  return !!(level.surface && Array.isArray(level.surface.rings) && level.surface.rings.length && Array.isArray(level.surface.doorways));
+}
+
+// Show walls: the floor's outline, and a ring across each doorway as wide
+// as the doorway, in picture pixels.
+export const FLOOR_STYLE = { edge: '#ffffff', under: 'rgba(0,0,0,0.55)', door: '#7cf2c4', doorFill: 'rgba(124,242,196,0.28)' };
 
 // Where each numbered badge goes on the reveal: beside its object, clear of
 // every outline and of the other badges, inside the picture.
@@ -159,6 +171,32 @@ export class Renderer {
     this.scale = 1;
     this.dpr = 1;
     this.wallsImage = null;
+    this.floorPath = hasFloor(level) ? ringsPath(level.surface.rings) : null;
+  }
+
+  drawFloor() {
+    const { ctx, level } = this;
+    if (!this.floorPath) return;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = FLOOR_STYLE.under;
+    ctx.lineWidth = this.px(4.5);
+    ctx.stroke(this.floorPath);
+    ctx.strokeStyle = FLOOR_STYLE.edge;
+    ctx.lineWidth = this.px(2);
+    ctx.stroke(this.floorPath);
+    for (const d of level.surface.doorways) {
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, Math.max(this.px(6), d.width / 2), 0, Math.PI * 2);
+      ctx.fillStyle = FLOOR_STYLE.doorFill;
+      ctx.fill();
+      ctx.strokeStyle = FLOOR_STYLE.door;
+      ctx.lineWidth = this.px(2.5);
+      ctx.setLineDash([this.px(6), this.px(4)]);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   resize(cssW, cssH, dpr) {
@@ -224,6 +262,7 @@ export class Renderer {
           ctx.restore();
           break;
         }
+        case 'floor': this.drawFloor(); break;
         case 'halos': this.drawHalos(ui); break;
         case 'path': this.drawPath(state, ui); break;
         case 'shadow':

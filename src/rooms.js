@@ -106,10 +106,13 @@ export function loadRoom(json) {
     };
   });
   const surface = json.surface ? { name: json.surface.name, rings: shapeToRings(json.surface.shape) } : null;
+  const view = json.view ?? 'eye_level';
+  if (!['eye_level', 'top_down', 'angled'].includes(view)) throw new Error(`unknown view ${view}`);
   return {
     id: json.id,
     title: json.title,
     theme_line: json.theme_line,
+    view,
     width,
     height,
     seed: json.seed | 0,
