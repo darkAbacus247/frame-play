@@ -8,10 +8,15 @@
 - One retry on a network error, 429, 500 or 502, and on 503 only when
   Retry-After is 3 s or less. Never retried: 400, 401, 402, 403, 404, 413,
   504, or a malformed answer. Retry-After is read as seconds or as a date.
+- With the owner's key, an account or model problem (401, 402, 403, a 404
+  for a model route, a quota 429) marks the transport broken. While it is broken, the server sends
+  no photo for LIVE_HOLD_S; after that one photo may check again, and any
+  answer that is not an error clears the mark.
 """
 import email.utils
 import http.client
 import json
+import math
 import socket
 import threading
 import time
@@ -35,6 +40,12 @@ WORDS = {
     503: 'The Model API is unavailable for now',
     504: 'The Model API timed out',
 }
+# Account or model problems: no photo can be read until the owner fixes them.
+BROKEN_STATUSES = {401, 402, 403}
+MODEL_ROUTES = {'/chat/completions', '/responses'}
+QUOTA_WORDS = 'The Model API account behind this server has used up its quota'
+LIVE_UNAVAILABLE = ('The live AI is unavailable on this server right now (an account or model problem '
+                    'the owner must fix). The sample rooms still work.')
 
 
 class CallError(Exception):
@@ -47,6 +58,7 @@ class CallError(Exception):
         self.retryable = retryable
         self.billed = billed
         self.excerpt = excerpt
+        self.latched = False  # True when this answer marked the transport broken
 
 
 def retry_after_seconds(value, now=None):
@@ -102,6 +114,50 @@ class Transport:
         self.path = parts.path.rstrip('/')
         self.credential = credential
         self.connect = connect  # tests may swap the connection maker
+        self.now = time.monotonic  # tests may swap the latch's clock
+        # The latch guards the owner's key. Rehearsal drills each failure one
+        # photo at a time, so it latches only when asked to.
+        self.latching = self.holder is not None
+        self.broken = None  # or {'code', 'words', 'since'} after an account or model problem
+        self.probing = False
+        self._latch = threading.Lock()
+
+    # ---- the live-unavailable latch ----
+    def _trip(self, code, words):
+        with self._latch:
+            self.broken = {'code': code, 'words': words, 'since': self.now()}
+
+    def _clear(self):
+        if self.broken is not None:
+            with self._latch:
+                self.broken = None
+
+    def live_state(self):
+        """('ok', None, 0) or ('unavailable', words, seconds until a photo may check again)."""
+        with self._latch:
+            b = self.broken
+            if b is None:
+                return 'ok', None, 0
+            left = config.LIVE_HOLD_S - (self.now() - b['since'])
+            if left <= 0 and not self.probing:
+                return 'ok', None, 0
+            return 'unavailable', b['words'], max(1, math.ceil(left))
+
+    def claim(self):
+        """Before a photo: 'open' (not broken), 'probe' (this photo checks again;
+        call release() after it), or None (refused, send nothing)."""
+        with self._latch:
+            b = self.broken
+            if b is None:
+                return 'open'
+            if self.probing or self.now() - b['since'] < config.LIVE_HOLD_S:
+                return None
+            self.probing = True
+            return 'probe'
+
+    def release(self):
+        with self._latch:
+            self.probing = False
 
     def _auth(self):
         if self.holder is not None:
@@ -164,11 +220,19 @@ class Transport:
             raise CallError('timeout', 'The Model API did not answer in time', retryable=True)
         if status >= 400:
             code = _error_code(data) or f'http_{status}'
+            quota = status == 429 and 'quota' in code.lower()
             retryable = status in RETRY_STATUSES or (status == 503 and retry is not None and retry <= 3)
-            if status in NEVER_RETRY:
+            if status in NEVER_RETRY or quota:
                 retryable = False
-            raise CallError(code, WORDS.get(status, f'The Model API answered {status}'), status, retry, retryable,
-                            billed=False, excerpt=excerpt(data, self.holder) if data else None)
+            words = QUOTA_WORDS if quota else WORDS.get(status, f'The Model API answered {status}')
+            e = CallError(code, words, status, retry, retryable,
+                          billed=False, excerpt=excerpt(data, self.holder) if data else None)
+            if self.latching and (status in BROKEN_STATUSES or quota
+                                  or (status == 404 and (route in MODEL_ROUTES or code == 'model_not_found'))):
+                self._trip(code, words)
+                e.latched = True
+            raise e
+        self._clear()
         try:
             return status, json.loads(data.decode('utf-8'))
         except (UnicodeDecodeError, ValueError):

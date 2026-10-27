@@ -1,7 +1,9 @@
 """FRAME//PLAY's server: Python standard library only.
 
 Routes: GET / and an allowlist of the page's own files (the rooms included),
-GET /api/health, POST /api/room. Everything else is 404.
+GET /api/health, POST /api/room. Everything else is 404. After an account or
+model problem, POST /api/room answers 503 live_unavailable, sending nothing,
+and health says live_state: unavailable.
 
   python server/server.py                       # this machine only, port 8191
   python server/server.py --public              # every interface, at $PORT
@@ -26,6 +28,7 @@ if __package__ in (None, ''):
 
 from server import config  # noqa: E402
 from server.imageinfo import ImageError, check_photo  # noqa: E402
+from server.meta_api import LIVE_UNAVAILABLE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -174,6 +177,21 @@ class Handler(BaseHTTPRequestHandler):
         if s.mode == 'mock':
             self.close_connection = True
             return self.send_json(409, error_body('live_off', 'This server is in MOCK mode, so it sends no photo anywhere. Play the sample rooms.'))
+        transport = getattr(self.server.pipeline, 'transport', None)
+        claim = getattr(transport, 'claim', None)
+        held = claim() if claim is not None else 'open'
+        if held is None:
+            # an account or model problem: nothing is sent to the Model API
+            self.close_connection = True
+            _, _, wait = transport.live_state()
+            return self.send_json(503, error_body('live_unavailable', LIVE_UNAVAILABLE), {'Retry-After': str(max(1, wait))})
+        try:
+            self.read_and_run()
+        finally:
+            if held == 'probe':
+                transport.release()
+
+    def read_and_run(self):
         try:
             length = int(self.headers.get('Content-Length', ''))
         except ValueError:
@@ -240,11 +258,26 @@ class FramePlayServer(ThreadingHTTPServer):
                 'seconds_per_photo': config.PHOTO_TIMEOUT_S,
             },
         }
+        h.update(self.live_state())
         if self.limits is not None:
             h['counters'] = self.limits.counters()
         if s.mode == 'rehearsal':
             h['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
         return h
+
+    def live_state(self):
+        """'off' in MOCK; otherwise 'ok', or 'unavailable' after an account or
+        model problem, with the reason in words (never the key)."""
+        if self.settings.mode == 'mock':
+            return {'live_state': 'off', 'live_reason': None}
+        transport = getattr(self.pipeline, 'transport', None)
+        if not hasattr(transport, 'live_state'):
+            return {'live_state': 'ok', 'live_reason': None}
+        state, words, wait = transport.live_state()
+        if state == 'ok':
+            return {'live_state': 'ok', 'live_reason': None}
+        reason = words if words.endswith('.') else words + '.'
+        return {'live_state': 'unavailable', 'live_reason': reason, 'live_check_again_s': wait}
 
 
 def build_server(settings, host='127.0.0.1', port=8191, log=None):

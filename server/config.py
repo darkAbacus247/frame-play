@@ -34,6 +34,9 @@ PER_HOUR = 40
 PER_DAY = 200
 USD_STOP = 5.0
 SPARK_MAX_COMPLETION_TOKENS = 2400
+# After an account or model problem, no photo is sent for this long; then one
+# photo may check again.
+LIVE_HOLD_S = 600.0
 
 # Published prices (Standard): muse-spark-1.3 $1.25 per 1M input tokens and
 # $4.25 per 1M output tokens, reasoning included; sam-3.1 $2.50 per 1,000 images.

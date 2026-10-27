@@ -1,3 +1,4 @@
+import json
 import time
 import unittest
 from unittest import mock
@@ -136,6 +137,94 @@ class AgainstAFake(unittest.TestCase):
             self.t.post_once('/x', {}, 5)
         self.assertIn(c.exception.code, ('network', 'malformed'))
         self.assertTrue(c.exception.retryable or c.exception.code == 'malformed')
+
+
+class Latch(unittest.TestCase):
+    """Account or model problems mark the transport broken."""
+
+    def setUp(self):
+        self.fake = FakeMeta()
+        self.t = Transport(self.fake.base, KeyHolder(TEST_VALUE))
+        self.clock = [1000.0]
+        self.t.now = lambda: self.clock[0]
+
+    def tearDown(self):
+        self.fake.stop()
+
+    def post(self, route='/responses'):
+        return self.t.post(route, {'a': 1}, time.monotonic() + 30, sleep=lambda s: None)
+
+    def fail(self, route, status, code=None):
+        self.fake.script.clear()
+        body = json.dumps({'error': {'code': code, 'message': 'no'}}).encode() if code else b''
+        self.fake.on(route, (status, {}, body), (status, {}, body))  # the same again for a retry
+        with self.assertRaises(CallError) as c:
+            self.post(route)
+        return c.exception
+
+    def test_account_and_model_problems_trip_it(self):
+        for status, route, code in ((401, '/x', None), (402, '/responses', 'payment_required'), (403, '/x', None),
+                                    (404, '/chat/completions', None), (404, '/x', 'model_not_found'),
+                                    (429, '/responses', 'insufficient_quota')):
+            self.t.broken = None
+            e = self.fail(route, status, code)
+            self.assertTrue(e.latched, (status, route, code))
+            self.assertIsNotNone(self.t.broken, (status, route, code))
+            self.assertEqual(self.t.live_state()[0], 'unavailable')
+            self.assertNotIn(TEST_VALUE, json.dumps(self.t.broken))
+
+    def test_passing_faults_do_not(self):
+        for status, route, code in ((404, '/x', None), (429, '/responses', 'rate_limited'), (500, '/responses', None),
+                                    (400, '/responses', None), (503, '/responses', None)):
+            e = self.fail(route, status, code)
+            self.assertFalse(e.latched, (status, route, code))
+            self.assertIsNone(self.t.broken, (status, route, code))
+            self.assertEqual(self.t.live_state(), ('ok', None, 0))
+
+    def test_a_quota_429_is_not_retried(self):
+        self.fake.on('/responses', ok_json({'error': {'code': 'insufficient_quota'}}, 429), ok_json({'ok': 1}))
+        with self.assertRaises(CallError) as c:
+            self.post()
+        self.assertEqual(self.fake.count('/responses'), 1)
+        self.assertFalse(c.exception.retryable)
+        self.assertIn('quota', c.exception.message)
+
+    def test_the_hold_then_one_photo_checks_again(self):
+        self.assertEqual(self.t.claim(), 'open')
+        self.fail('/responses', 401)
+        self.assertIsNone(self.t.claim(), 'held: nothing may be sent')
+        state, words, wait = self.t.live_state()
+        self.assertEqual((state, wait), ('unavailable', 600))
+        self.assertTrue(words)
+        self.clock[0] += config.LIVE_HOLD_S
+        self.assertEqual(self.t.live_state()[0], 'ok', 'after the hold the picker may come back')
+        self.assertEqual(self.t.claim(), 'probe')
+        self.assertIsNone(self.t.claim(), 'one photo checks at a time')
+        self.assertEqual(self.t.live_state()[0], 'unavailable')
+        self.fake.script.clear()
+        self.fake.on('/responses', ok_json({'ok': True}))
+        self.post()
+        self.t.release()
+        self.assertIsNone(self.t.broken, 'an answer that is not an error clears it')
+        self.assertEqual(self.t.claim(), 'open')
+
+    def test_a_failed_check_holds_again(self):
+        self.fail('/responses', 402)
+        self.clock[0] += config.LIVE_HOLD_S + 1
+        self.assertEqual(self.t.claim(), 'probe')
+        self.fail('/responses', 402)
+        self.t.release()
+        self.assertIsNone(self.t.claim())
+        self.assertEqual(self.t.live_state()[2], 600)
+
+    def test_rehearsal_drills_do_not_latch(self):
+        t = Transport(self.fake.base, config.REHEARSAL_CREDENTIAL)
+        self.assertFalse(t.latching)
+        self.fake.on('/responses', (401, {}, b''))
+        with self.assertRaises(CallError) as c:
+            t.post('/responses', {}, time.monotonic() + 30, sleep=lambda s: None)
+        self.assertFalse(c.exception.latched)
+        self.assertEqual(t.claim(), 'open')
 
 
 class RetryAfter(unittest.TestCase):
