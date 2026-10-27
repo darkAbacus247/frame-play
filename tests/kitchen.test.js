@@ -115,22 +115,23 @@ async function ownStep(opts) {
   assert.equal(app.step(), OWN_STEP);
   return app;
 }
-const oursButton = (app) => app.$('main').querySelector('.ours-card');
+const oursCard = (app) => app.$('main').querySelector('.ours-card');
+const oursButton = (app) => app.$('main').querySelector('.ours-card .ours-use');
 const posted = (app) => app.requests.filter(([m]) => m === 'POST').map(([, u]) => u);
 
 for (const mode of ['mock', 'rehearsal']) {
   test(`${mode.toUpperCase()}: Use ours replays the recorded answer: no model call, the honest words, a room on the road`, async () => {
     const app = await ownStep({ mode, server: true, replay: replayReply });
     const b = oursButton(app);
+    const card = oursCard(app);
     assert.ok(b && !b.disabled, 'beside Choose a photo');
-    assert.ok(textOf(b).startsWith(`${OURS_TITLE} REPLAY · recorded answer`), textOf(b));
-    assert.ok(b.querySelector('canvas.thumb'), 'with its thumbnail');
+    assert.ok(textOf(card).startsWith(`${OURS_TITLE} REPLAY · recorded answer`), textOf(card));
+    assert.ok(card.querySelector('canvas.thumb'), 'with its thumbnail');
     assert.ok(app.button('Choose a photo'), 'Choose a photo stays');
-    assert.equal(b.parentNode, app.button('Choose a photo').parentNode, 'in the same row');
+    assert.equal(card.parentNode, app.button('Choose a photo').parentNode, 'in the same row');
     assert.ok(app.main().includes(OURS_WORDS.replay), 'what it does, said before it is pressed');
-    // in MOCK it is the one primary; in REHEARSAL Choose a photo stays the primary
-    assert.equal(app.mainPrimary() === b, mode === 'mock');
-    if (mode !== 'mock') assert.equal(textOf(app.mainPrimary()), 'Choose a photo');
+    // replayed (MOCK and REHEARSAL), its button is the one primary
+    assert.equal(app.mainPrimary(), b);
     paintCanvases(app, KITCHEN_PIXELS);
     try {
       b.click();

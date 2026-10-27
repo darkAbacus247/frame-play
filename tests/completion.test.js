@@ -172,7 +172,7 @@ test('every path ends on the closing screen: your own room read fresh, replayed,
   const live = await at(AT_OWN, { mode: 'live', answer: () => liveKitchenReply(), replay: replayReply });
   paintCanvases(live, KITCHEN_PIXELS);
   try {
-    live.$('main').querySelector('.ours-card').click();
+    live.$('main').querySelector('.ours-card .ours-use').click();
     await until(live, () => live.step() === R.OWN_STEP + 1, 'the room read fresh', 120000);
   } finally { delete globalThis.createImageBitmap; }
   live.mainPrimary().click(); await live.settle();
@@ -185,7 +185,7 @@ test('every path ends on the closing screen: your own room read fresh, replayed,
     const app = await at(AT_OWN, { mode, server: true, replay: replayReply });
     paintCanvases(app, KITCHEN_PIXELS);
     try {
-      app.$('main').querySelector('.ours-card').click();
+      app.$('main').querySelector('.ours-card .ours-use').click();
       await until(app, () => app.step() === R.OWN_STEP + 1, 'the replayed room', 120000);
     } finally { delete globalThis.createImageBitmap; }
     app.mainPrimary().click(); await app.settle();

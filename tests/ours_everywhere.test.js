@@ -189,7 +189,7 @@ test('never on the road twice: your own room holding it keeps it from Steps 2, 5
   assert.match(textOf(oursCard(own)), /Already your own room/);
   const sample = await at({ ...AT_OWN, rooms: [DESK, OURS_REF, APARTMENT, null] }, { mode: 'mock', server: true, replay: replayReply });
   assert.equal(sample.step(), R.OWN_STEP);
-  assert.equal(oursCard(sample).disabled, true);
+  assert.equal(oursCard(sample).querySelector('.ours-use').disabled, true);
   assert.match(textOf(oursCard(sample)), /Already your second room/);
   assert.equal(textOf(sample.mainPrimary()), 'Continue to the end', 'then the one primary goes on');
 });

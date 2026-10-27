@@ -444,7 +444,10 @@ const OURS_TIPS = {
 // it is read fresh), off (why it cannot be used here, or null), short (the
 // same in a few words, for the card) }; draw(canvas): its thumbnail;
 // held: why it is not picked here (another step holds it), or null; wide:
-// the thumbnail beside the words (beside Choose a photo)
+// the thumbnail beside the words, with its own button, Use our kitchen
+// (beside Choose a photo): primary makes that button the screen's one
+// filled primary, else it is a plain secondary
+export const OURS_USE = 'Use our kitchen';
 export function oursCardView({ ours, onPick, draw, chosen = false, held = null, primary = false, wide = false }) {
   const why = held || (ours.off ? ours.short || ours.off : null);
   const tip = held ? null : ours.off || OURS_TIPS[ours.replay ? 'replay' : 'fresh'];
@@ -452,15 +455,17 @@ export function oursCardView({ ours, onPick, draw, chosen = false, held = null, 
   if (!wide) return roomCardView({ title: OURS_TITLE, origin, disabledWhy: why, onPick, draw, chosen, tip, primary, cls: 'ours-card' });
   const thumb = el('canvas', { class: 'thumb', width: '320', height: '240', 'aria-hidden': 'true' });
   if (draw) draw(thumb);
-  return el('button', {
-    type: 'button', class: ['room-card', 'ours-card', 'wide', primary ? 'primary-card' : ''].filter(Boolean).join(' '),
-    'data-primary': primary ? 'true' : null, 'data-tour': primary ? 'primary' : null, disabled: !!why, tip: tip || why, onclick: onPick,
-  }, [
+  const on = primary && !why;
+  return el('div', { class: ['room-card', 'ours-card', 'wide', why ? 'off' : ''].filter(Boolean).join(' ') }, [
     thumb,
     el('span', { class: 'card-text' }, [
       el('span', { class: 'room-title', text: OURS_TITLE }),
       el('span', { class: `tag ${origin}`, text: TAGS[origin] }),
       why ? el('span', { class: 'why', text: why }) : null,
+      el('button', {
+        type: 'button', class: on ? 'btn primary ours-use' : 'btn ours-use', 'data-primary': on ? 'true' : null, 'data-tour': on ? 'primary' : null,
+        disabled: !!why, text: OURS_USE, tip: tip || why, onclick: onPick,
+      }),
     ]),
   ]);
 }
@@ -472,14 +477,17 @@ export function oursCardView({ ours, onPick, draw, chosen = false, held = null, 
 export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, actions }) {
   const m = OWN_NOTICE[mode] ? mode : 'mock';
   const sends = m !== 'mock';
-  // in MOCK, ours is the one room a model's answer can make here: the primary
-  const oursFirst = !sends && !!ours && !ours.off && !ours.held;
+  // the one primary: our kitchen wherever its answer is replayed (MOCK,
+  // REHEARSAL, the live AI unavailable) and it can be; else Choose a photo
+  // where a photo is sent; else Continue to the end
+  const oursFirst = !!ours && ours.replay && !ours.off && !ours.held;
+  const chooseFirst = sends && !oursFirst;
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
   const shown = el('div', { class: 'own-result', hidden: true });
   const fileIn = photoInput(actions.file);
   const camIn = camera ? photoInput(actions.file, true) : null;
   const choose = el('button', {
-    type: 'button', class: sends ? 'btn primary' : 'btn', 'data-primary': sends ? 'true' : null, 'data-tour': sends ? 'primary' : null,
+    type: 'button', class: chooseFirst ? 'btn primary' : 'btn', 'data-primary': chooseFirst ? 'true' : null, 'data-tour': chooseFirst ? 'primary' : null,
     text: 'Choose a photo', onclick: () => fileIn.click(),
     tip: sends ? 'Pick a photo of a room or a desk top. It is shrunk on this device first' : 'Pick a photo to see it here. It stays on this device',
   });
@@ -488,7 +496,7 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
     tip: sends ? 'Use the camera. The photo is shrunk on this device first' : 'Use the camera. The photo stays on this device',
   }) : null;
   const onward = el('button', {
-    type: 'button', class: sends || oursFirst ? 'btn' : 'btn primary', 'data-primary': sends || oursFirst ? null : 'true', 'data-tour': sends || oursFirst ? null : 'primary',
+    type: 'button', class: chooseFirst || oursFirst ? 'btn' : 'btn primary', 'data-primary': chooseFirst || oursFirst ? null : 'true', 'data-tour': chooseFirst || oursFirst ? null : 'primary',
     text: primaryLabel, tip: made ? 'Your own room stays as it is' : 'Go on without your own room', onclick: actions.skip,
   });
   const oursBtn = ours ? oursCardView({ ours, onPick: actions.ours, draw: ours.draw, held: ours.held || null, primary: oursFirst, wide: true }) : null;
