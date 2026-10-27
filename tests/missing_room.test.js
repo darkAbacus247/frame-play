@@ -9,14 +9,15 @@ import { replyFor } from './replies.js';
 import { OTHER_ROOM_WORDS, NOT_SAME_WORDS } from '../src/own.js';
 import * as R from '../src/road.js';
 
+const SAMPLES = [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, { kind: 'sample', id: 'apartment' }];
 const road = (S) => ({
-  v: 3, step: S, reached: S, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, { kind: 'photo', sha256: 'ab'.repeat(32) }],
-  finished: [true, true, false], best: [1.24, null, null],
+  v: 4, step: S, reached: S, consent: true, own: null,
+  rooms: [...SAMPLES, { kind: 'photo', sha256: 'ab'.repeat(32) }],
+  finished: [true, true, true, false], best: [1.24, null, null, null],
 });
 
 for (const mode of ['rehearsal', 'mock']) {
-  for (const S of [10, 11]) {
+  for (const S of [13, 14]) {
     test(`${mode}: back on Step ${S} with your own room's level missing, no primary moves the counter back`, async () => {
       const app = await bootApp({ mode, road: road(S) });
       assert.ok(app.cardOpen(), 'the welcome-back card');
@@ -32,14 +33,14 @@ for (const mode of ['rehearsal', 'mock']) {
       } else {
         assert.match(app.main(), /Choose the same photo/);
         assert.doesNotMatch(app.main(), /when it can/);
-        assert.equal(app.why(), S === 11 ? 'Pick the same photo to play this room' : '', 'the header names an action this screen offers');
+        assert.equal(app.why(), S === 14 ? 'Pick the same photo to play this room' : '', 'the header names an action this screen offers');
       }
       p.click();
       await app.settle();
       seen.push(app.step());
       assert.ok(seen.every((s) => s >= S), `the counter went ${seen.join(' → ')}`);
       if (mode === 'mock') {
-        assert.equal(app.step(), 12, 'on to the closing screen');
+        assert.equal(app.step(), 15, 'on to the closing screen');
         assert.match(app.main(), /Your own room/);
         assert.doesNotMatch(app.main(), /Not made/, 'the room stays on the road');
       }
@@ -47,18 +48,18 @@ for (const mode of ['rehearsal', 'mock']) {
   }
 
   test(`${mode}: ← to Your own room, then →, never reaches a screen whose primary leads back`, async () => {
-    const app = await bootApp({ mode, road: road(10) });
+    const app = await bootApp({ mode, road: road(13) });
     app.cardPrimary().click();
     await app.settle();
     app.back();
     await app.settle();
-    assert.equal(app.step(), 9);
+    assert.equal(app.step(), 12);
     app.forward();
     await app.settle();
-    assert.equal(app.step(), 10);
+    assert.equal(app.step(), 13);
     app.mainPrimary().click();
     await app.settle();
-    assert.ok(app.step() >= 10, `the primary moved the counter to ${app.counter()}`);
+    assert.ok(app.step() >= 13, `the primary moved the counter to ${app.counter()}`);
   });
 }
 
@@ -67,10 +68,10 @@ for (const mode of ['rehearsal', 'mock']) {
 // room may make it again; any other would answer with its own room, drawn
 // over the wrong sample picture.
 const standInRoad = (slot, id) => {
-  const rooms = [{ kind: 'sample', id: 'desk' }, null, null];
+  const rooms = [{ kind: 'sample', id: 'desk' }, null, null, null];
   rooms[slot] = { kind: 'rehearsal', id };
   const step = slot === 0 ? 3 : 6;
-  return { v: 3, step, reached: step, consent: true, own: null, rooms, finished: [slot === 1, false, false], best: [null, null, null] };
+  return { v: 4, step, reached: step, consent: true, own: null, rooms, finished: [slot === 1, false, false, false], best: [null, null, null, null] };
 };
 
 for (const [slot, made, here, madeTitle, hereTitle] of [[0, 'living', 'desk', 'The Living Room', 'The Desk Top'], [1, 'desk', 'living', 'The Desk Top', 'The Living Room']]) {
@@ -120,18 +121,19 @@ test('rehearsal: the stand-in started for this room makes it again in place, and
   assert.equal(other.button('Play this room'), null);
 });
 
-// The photo a room was made from, picked again in place (slots 0 and 1 in
-// LIVE, your own room in LIVE and REHEARSAL). A different photo is known by
-// its sha256 before anything is sent: in LIVE it never reaches Meta.
+// The photo a room was made from, picked again in place (slots 0 to 2 in
+// LIVE, your own room, slot 3, in LIVE and REHEARSAL). A different photo is
+// known by its sha256 before anything is sent: in LIVE it never reaches Meta.
 const mine = photoFile(7), other = photoFile(9);
+const OWN = R.OWN_SLOT;
 const photoRoad = (slot) => {
-  const step = [3, 6, 10][slot];
-  const rooms = [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null];
+  const step = R.PICK_STEPS[slot] + 1;
+  const rooms = [...SAMPLES, null];
   rooms[slot] = { kind: 'photo', sha256: mine.sha256 };
-  return { v: 3, step, reached: step, consent: true, own: null, rooms, finished: [slot > 0, slot > 1, false], best: [null, null, null] };
+  return { v: 4, step, reached: step, consent: true, own: null, rooms, finished: [slot > 0, slot > 1, slot > 2, false], best: [null, null, null, null] };
 };
 
-for (const [mode, slot] of [['live', 0], ['live', 1], ['live', 2], ['rehearsal', 2]]) {
+for (const [mode, slot] of [['live', 0], ['live', 1], ['live', 2], ['live', OWN], ['rehearsal', OWN]]) {
   test(`${mode}: slot ${slot} in place: a different photo is refused before any send, and nothing is saved`, async () => {
     const app = await bootApp({ mode, road: photoRoad(slot), answer: () => replyFor('desk', mode) });
     app.cardPrimary().click();
@@ -146,7 +148,7 @@ for (const [mode, slot] of [['live', 0], ['live', 1], ['live', 2], ['rehearsal',
     const words = app.main();
     assert.ok(words.includes(NOT_SAME_WORDS), words);
     // only the ways this screen offers
-    if (slot === 2) {
+    if (slot === OWN) {
       assert.ok(words.includes('Pick the same photo, or continue to the end.'), words);
       assert.ok(app.button('Continue to the end'), 'and the screen offers it');
     } else {
@@ -156,7 +158,7 @@ for (const [mode, slot] of [['live', 0], ['live', 1], ['live', 2], ['rehearsal',
   });
 }
 
-for (const slot of [0, 1]) {
+for (const slot of [0, 1, 2]) {
   test(`live: slot ${slot}, the same photo made again in place: read once, on the same step`, async () => {
     const app = await bootApp({ mode: 'live', road: photoRoad(slot), answer: () => replyFor('desk', 'live') });
     app.cardPrimary().click();
@@ -166,14 +168,14 @@ for (const slot of [0, 1]) {
     await app.settle(60);
     seen.push(app.step());
     assert.equal(app.posts(), 1);
-    assert.deepEqual(seen, [[3, 6][slot], [3, 6][slot]], 'the counter never moved');
+    assert.deepEqual(seen, [[3, 6, 9][slot], [3, 6, 9][slot]], 'the counter never moved');
     assert.ok(app.button('Play this room'), app.main());
     assert.deepEqual(app.levels().map((e) => e.sha256), [mine.sha256], 'its level is kept on this device');
   });
 }
 
 test('live: your own room in place, a read that fails names only what this screen offers', async () => {
-  const app = await bootApp({ mode: 'live', road: photoRoad(2), answer: () => { throw new Error('down'); } });
+  const app = await bootApp({ mode: 'live', road: photoRoad(OWN), answer: () => { throw new Error('down'); } });
   app.cardPrimary().click();
   await app.settle();
   app.choose(mine);
@@ -181,13 +183,13 @@ test('live: your own room in place, a read that fails names only what this scree
   const words = app.main();
   assert.match(words, /The server could not be reached\. Please check the connection and try again\. Pick the same photo, or continue to the end\./);
   assert.doesNotMatch(words, /try another photo/);
-  assert.equal(app.step(), 10);
+  assert.equal(app.step(), 13);
 });
 
 test('rehearsal: your own room made in LIVE cannot load here; the way on is forward, in words', async () => {
   const kept = { sha256: mine.sha256, level: { schema: 'frameplay.level/2', origin: 'live', picture: { kind: 'photo', sha256: mine.sha256, width: 1024, height: 768 } } };
-  for (const S of [10, 11]) {
-    const app = await bootApp({ mode: 'rehearsal', road: { ...photoRoad(2), step: S, reached: S }, prefs: { levels: [kept] } });
+  for (const S of [13, 14]) {
+    const app = await bootApp({ mode: 'rehearsal', road: { ...photoRoad(OWN), step: S, reached: S }, prefs: { levels: [kept] } });
     app.cardPrimary().click();
     await app.settle();
     assert.equal(app.h1(), 'This room cannot load here');
@@ -196,7 +198,7 @@ test('rehearsal: your own room made in LIVE cannot load here; the way on is forw
     assert.equal(app.mainPrimary().textContent, 'Continue to the end');
     app.mainPrimary().click();
     await app.settle();
-    assert.equal(app.step(), 12);
+    assert.equal(app.step(), 15);
     assert.doesNotMatch(app.main(), /Not made/, 'the room stays on the road');
     assert.match(app.main(), /Your own room[\s\S]*this copy cannot make it again/);
     assert.equal(app.posts(), 0);
@@ -204,12 +206,12 @@ test('rehearsal: your own room made in LIVE cannot load here; the way on is forw
 });
 
 test('rehearsal: your own room with no kept level offers the same picture, and a forward way on', async () => {
-  const app = await bootApp({ mode: 'rehearsal', road: photoRoad(2) });
+  const app = await bootApp({ mode: 'rehearsal', road: photoRoad(OWN) });
   app.cardPrimary().click();
   await app.settle();
   assert.match(app.main(), /only its own sample picture can be made again here/);
   app.button('Continue to the end').click();
   await app.settle();
-  assert.equal(app.step(), 12);
+  assert.equal(app.step(), 15);
   assert.doesNotMatch(app.main(), /Not made/);
 });

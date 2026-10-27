@@ -8,13 +8,10 @@ import assert from 'node:assert/strict';
 import { bootApp, textOf, photoFile } from './apphost.js';
 import { replyFor } from './replies.js';
 import { READ_LIMIT_MS, TOO_LONG_WORDS } from '../src/photo.js';
+import { roadAt, SAMPLE_ROOMS } from './roads.js';
 
-const AT2 = { v: 3, step: 2, reached: 2, consent: true, own: null, rooms: [null, null, null], finished: [false, false, false], best: [null, null, null] };
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.2, 1.3, null],
-};
+const AT2 = roadAt(2);
+const AT12 = roadAt(12, { rooms: [...SAMPLE_ROOMS, null], finished: [true, true, true, false], best: [1.2, 1.3, null, null] });
 const primaries = (app) => app.$('main').querySelectorAll('[data-primary]').map(textOf);
 
 // api/room answered by the test, through the fetch the app host installs
@@ -80,9 +77,9 @@ test('LIVE, Step 2: the page’s own time limit offers Try this photo again, and
   } finally { restoreTimer(); s.restore(); }
 });
 
-test('LIVE, Step 9: the time limit puts Try this photo again first, Mark your room beside it', async () => {
+test('LIVE, Step 12: the time limit puts Try this photo again first, Mark your room beside it', async () => {
   const restoreTimer = shortLimit();
-  const { app, s } = await live(AT9, (url, opts) => (url === 'api/room' ? hang(opts) : undefined));
+  const { app, s } = await live(AT12, (url, opts) => (url === 'api/room' ? hang(opts) : undefined));
   try {
     app.choose(photoFile(72));
     for (let i = 0; i < 200 && !app.button('Try this photo again'); i++) await app.settle(2);
@@ -111,8 +108,8 @@ test('LIVE, Step 2: the server’s own 503 live_unavailable turns the picker off
   } finally { s.restore(); }
 });
 
-test('LIVE, Step 9: the server’s own 503 live_unavailable says so in place; Mark your room stays', async () => {
-  const { app, s } = await live(AT9, (url) => (url === 'api/room' ? json(503, LIVE_UNAVAILABLE, { 'Retry-After': '60' }) : undefined));
+test('LIVE, Step 12: the server’s own 503 live_unavailable says so in place; Mark your room stays', async () => {
+  const { app, s } = await live(AT12, (url) => (url === 'api/room' ? json(503, LIVE_UNAVAILABLE, { 'Retry-After': '60' }) : undefined));
   try {
     app.choose(photoFile(74));
     for (let i = 0; i < 200 && !app.button('Check again'); i++) await app.settle(2);

@@ -6,7 +6,7 @@
 // up front, short labelled facts, and the long text in a disclosure that
 // starts closed with its summary in view.
 import { el } from './ui.js';
-import { OWN_STEP, PICK_STEPS } from './road.js';
+import { OWN_STEP, OWN_SLOT, PICK_STEPS } from './road.js';
 import { objectWords } from './level.js';
 import { ROLE_WORDS } from './words.js';
 import { MOCK_WORDS } from './own.js';
@@ -91,33 +91,51 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
   return { section, bar };
 }
 
-// ---- picking a sample room (steps 2 and 5) ----
+// ---- picking a sample room (steps 2, 5 and 8) ----
 export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in', marked: 'MARKED · by you' };
 
-export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, tour = true }) {
+// chosen: this card's room is the one on the road at this step
+export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, tour = true, chosen = false }) {
   const thumb = el('canvas', { class: 'thumb', width: '320', height: '240', 'aria-hidden': 'true' });
   if (draw) draw(thumb);
   return el('button', {
-    type: 'button', class: 'room-card', 'data-tour': tour ? 'room-card' : null, disabled: !!disabledWhy,
+    type: 'button', class: chosen ? 'room-card chosen' : 'room-card', 'data-tour': tour ? 'room-card' : null, disabled: !!disabledWhy,
+    'aria-current': chosen ? 'true' : null,
     tip: disabledWhy || `Play ${title}`, onclick: onPick,
   }, [
     thumb,
     el('span', { class: 'room-title', text: title }),
     el('span', { class: `tag ${origin}`, text: TAGS[origin] }),
-    disabledWhy ? el('span', { class: 'why', text: disabledWhy }) : null,
+    disabledWhy ? el('span', { class: 'why', text: disabledWhy }) : chosen ? el('span', { class: 'why', text: 'On your road' }) : null,
   ]);
 }
 
-// Why the photo picker on Steps 2 and 5 is off, by mode.
+// Why the photo picker on Steps 2, 5 and 8 is off, by mode.
 export const OFF_WORDS = {
-  rehearsal: 'Off here in REHEARSAL: the stand-in knows only its own sample room. On Step 9 you can send its saved picture.',
+  rehearsal: 'Off here in REHEARSAL: the stand-in knows only its own sample room. On Step 12 you can send its saved picture.',
   mock: 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.',
 };
 
+export const PICK_HEADINGS = ['Your room: pick a photo', 'Another room: pick a second photo', 'A third room: pick a third photo'];
+
+// The room already chosen on a pick step (the road chooses the next sample
+// room as it goes on): said in one line, with the one primary going on with
+// it. Any card below still picks another room.
+export function chosenLine({ title, onContinue }) {
+  return el('div', { class: 'actions chosen-row' }, [
+    el('p', { class: 'chosen-line', text: `On your road: ${title}. Pick another below, or go on with it.` }),
+    el('button', {
+      type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary',
+      tip: `Go on with ${title} to what the AI found`, text: `Continue with ${title}`, onclick: onContinue,
+    }),
+  ]);
+}
+
 // off: why the photo picker is off, or null; rehearse: { label, tip, onClick } or null
+// chosen: { title, onContinue } when this step already holds a room, or null
 // The file input exists only while the picker is on: an off picker has
 // nothing a photo could reach.
-export function pickView({ slot, off, onFile, rehearse = null }) {
+export function pickView({ slot, off, onFile, rehearse = null, chosen = null }) {
   const cards = el('div', { class: 'room-cards' });
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
   const input = off ? null : photoInput(onFile);
@@ -130,14 +148,14 @@ export function pickView({ slot, off, onFile, rehearse = null }) {
     rehearse ? el('button', { type: 'button', class: 'btn', text: rehearse.label, tip: rehearse.tip, onclick: rehearse.onClick }) : null,
   ]);
   const section = el('section', { class: 'screen' }, [
-    el('h1', { text: slot === 0 ? 'Your room: pick a photo' : 'Another room: pick a second photo' }),
-    el('p', { class: 'advice', text: 'Objects with clear edges on a plain floor or desk work best. No people.' }),
+    el('h1', { text: PICK_HEADINGS[slot] }),
+    chosen ? chosenLine(chosen) : el('p', { class: 'advice', text: 'Objects with clear edges on a plain floor or desk work best. No people.' }),
     actions,
     panel,
     el('h2', { text: 'Sample rooms' }),
     cards,
   ]);
-  return { section, cards, panel };
+  return { section, cards, panel, actions };
 }
 
 // ---- what the AI found ----
@@ -241,12 +259,12 @@ const changeCount = (n) => (n === 0 ? 'none' : n === 1 ? '1 change' : `${n} chan
 // A clear way out of a room, on its reveal and play steps: back to the step
 // where the room was picked, to pick again. Always a secondary (primaries
 // only move forward), and never a tour target.
-export const LEAVE_WORDS = ['Choose a different room', 'Choose a different room', 'Choose a different photo'];
+export const LEAVE_WORDS = ['Choose a different room', 'Choose a different room', 'Choose a different room', 'Choose a different photo'];
 export const LEAVE_CARD = { title: 'Leave this room?', line: 'Your round so far is not kept.', leave: 'Leave', stay: 'Keep playing' };
 export function leaveButton(slot, onClick) {
   return el('button', {
     type: 'button', class: 'btn', text: LEAVE_WORDS[slot],
-    tip: slot === 2 ? `Back to Step ${PICK_STEPS[slot]}, to choose another photo or continue to the end` : `Back to Step ${PICK_STEPS[slot]}, to pick another room`,
+    tip: slot === OWN_SLOT ? `Back to Step ${PICK_STEPS[slot]}, to choose another photo or continue to the end` : `Back to Step ${PICK_STEPS[slot]}, to pick another room`,
     onclick: onClick,
   });
 }
@@ -329,14 +347,14 @@ export function foundView({ level, summary, fromDevice, actions, slot = 0 }) {
   return { section, pic, info, desc };
 }
 
-// ---- your two rooms ----
+// ---- your three rooms ----
 export function compareView({ primaryLabel, onContinue }) {
-  const cards = el('div', { class: 'two-rooms' });
+  const cards = el('div', { class: 'three-rooms' });
   const section = el('section', { class: 'screen compare' }, [
-    el('h1', { text: 'Your two rooms' }),
+    el('h1', { text: 'Your three rooms' }),
     cards,
     el('div', { class: 'actions' }, [
-      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Go on to the third room: a photo of your own', text: primaryLabel, onclick: onContinue }),
+      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', tip: 'Go on to your own room: a photo of your own', text: primaryLabel, onclick: onContinue }),
     ]),
   ]);
   return { section, cards };
@@ -348,7 +366,7 @@ export function bestWords(best) {
 }
 
 export function roomSumView({ level, best }) {
-  const pic = el('div', { class: 'two-pic' });
+  const pic = el('div', { class: 'sum-pic' });
   const article = el('article', { class: 'room-sum' }, [
     pic,
     el('h2', { text: level.title }),
@@ -364,7 +382,7 @@ export function roomSumView({ level, best }) {
 
 export function roomGoneView(slot, isPhoto) {
   return el('article', { class: 'room-sum' }, [
-    el('h2', { text: slot === 0 ? 'Your first room' : 'Your second room' }),
+    el('h2', { text: ['Your first room', 'Your second room', 'Your third room'][slot] }),
     el('p', { text: isPhoto ? 'The photo is never stored: pick it again on its step to see this room here.' : 'This room is not in memory on this visit.' }),
   ]);
 }
@@ -489,18 +507,18 @@ export function markView({ actions }) {
 
 // ---- the closing screen ----
 // Each room on the road, with one line of what happened and one sentence
-// of what the AI did. `levels` holds the three rooms' levels (null when not
+// of what the AI did. `levels` holds the four rooms' levels (null when not
 // made or not in memory), `summaries` the live reads' summaries, `room`
 // the room the running stand-in answers for (REHEARSAL), or null, `kept`
 // the origin of each photo room's level kept on this device, or null.
 export function closingRooms({ road, levels, summaries = [], mode, room = null, kept = [] }) {
-  return [0, 1, 2].map((slot) => {
+  return [0, 1, 2, OWN_SLOT].map((slot) => {
     const level = levels[slot] || null;
     const ref = road.rooms[slot] || null;
-    const heading = ['First room', 'Second room', 'Your own room'][slot];
+    const heading = ['First room', 'Second room', 'Third room', 'Your own room'][slot];
     // made means its slot holds a room; passing it by never unmakes it
     // marks not made into a room yet are not a room
-    if (slot === 2 && (!ref || (ref.kind === 'marked' && !ref.made))) {
+    if (slot === OWN_SLOT && (!ref || (ref.kind === 'marked' && !ref.made))) {
       return {
         slot, heading, title: null, ref: null, playable: false,
         result: 'Not made',
@@ -532,7 +550,7 @@ export function missingLine(slot, ref, mode, room = null, kept = null) {
   if (ref && ref.kind === 'photo' && mode === 'live' && !otherMode) {
     return `${gone}; pick the same photo again on Step ${PICK_STEPS[slot]} to see it.`;
   }
-  if (ref && ref.kind === 'photo' && slot === 2 && mode === 'rehearsal' && !otherMode) {
+  if (ref && ref.kind === 'photo' && slot === OWN_SLOT && mode === 'rehearsal' && !otherMode) {
     return `${gone}; pick the same photo again on Step ${PICK_STEPS[slot]} to see it (here only the stand-in’s own sample picture can be made again).`;
   }
   if (ref && ref.kind === 'rehearsal' && mode === 'rehearsal' && ref.id === room) {
@@ -576,29 +594,33 @@ export function closingView({ rooms, mode, primaryLabel, actions }) {
   const sends = mode === 'live' || mode === 'rehearsal';
   // the rooms on the road, whether or not their levels are in memory
   const made = rooms.filter((r) => r.ref).length;
-  const count = ['no rooms', 'one room', 'two rooms', 'three rooms'][made];
+  const count = ['no rooms', 'one room', 'two rooms', 'three rooms', 'four rooms'][made];
   return el('section', { class: 'screen closing' }, [
     el('h1', { text: 'You’ve completed FRAME//PLAY' }),
     el('p', { class: 'lede', text: `That is the whole road: ${count}, and ${sends ? 'what the AI did in each' : 'how each was made'}.` }),
     el('ul', { class: 'closing-rooms', 'aria-label': 'The rooms you played' }, rooms.map((r) => el('li', {}, [
       el('div', { class: 'closing-text' }, [
-        el('h2', { class: 'small-h', text: r.title ? `${r.heading}: ${r.title}` : r.heading }),
-        el('p', { class: 'result', text: r.result }),
+        // the room and what happened share a line where they fit, so four
+        // rooms fit the screen
+        el('div', { class: 'closing-head' }, [
+          el('h2', { class: 'small-h', text: r.title ? `${r.heading}: ${r.title}` : r.heading }),
+          el('p', { class: 'result', text: r.result }),
+        ]),
         el('p', { class: 'ai', text: r.ai }),
       ]),
       // the visible words begin the accessible name: "Play again: The Desk
       // Top" (your own room by its row, as in REHEARSAL it carries a
       // sample's title)
       r.playable ? el('button', {
-        type: 'button', class: 'btn', tip: `Play ${r.slot === 2 ? 'your own room' : r.title} again in free play`,
+        type: 'button', class: 'btn', tip: `Play ${r.slot === OWN_SLOT ? 'your own room' : r.title} again in free play`,
         onclick: () => actions.playAgain(r.ref, r.title),
-      }, ['Play again', el('span', { class: 'sr-only', text: `: ${r.slot === 2 ? 'your own room' : r.title}` })]) : null,
+      }, ['Play again', el('span', { class: 'sr-only', text: `: ${r.slot === OWN_SLOT ? 'your own room' : r.title}` })]) : null,
     ]))),
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),
       el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own`, onclick: actions.ownRoom }),
       el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
     ]),
-    sends || rooms[2].ref ? null : el('p', { class: 'why', text: 'In MOCK no model reads a photo: your own room is a photo you mark yourself.' }),
+    sends || rooms[OWN_SLOT].ref ? null : el('p', { class: 'why', text: 'In MOCK no model reads a photo: your own room is a photo you mark yourself.' }),
   ]);
 }

@@ -22,6 +22,7 @@ import { LABELS } from '../src/level.js';
 import { KEY_WORDS } from '../src/reply.js';
 import { jpegLike } from './jpegsim.js';
 import { encodePNG } from './png.js';
+import { roadAt, SAMPLE_ROOMS } from './roads.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
@@ -30,11 +31,7 @@ const nodeFetch = globalThis.fetch;
 const desk = loadRoom(JSON.parse(readFileSync(new URL('../rooms/desk.json', import.meta.url), 'utf8')));
 const DESK = { width: desk.width, height: desk.height, data: jpegLike(paintRoom(desk).rgba, desk.width, desk.height, 90) };
 const DESK_PNG = encodePNG(DESK.data, DESK.width, DESK.height);
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.24, 1.3, null],
-};
+const AT12 = roadAt(12, { rooms: [...SAMPLE_ROOMS, null], finished: [true, true, true, false], best: [1.24, 1.3, null, null] });
 
 function startPair(room) {
   return new Promise((resolve, reject) => {
@@ -85,10 +82,10 @@ function forward(base) {
   return { posts, restore: () => Object.defineProperty(globalThis, 'fetch', orig) };
 }
 
-// Step 9 of a fresh page, its canvases holding the desk's picture and
+// Step 12 of a fresh page, its canvases holding the desk's picture and
 // encoding the copy the server receives.
 async function pageAt9() {
-  const app = await bootApp({ mode: 'rehearsal', road: AT9 });
+  const app = await bootApp({ mode: 'rehearsal', road: AT12 });
   if (app.cardOpen()) { app.cardPrimary().click(); await app.settle(); }
   paintCanvases(app, DESK);
   const make = app.doc.createElement;
@@ -118,7 +115,7 @@ test('REHEARSAL through the merged pipeline and page: a winnable desk, an honest
     app.choose(photoFile(61));
     await until(app, () => app.h1() === 'What the AI found', 'the reveal', 180000);
     assert.equal(s.posts.length, 1);
-    assert.equal(app.step(), 10);
+    assert.equal(app.step(), 13);
     const kept = app.levels();
     assert.equal(kept.length, 1, 'a clean read is kept on this device');
     const level = kept[0].level;

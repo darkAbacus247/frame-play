@@ -6,12 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootApp, textOf } from './apphost.js';
 import { played } from './stub_game.js';
-
-const END = {
-  v: 3, step: 12, reached: 12, consent: true, own: 'skipped',
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.24, null, null],
-};
+import { AT_END as END, roadAt, DESK } from './roads.js';
 
 async function at(road) {
   const app = await bootApp({ mode: 'mock', road });
@@ -33,8 +28,8 @@ test('Start over asks first, in a true modal card; Keep my road has the focus an
   app.cardPrimary().click();
   await app.settle();
   assert.ok(!app.cardOpen());
-  assert.equal(app.step(), 12, 'the road is kept');
-  assert.equal(app.savedRoad().step, 12);
+  assert.equal(app.step(), 15, 'the road is kept');
+  assert.equal(app.savedRoad().step, 15);
   app.button('Start over').click();
   await app.settle(3);
   app.$('card').querySelectorAll('button').find((b) => textOf(b) === 'Start over').click();
@@ -54,7 +49,7 @@ test('a replay’s end card says Free play leaves the road as it was', async () 
 });
 
 test('Describe this room says whether its words are open', async () => {
-  const app = await at({ ...END, step: 3, reached: 3, own: null, rooms: [END.rooms[0], null, null], finished: [false, false, false], best: [null, null, null] });
+  const app = await at(roadAt(3, { rooms: [DESK, null, null, null] }));
   const b = app.button('Describe this room');
   assert.equal(b.getAttribute('aria-controls'), 'describe-room');
   assert.equal(b.getAttribute('aria-expanded'), 'false');

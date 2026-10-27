@@ -17,14 +17,10 @@ import { paintRoom } from '../src/painter.js';
 import { LABELS } from '../src/level.js';
 import { KEY_WORDS } from '../src/reply.js';
 import { jpegLike } from './jpegsim.js';
+import { AT_OWN as AT12 } from './roads.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.24, null, null],
-};
 const desk = loadRoom(JSON.parse(readFileSync(new URL('../rooms/desk.json', import.meta.url), 'utf8')));
 // the desk's own picture as a browser holds it after a JPEG round trip
 const DESK = { width: desk.width, height: desk.height, data: jpegLike(paintRoom(desk).rgba, desk.width, desk.height, 90) };
@@ -35,7 +31,7 @@ test('REHEARSAL: a room of 5 SAM matches and 4 regions around Muse Spark’s poi
   const reply = JSON.parse(execFileSync(PYTHON, ['-B', '-m', 'server.tests.recorded', '--none-for', 'coffee mug,gold coin'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 }));
   assert.deepEqual([reply.provenance.found.sam, reply.provenance.found.points], [5, 4]);
   const file = photoFile(31);
-  const app = await bootApp({ mode: 'rehearsal', road: AT9, answer: () => reply });
+  const app = await bootApp({ mode: 'rehearsal', road: AT12, answer: () => reply });
   app.cardPrimary().click();
   await app.settle();
   paintCanvases(app, DESK);
@@ -65,26 +61,26 @@ test('REHEARSAL: a room of 5 SAM matches and 4 regions around Muse Spark’s poi
   await app.settle();
   app.cardPrimary().click();
   await app.settle();
-  assert.equal(app.step(), 12);
-  const row = textOf(app.$('main').querySelectorAll('.closing-rooms li')[2]);
+  assert.equal(app.step(), 15);
+  const row = textOf(app.$('main').querySelectorAll('.closing-rooms li')[3]);
   assert.match(row, /the stand-in for SAM 3\.1 found 5; for 4 more, code traced around Muse Spark’s points/, 'the closing row');
   assert.match(row, /the stand-in for SAM 3\.1’s masks gave 5 exact outlines; code traced 0; and code proved the room can be won/);
 
   // reopened on a return visit: the level kept on this device, by the same
   // photo, with the same words and nothing sent
   const kept = app.levels();
-  for (const step of [10, 11]) {
+  for (const step of [13, 14]) {
     const again = await bootApp({ mode: 'rehearsal', road: { ...app.savedRoad(), step, reached: step }, answer: () => { throw new Error('nothing may be sent'); }, prefs: { levels: kept } });
     again.cardPrimary().click();
     await again.settle();
     paintCanvases(again, DESK);
     try {
       again.choose(file);
-      await until(again, () => (step === 10 ? again.h1() === 'What the AI found' : again.$('main').querySelector('.game')), 'the room reopened', 120000);
+      await until(again, () => (step === 13 ? again.h1() === 'What the AI found' : again.$('main').querySelector('.game')), 'the room reopened', 120000);
     } finally { delete globalThis.createImageBitmap; }
     assert.equal(again.posts(), 0, 'reopened from this device');
     assert.equal(again.step(), step, 'in place');
-    if (step === 10) {
+    if (step === 13) {
       assert.match(again.main(), /Loaded from this device: no model was called this time\./);
       assert.equal(textOf(again.$('main').querySelector('.summary')), summary, 'the same words, from the same counts');
     } else {
@@ -95,7 +91,7 @@ test('REHEARSAL: a room of 5 SAM matches and 4 regions around Muse Spark’s poi
 
 test('REHEARSAL: the stand-in refuses the photo (its key drill); the player marks the room, and nothing more is sent', { timeout: 120000 }, async () => {
   const refused = replyFor('desk', 'rehearsal', { status: 'error', error: { code: 'invalid_api_key', message: "The Model API did not accept this server's key", status: 401 } });
-  const app = await bootApp({ mode: 'rehearsal', road: AT9, answer: () => refused });
+  const app = await bootApp({ mode: 'rehearsal', road: AT12, answer: () => refused });
   app.cardPrimary().click();
   await app.settle();
   paintCanvases(app, rooms.desk.pixels);
@@ -136,7 +132,7 @@ test('REHEARSAL: the stand-in refuses the photo (its key drill); the player mark
   await app.settle();
   app.cardPrimary().click();
   await app.settle();
-  assert.match(textOf(app.$('main').querySelectorAll('.closing-rooms li')[2]), /^Your own room: marked by you Won .* You marked 9 objects; code traced \d outlines? inside your boxes/);
+  assert.match(textOf(app.$('main').querySelectorAll('.closing-rooms li')[3]), /^Your own room: marked by you Won .* You marked 9 objects; code traced \d outlines? inside your boxes/);
   app.mainPrimary().click();
   await app.settle();
   assert.ok(app.$('main').querySelectorAll('.room-card').map(textOf).includes('Your own room: marked by you MARKED · by you'), 'Free play');

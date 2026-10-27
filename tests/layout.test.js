@@ -113,7 +113,12 @@ function gaps(decl, vw, vh) {
     colGap: length(decl['column-gap'] || col, vw, vh),
   };
 }
-const tracks = (v) => v.trim().split(/\s+(?![^(]*\))/);
+// a track list's tracks, repeat(N, track) counted as N tracks
+const tracks = (v) => {
+  const rep = /^repeat\((\d+),\s*(.+)\)$/.exec(v.trim());
+  if (rep) return Array(+rep[1]).fill(rep[2]);
+  return v.trim().split(/\s+(?![^(]*\))/);
+};
 const flexible = (t) => /fr\b/.test(t);
 const centred = (d) => /center/.test(`${d['place-items'] || ''} ${d['align-items'] || ''} ${d['align-content'] || ''} ${d['place-content'] || ''}`);
 
@@ -242,12 +247,12 @@ test('reveal and compare: the picture sits right under the heading, top-aligned 
     const compare = { ...screen, ...cascade('.compare', v.vw, v.vh) };
     const card = cascade('.room-sum', v.vw, v.vh);
     assert.match(card['align-content'], /start/, v.name);
-    assert.match(cascade('.two-rooms', v.vw, v.vh)['align-items'] || '', /start/, `${v.name}: the two cards share a top`);
+    assert.match(cascade('.three-rooms', v.vw, v.vh)['align-items'] || '', /start/, `${v.name}: the three cards share a top`);
     const compareBand = gaps(compare, v.vw, v.vh).rowGap + 1 + length(card.padding, v.vw, v.vh);
     assert.ok(compareBand <= 32, `${v.name}: compare band ${compareBand}px`);
   }
   for (const r of RULES) {
-    if (r.sels.some((s) => /found|two-|room-sum|compare|\.play|\.stage/.test(s))) {
+    if (r.sels.some((s) => /found|three-|sum-pic|room-sum|compare|\.play|\.stage/.test(s))) {
       assert.doesNotMatch(r.body, /margin-top:\s*auto|(align|place)-(items|content):\s*center/, r.sels.join(', '));
     }
   }
@@ -424,16 +429,16 @@ test('the matcher: a play-screen rule never reaches a compare card', () => {
   const was = [{ sels: ['.level-label'], body: 'grid-area: label', media: null }];
   RULES.push(...was);
   try {
-    assert.equal(columnsOf([node('article', 'room-sum')], [node('div', 'two-pic'), label], 839, 900), 2);
+    assert.equal(columnsOf([node('article', 'room-sum')], [node('div', 'sum-pic'), label], 839, 900), 2);
   } finally {
     RULES.splice(RULES.length - was.length, was.length);
   }
 });
 
 const NARROW = [...VIEWS, { name: '839x900 (the reported window)', vw: 839, vh: 900 }, { name: '839x560', vw: 839, vh: 560 }];
-const COMPARE = [node('section', 'screen compare'), node('div', 'two-rooms')];
+const COMPARE = [node('section', 'screen compare'), node('div', 'three-rooms')];
 const CARD = [...COMPARE, node('article', 'room-sum')];
-const CARD_KIDS = [node('div', 'two-pic'), node('h2'), node('ul', 'facts'), node('p', 'level-label')];
+const CARD_KIDS = [node('div', 'sum-pic'), node('h2'), node('ul', 'facts'), node('p', 'level-label')];
 
 test('compare: each card is one column, its picture across the card, its facts one per line', () => {
   assert.match(SCREENS, /'room-sum' \}, \[\s*pic,\s*el\('h2'[^\n]*\n\s*el\('ul', \{ class: 'facts' \}, \[\s*el\('li'[^\n]*\n\s*el\('li'[^\n]*\n\s*el\('li'/,
@@ -444,8 +449,8 @@ test('compare: each card is one column, its picture across the card, its facts o
   for (const v of NARROW) {
     const pad = length('var(--pad)', v.vw, v.vh);
     const two = styleOf(COMPARE, v.vw, v.vh);
-    const n = columnsOf(COMPARE, [node('article', 'room-sum'), node('article', 'room-sum')], v.vw, v.vh);
-    assert.equal(n, v.vw >= 720 ? 2 : 1, `${v.name}: side by side on wide windows, stacked on narrow ones`);
+    const n = columnsOf(COMPARE, [node('article', 'room-sum'), node('article', 'room-sum'), node('article', 'room-sum')], v.vw, v.vh);
+    assert.equal(n, v.vw >= 720 ? 3 : 1, `${v.name}: side by side on wide windows, stacked on narrow ones`);
     const cardW = (v.vw - 2 * pad - gaps(two, v.vw, v.vh).colGap * (n - 1)) / n;
     const card = styleOf(CARD, v.vw, v.vh);
     const inner = cardW - 2 * length(card.padding, v.vw, v.vh) - 2;
@@ -493,7 +498,7 @@ test('play fits main without scrolling at 839x945 and 1259x1418, 100% zoom', asy
   try {
     for (const [vw, vh] of [[839, 945], [1259, 1418]]) {
       for (const band of [null, 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.']) {
-        const head = header({ lap: 'One photo, one room', counter: 'Step 11 of 12: Play', why: 'Finish a round, win or lose, to continue', band });
+        const head = header({ lap: 'One photo, one room', counter: 'Step 14 of 15: Play', why: 'Finish a round, win or lose, to continue', band });
         const m = mainSpace(vw, vh, head, band ? 'rehearsal' : 'mock');
         const L = layPlay(vw, vh, m.header + m.dock);
         assert.ok(L.room.h > L.minH, `${vw}x${vh}: the board has room above its minimum`);

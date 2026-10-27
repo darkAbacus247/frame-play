@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { installFakeDocument } from './fakedom.js';
 import { el } from '../src/ui.js';
+import { FREE_PLAY } from '../src/road.js';
 
 const STUB = new URL('./stub_game.js', import.meta.url).href;
 const HOOKS = `export async function resolve(spec, ctx, next) {
@@ -137,7 +138,7 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
     doc, $, history, requests, storage,
     settle: async (n = 30) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 5)); },
     counter: () => textOf($('road').querySelector('.counter')),
-    step: () => { const m = /^Step (\d+)/.exec(app.counter()); return m ? +m[1] : app.counter() === 'Free play' ? 13 : null; },
+    step: () => { const m = /^Step (\d+)/.exec(app.counter()); return m ? +m[1] : app.counter() === 'Free play' ? FREE_PLAY : null; },
     why: () => textOf($('road').querySelector('.why')),
     main: () => textOf($('main')),
     h1: () => { const h = $('main').querySelector('h1'); return h ? textOf(h) : null; },

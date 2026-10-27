@@ -1,4 +1,4 @@
-// The connected flow (F31): Step 9 says, in each mode, what will happen to
+// The connected flow (F31): Step 12 says, in each mode, what will happen to
 // a photo before one is chosen; a refused key says it is the operator's key
 // and offers marking; the README says how a photo becomes a room in each
 // mode, marking included.
@@ -10,22 +10,18 @@ import { replyFor } from './replies.js';
 import { refusalWords, keyRefused, KEY_WORDS, acceptReply } from '../src/reply.js';
 import { makeOwnRoom, MOCK_WORDS } from '../src/own.js';
 import { OWN_NOTICE } from '../src/screens.js';
+import { AT_OWN as AT12 } from './roads.js';
 
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.24, null, null],
-};
 const KEY = { code: 'invalid_api_key', message: "The Model API did not accept this server's key", status: 401 };
 
-test('Step 9 says what will happen to a photo, in each mode, before one is chosen', async () => {
+test('Step 12 says what will happen to a photo, in each mode, before one is chosen', async () => {
   const want = {
     live: /^LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API \(Muse Spark, then SAM 3\.1\)\./,
     mock: /^MOCK: no model reads photos in this copy\. Your photo stays on this device, and you mark its objects yourself; code traces their outlines\. Nothing is sent\.$/,
     rehearsal: /^REHEARSAL: a local stand-in answers, not Meta\./,
   };
   for (const mode of ['live', 'mock', 'rehearsal']) {
-    const app = await bootApp({ mode, road: AT9 });
+    const app = await bootApp({ mode, road: AT12 });
     app.cardPrimary().click();
     await app.settle();
     const notice = textOf(app.$('main').querySelector('.notice'));
@@ -72,7 +68,7 @@ test('makeOwnRoom: a refused key can be marked; the people and content refusals 
 });
 
 test('LIVE, through the page: the refused key’s words, then Mark your room as the one primary', async () => {
-  const app = await bootApp({ mode: 'live', road: AT9, answer: () => replyFor('desk', 'live', { status: 'error', error: KEY }) });
+  const app = await bootApp({ mode: 'live', road: AT12, answer: () => replyFor('desk', 'live', { status: 'error', error: KEY }) });
   app.cardPrimary().click();
   await app.settle();
   app.choose(photoFile(21));
@@ -90,7 +86,7 @@ test('the README says how a photo becomes a room in each mode, marking included'
   assert.match(readme, /\*\*LIVE\*\*.*for a refused key it says plainly that it is the operator's key, not anything of yours; then Mark your room is the way on, and nothing more is sent\./);
   assert.match(readme, /\*\*MOCK\*\* \(no key\): no model reads the photo.*Mark your room, right under it, is the way on: you mark the room yourself\. Nothing is sent\./);
   assert.match(readme, /\*\*REHEARSAL\*\*.*A refused photo, or a read that fails, can be marked as in MOCK\./);
-  assert.match(readme, /\*\*Mark it yourself\.\*\* On Step 10 \(named Your marks\)/);
+  assert.match(readme, /\*\*Mark it yourself\.\*\* On Step 13 \(named Your marks\)/);
   assert.match(readme, /keeping your box where the trace is not tight/);
   assert.match(readme, /"Your own room: marked by you"/);
   assert.match(readme, /never the photo, so after a reload the same photo picked again brings the room back in place/);

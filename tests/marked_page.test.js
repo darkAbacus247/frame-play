@@ -10,12 +10,8 @@ import { bootApp, photoFile, textOf, paintCanvases, until } from './apphost.js';
 import { played } from './stub_game.js';
 import { rooms, replyFor } from './replies.js';
 import { LABELS } from '../src/level.js';
+import { AT_OWN as AT12 } from './roads.js';
 
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.24, null, null],
-};
 const DESK = rooms.desk.pixels;
 
 const primaries = (app) => app.$('main').querySelectorAll('[data-primary]');
@@ -36,11 +32,11 @@ const roleButton = (app, name) => app.$('main').querySelectorAll('button').find(
 const ROLE_BUTTON = { collect: 'Coin', solid: 'Obstacle', avoid: 'Hazard', exit: 'Exit' };
 const deskObjects = () => rooms.desk.room.objects.filter((o) => o.on_surface).map((o) => ({ role: o.role === 'flat' ? 'solid' : o.role, box: [o.bounds.x0 - 8, o.bounds.y0 - 8, o.bounds.x1 + 8, o.bounds.y1 + 8].map(Math.round) }));
 
-async function toStep9(mode = 'mock', opts = {}) {
-  const app = await bootApp({ mode, road: AT9, ...opts });
+async function toOwnStep(mode = 'mock', opts = {}) {
+  const app = await bootApp({ mode, road: AT12, ...opts });
   app.cardPrimary().click();
   await app.settle();
-  assert.equal(app.step(), 9);
+  assert.equal(app.step(), 12);
   return app;
 }
 
@@ -60,8 +56,8 @@ function onlyItsOwnFiles(app) {
   }
 }
 
-test('MOCK: before a photo, Step 9 is as it was; after one, Mark your room is the one primary, right under it', async () => {
-  const app = await toStep9();
+test('MOCK: before a photo, Step 12 is as it was; after one, Mark your room is the one primary, right under it', async () => {
+  const app = await toOwnStep();
   assert.deepEqual(primaries(app).map(textOf), ['Continue to the end'], 'the stranger walk does not change');
   assert.equal(app.why(), 'Continue to the end to go on');
   paintCanvases(app, DESK);
@@ -80,13 +76,13 @@ test('MOCK: before a photo, Step 9 is as it was; after one, Mark your room is th
 });
 
 test('MOCK: marked with the pointer, made, played, ended and replayed; nothing leaves the device', async () => {
-  const app = await toStep9();
+  const app = await toOwnStep();
   paintCanvases(app, DESK);
   const file = photoFile(7);
   try {
     await chooseAndMark(app, file);
-    assert.equal(app.step(), 10);
-    assert.equal(app.counter(), 'Step 10 of 12: Your marks');
+    assert.equal(app.step(), 13);
+    assert.equal(app.counter(), 'Step 13 of 15: Your marks');
     assert.equal(app.why(), 'Make the room from your marks to go on');
     assert.ok(app.$('road').querySelectorAll('button')[1].disabled, 'Forward waits');
     assert.deepEqual(primaries(app).map(textOf), ['Make the room']);
@@ -131,8 +127,8 @@ test('MOCK: marked with the pointer, made, played, ended and replayed; nothing l
     app.button('Make the room').click();
     await until(app, () => app.h1() === 'Your room, from your marks', 'the reveal');
   } finally { delete globalThis.createImageBitmap; }
-  assert.equal(app.step(), 10, 'made on the same step');
-  assert.equal(app.counter(), 'Step 10 of 12: Your marks');
+  assert.equal(app.step(), 13, 'made on the same step');
+  assert.equal(app.counter(), 'Step 13 of 15: Your marks');
   const summary = textOf(app.$('main').querySelector('.summary'));
   assert.match(summary, /^You marked 9 objects; code traced (\d) outlines? inside your boxes and kept (\d) as (a box|boxes); no model was called\. Code proved the room can be won\.$/);
   const [, t, b] = /traced (\d) .* kept (\d)/.exec(summary);
@@ -143,18 +139,18 @@ test('MOCK: marked with the pointer, made, played, ended and replayed; nothing l
   assert.ok(app.button('Change your marks'));
   app.mainPrimary().click();
   await app.settle();
-  assert.equal(app.step(), 11);
+  assert.equal(app.step(), 14);
   assert.equal(played.last.level.label, LABELS.marked, 'the play label says who marked it');
   played.last.onEnd({ status: 'won', ratio: 1.1, travelled: 1, words: { title: 'You won', body: 'Every coin, then the exit.' } });
   await app.settle();
   app.cardPrimary().click();
   await app.settle();
-  assert.equal(app.step(), 12);
-  const row = app.$('main').querySelectorAll('.closing-rooms li')[2];
+  assert.equal(app.step(), 15);
+  const row = app.$('main').querySelectorAll('.closing-rooms li')[3];
   assert.match(textOf(row), /^Your own room: marked by you Won · best route 1\.1 times the shortest You marked 9 objects; code traced \d outlines? inside your boxes and kept \d as (a box|boxes); no model was called\. Code proved the room can be won\. Play again/);
   app.mainPrimary().click();
   await app.settle();
-  assert.equal(app.step(), 13);
+  assert.equal(app.step(), 16);
   const cards = app.$('main').querySelectorAll('.room-card').map(textOf);
   assert.ok(cards.includes('Your own room: marked by you MARKED · by you'), cards.join(' | '));
   // nothing left the device: no request but the page's own files, and what
@@ -169,11 +165,11 @@ test('MOCK: marked with the pointer, made, played, ended and replayed; nothing l
   assert.equal(kept[0].marks.length, 9);
   assert.equal(kept[0].level.origin, 'marked');
   for (const k of ['frameplay.marked', 'frameplay.road']) assert.doesNotMatch(app.storage.getItem(k), /data:|base64|blob:/i, k);
-  assert.deepEqual(app.savedRoad().rooms[2], { kind: 'marked', sha256: file.sha256, made: true });
+  assert.deepEqual(app.savedRoad().rooms[3], { kind: 'marked', sha256: file.sha256, made: true });
 });
 
 test('MOCK: marked with the keyboard alone: the box cursor, its size, Enter, a role key, Delete and Undo', async () => {
-  const app = await toStep9();
+  const app = await toOwnStep();
   paintCanvases(app, DESK);
   try {
     await chooseAndMark(app, photoFile(8));
@@ -211,7 +207,7 @@ test('MOCK: marked with the keyboard alone: the box cursor, its size, Enter, a r
 });
 
 test('after a reload, the same photo chosen again restores the room in place; another photo is refused; nothing is sent', async () => {
-  const first = await toStep9();
+  const first = await toOwnStep();
   paintCanvases(first, DESK);
   const file = photoFile(9);
   try {
@@ -221,14 +217,14 @@ test('after a reload, the same photo chosen again restores the room in place; an
     await until(first, () => first.h1() === 'Your room, from your marks', 'the reveal');
   } finally { delete globalThis.createImageBitmap; }
   const marked = first.storage.getItem('frameplay.marked');
-  for (const step of [10, 11]) {
+  for (const step of [13, 14]) {
     const road = { ...first.savedRoad(), step, reached: step };
     const app = await bootApp({ mode: 'mock', road, prefs: { marked: JSON.parse(marked) } });
     app.cardPrimary().click();
     await app.settle();
     assert.equal(app.step(), step);
     assert.equal(app.h1(), 'Pick your photo again');
-    assert.equal(app.why(), step === 11 ? 'Pick the same photo to see your marks' : '', 'the header names an action this screen offers');
+    assert.equal(app.why(), step === 14 ? 'Pick the same photo to see your marks' : '', 'the header names an action this screen offers');
     assert.deepEqual(primaries(app).map(textOf), ['Choose the same photo']);
     assert.ok(app.button('Continue to the end'), 'and the way on');
     paintCanvases(app, DESK);
@@ -238,15 +234,15 @@ test('after a reload, the same photo chosen again restores the room in place; an
       assert.match(app.main(), /That is not the photo you marked\. Nothing was sent\. Pick the same photo, or continue to the end\./);
       assert.equal(app.step(), step);
       app.choose(file);
-      await until(app, () => (step === 10 ? app.h1() === 'Your room, from your marks' : app.$('main').querySelector('.game')), 'the room restored');
+      await until(app, () => (step === 13 ? app.h1() === 'Your room, from your marks' : app.$('main').querySelector('.game')), 'the room restored');
     } finally { delete globalThis.createImageBitmap; }
     assert.equal(app.step(), step, 'in place: the counter never moved back');
-    if (step === 10) assert.match(app.main(), /Loaded from this device: no model was called this time\./);
+    if (step === 13) assert.match(app.main(), /Loaded from this device: no model was called this time\./);
     else assert.equal(played.last.level.origin, 'marked');
     onlyItsOwnFiles(app);
   }
-  // back on Step 9 the same photo restores the made room, not a blank one
-  const app = await bootApp({ mode: 'mock', road: { ...first.savedRoad(), step: 9 }, prefs: { marked: JSON.parse(marked) } });
+  // back on Step 12 the same photo restores the made room, not a blank one
+  const app = await bootApp({ mode: 'mock', road: { ...first.savedRoad(), step: 12 }, prefs: { marked: JSON.parse(marked) } });
   app.cardPrimary().click();
   await app.settle();
   paintCanvases(app, DESK);
@@ -254,7 +250,7 @@ test('after a reload, the same photo chosen again restores the room in place; an
     await (async () => { app.choose(file); await until(app, () => app.button('Mark your room'), 'Mark your room'); app.button('Mark your room').click(); })();
     await until(app, () => app.h1() === 'Your room, from your marks', 'the room restored');
   } finally { delete globalThis.createImageBitmap; }
-  assert.equal(app.step(), 10);
+  assert.equal(app.step(), 13);
   app.button('Change your marks').click();
   await app.settle();
   assert.equal(app.h1(), 'Your marks');
@@ -267,7 +263,7 @@ const people = { code: 'people_present', message: 'This photo seems to show a pe
 const keyRefused = { code: 'invalid_api_key', message: 'The Model API did not accept the key' };
 
 test('LIVE: a refused key leaves the photo a way on: Mark your room, and it makes the room with no further send', async () => {
-  const app = await toStep9('live', { answer: () => replyFor('desk', 'live', { status: 'error', error: keyRefused }) });
+  const app = await toOwnStep('live', { answer: () => replyFor('desk', 'live', { status: 'error', error: keyRefused }) });
   paintCanvases(app, DESK);
   try {
     await chooseAndMark(app, photoFile(11));
@@ -282,20 +278,20 @@ test('LIVE: a refused key leaves the photo a way on: Mark your room, and it make
 });
 
 test('LIVE: after the refusal, the words then Mark your room as the one primary; never after the people refusal', async () => {
-  const app = await toStep9('live', { answer: () => replyFor('desk', 'live', { status: 'error', error: keyRefused }) });
+  const app = await toOwnStep('live', { answer: () => replyFor('desk', 'live', { status: 'error', error: keyRefused }) });
   app.choose(photoFile(12));
   await until(app, () => app.button('Mark your room'), 'Mark your room');
   const shown = app.$('main').querySelector('.own-result');
   assert.equal(shown.children[0].className, 'error');
   assert.match(textOf(shown.children[0]), /You can mark the room yourself instead, try another photo, or continue to the end\.$/);
   assert.deepEqual(primaries(app).map(textOf), ['Mark your room']);
-  const p = await toStep9('live', { answer: () => replyFor('desk', 'live', { status: 'refused', error: people }) });
+  const p = await toOwnStep('live', { answer: () => replyFor('desk', 'live', { status: 'refused', error: people }) });
   p.choose(photoFile(13));
   await until(p, () => /no people/.test(p.main()), 'the people refusal');
   assert.equal(p.button('Mark your room'), null);
   assert.doesNotMatch(p.main(), /mark the room yourself/);
   // a server that cannot be reached: the panel says so, and the photo can be marked
-  const down = await toStep9('live', { answer: () => { throw new Error('down'); } });
+  const down = await toOwnStep('live', { answer: () => { throw new Error('down'); } });
   down.choose(photoFile(14));
   await until(down, () => down.button('Mark your room'), 'Mark your room');
   assert.match(textOf(down.$('main').querySelector('.own-result .error')), /^The server could not be reached\..* You can mark the room yourself instead/);
@@ -304,7 +300,7 @@ test('LIVE: after the refusal, the words then Mark your room as the one primary;
 });
 
 test('REHEARSAL: a photo the stand-in does not know is refused before sending, and can be marked', async () => {
-  const app = await toStep9('rehearsal', { answer: () => replyFor('desk', 'rehearsal') });
+  const app = await toOwnStep('rehearsal', { answer: () => replyFor('desk', 'rehearsal') });
   const noise = { width: 1024, height: 768, data: new Uint8ClampedArray(1024 * 768 * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 2654435761) >>> 24)) };
   paintCanvases(app, noise);
   try {

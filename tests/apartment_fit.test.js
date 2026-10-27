@@ -1,5 +1,5 @@
-// W1d: Steps 2 and 5 (and Free play) offer The Apartment beside the other
-// two sample rooms without breaking a layout rule: no scroll in main at
+// W1d: Steps 2, 5 and 8 (and Free play) offer The Apartment beside the
+// other sample rooms without breaking a layout rule: no scroll in main at
 // 839x945 and 1259x1418, 100% zoom, laid out by tests/layoutmodel.js as
 // tests/fit.test.js lays out every road screen (the same model, no
 // tolerance). The page lists its sample rooms in app.js (SAMPLES); M5 added

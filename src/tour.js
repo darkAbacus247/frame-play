@@ -1,7 +1,7 @@
 // The opt-in tour: one plain line and one lit control for every road
 // state, the once-per-visit offer after about 45 s without progress, and
 // the one-time pulse. Pure logic; the page draws the veil and the strip.
-import { FREE_PLAY } from './road.js';
+import { FREE_PLAY, OWN_STEP } from './road.js';
 
 export const OFFER_AFTER_MS = 45000;
 
@@ -10,18 +10,21 @@ const LINES = {
   2: { target: 'room-card', line: 'Pick a room to play: press one of the room cards.' },
   3: { target: 'primary', line: 'These outlines are what the AI found. Press Play this room.' },
   4: { target: 'chip', line: 'Press a Walk to button or tap the picture. Collect every star, then reach the exit.' },
-  5: { target: 'room-card', line: 'Pick a second room, different from the first.' },
+  5: { target: 'primary', line: 'The next room is chosen for you. Go on with it, or pick another room.' },
   6: { target: 'primary', line: 'A new room makes new walls. Press Play this room.' },
   7: { target: 'chip', line: 'Same rules, new shapes: collect every star, then reach the exit.' },
-  8: { target: 'primary', line: 'Your two rooms, side by side. Press Continue: your own room.' },
-  9: { target: 'primary', line: 'Try a photo of your own room, or press Continue to the end.' },
-  10: { target: 'primary', line: 'These outlines come from your own photo. Press Play this room.' },
-  11: { target: 'chip', line: 'Your own room: collect every star, then reach the exit.' },
-  12: { target: 'primary', line: 'You have completed the road. Press Free play, or play a room again.' },
+  8: { target: 'primary', line: 'The third room is chosen for you. Go on with it, or pick another room.' },
+  9: { target: 'primary', line: 'A third room, with its own walls. Press Play this room.' },
+  10: { target: 'chip', line: 'The third room: collect every star, then reach the exit.' },
+  11: { target: 'primary', line: 'Your three rooms, side by side. Press Continue: your own room.' },
+  12: { target: 'primary', line: 'Try a photo of your own room, use ours, or continue to the end.' },
+  13: { target: 'primary', line: 'These outlines come from a photo of a real room. Press Play this room.' },
+  14: { target: 'chip', line: 'Your own room: collect every star, then reach the exit.' },
+  15: { target: 'primary', line: 'You have completed the road. Press Free play, or play a room again.' },
   [FREE_PLAY]: { target: 'room-card', line: 'Free play: pick any room to play it again.' },
 };
 
-// Your own room marked by hand: its Step 10 is the marking board, then the
+// Your own room marked by hand: its Step 13 is the marking board, then the
 // room made from the marks.
 const MARKED = {
   marking: { target: 'primary', line: 'Pick what a box is, drag one over each object, then press Make the room.' },
@@ -30,7 +33,7 @@ const MARKED = {
 
 // own: 'marking' or 'made' while your own room is marked by hand, or null
 export function tourStep(step, own = null) {
-  if (step === 10 && MARKED[own]) return MARKED[own];
+  if (step === OWN_STEP + 1 && MARKED[own]) return MARKED[own];
   return LINES[step] || null;
 }
 

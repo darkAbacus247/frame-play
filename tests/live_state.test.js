@@ -7,13 +7,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootApp, photoFile, textOf } from './apphost.js';
 import { replyFor } from './replies.js';
+import { roadAt, SAMPLE_ROOMS } from './roads.js';
 
-const AT2 = { v: 3, step: 2, reached: 2, consent: true, own: null, rooms: [null, null, null], finished: [false, false, false], best: [null, null, null] };
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.2, 1.3, null],
-};
+const AT2 = roadAt(2);
+const AT12 = roadAt(12, { rooms: [...SAMPLE_ROOMS, null], finished: [true, true, true, false], best: [1.2, 1.3, null, null] });
 const REASON = "The Model API did not accept this server's key. The owner of this server must fix this; the sample rooms still work.";
 const LIVE = { mode: 'live', reason: '', label: 'live', live_state: 'ok', live_reason: null };
 const DOWN = { ...LIVE, live_state: 'unavailable', live_reason: REASON, live_check_again_s: 540 };
@@ -109,7 +106,7 @@ test('health says live_state unavailable: the picker is off in words, the sample
     assert.equal(app.$('main').querySelector('input'), null, 'an off picker has no file input');
     const words = why(app);
     assert.match(words, /^Off: the live AI is unavailable on this server right now\. The Model API did not accept this server's key\./);
-    assert.match(words, /The sample rooms still work, and on Step 9 you can mark your own room by hand; nothing is sent\./);
+    assert.match(words, /The sample rooms still work, and on Step 12 you can mark your own room by hand; nothing is sent\./);
     assert.match(words, /about 9 minutes: press Check again then\.$/);
     assert.doesNotMatch(words, /\.\./);
     assert.ok(app.$('main').querySelectorAll('.room-card').length >= 2 || app.main().includes('Sample rooms'));
@@ -181,10 +178,10 @@ test('a reply whose error code is live_unavailable turns the picker off without 
   } finally { s.restore(); }
 });
 
-test('Step 9 with the live AI unavailable: the notice says so, a photo stays on this device and Mark your room is offered; nothing is sent', async () => {
+test('Step 12 with the live AI unavailable: the notice says so, a photo stays on this device and Mark your room is offered; nothing is sent', async () => {
   const s = serve((url) => (url === 'api/health' ? json(200, DOWN) : undefined));
   try {
-    const app = await at(AT9, 'live');
+    const app = await at(AT12, 'live');
     const notice = textOf(app.$('main').querySelector('.notice'));
     assert.match(notice, /^LIVE, but the live AI is unavailable on this server right now\. The Model API did not accept/);
     assert.match(notice, /you can mark your room yourself; nothing is sent\. The sample rooms still work\.$/);

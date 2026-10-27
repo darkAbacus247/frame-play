@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { bootApp, textOf, photoFile } from './apphost.js';
 import { fakeDocument } from './fakedom.js';
 import { replyFor } from './replies.js';
+import { roadAt, SAMPLE_ROOMS } from './roads.js';
 
 const road = { v: 3, step: 2, reached: 2, consent: true, own: null, rooms: [null, null, null], finished: [false, false, false], best: [null, null, null] };
 const tags = (panel) => panel.children.map((c) => c.tagName);
@@ -43,11 +44,7 @@ for (const [name, answer] of [['an answer', () => replyFor('desk', 'rehearsal')]
 // ---- LIVE: whole sentences, Try this photo again, Cancel, degraded levels ----
 // The test answers api/room through the fetch the app host installs (kept
 // through the setter); everything else goes to the app host's own.
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.2, 1.3, null],
-};
+const AT12 = roadAt(12, { rooms: [...SAMPLE_ROOMS, null], finished: [true, true, true, false], best: [1.2, 1.3, null, null] });
 const json = (status, body) => ({ ok: status >= 200 && status < 300, status, headers: { get: (k) => (k.toLowerCase() === 'content-type' ? 'application/json' : null) }, json: async () => body });
 function serve(handler) {
   const orig = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
@@ -100,8 +97,8 @@ test('LIVE, Step 2: retry_same gives Try this photo again as the one primary; it
   } finally { s.restore(); }
 });
 
-test('LIVE, Step 9: retry_same puts Try this photo again first, Mark your room beside it', async () => {
-  const { app, s } = await live(AT9, (url) => (url === 'api/room' ? json(200, replyFor('desk', 'live', { status: 'error', error: BUSY })) : undefined));
+test('LIVE, Step 12: retry_same puts Try this photo again first, Mark your room beside it', async () => {
+  const { app, s } = await live(AT12, (url) => (url === 'api/room' ? json(200, replyFor('desk', 'live', { status: 'error', error: BUSY })) : undefined));
   try {
     app.choose(photoFile(43));
     for (let i = 0; i < 200 && !app.button('Try this photo again'); i++) await app.settle(2);
@@ -148,9 +145,9 @@ test('LIVE: Cancel stays pressable while reading, stops the wait at once, says s
   } finally { s.restore(); }
 });
 
-test('LIVE, Step 9: Cancel works on your own room too', async () => {
+test('LIVE, Step 12: Cancel works on your own room too', async () => {
   let started = false;
-  const { app, s } = await live(AT9, (url) => {
+  const { app, s } = await live(AT12, (url) => {
     if (url !== 'api/room') return undefined;
     started = true;
     return new Promise(() => {});
@@ -164,7 +161,7 @@ test('LIVE, Step 9: Cancel works on your own room too', async () => {
     cancel.click();
     await app.settle();
     assert.match(app.main(), /Cancelled: this page stopped waiting for the read/);
-    assert.equal(app.step(), 9);
+    assert.equal(app.step(), 12);
     assert.equal(app.button('Choose a photo').disabled, false);
     assert.ok(s.posts[0].signal && s.posts[0].signal.aborted, 'the send itself is aborted');
   } finally { s.restore(); }
@@ -178,7 +175,7 @@ const busy = () => ({
   json: async () => ({ status: 'error', error: { code: 'busy', message: 'Every reader is busy right now. Please try again in a few seconds.' } }),
 });
 
-for (const [where, at, done] of [['Step 2', road, 3], ['Step 9 (your own room)', AT9, 10]]) {
+for (const [where, at, done] of [['Step 2', road, 3], ['Step 12 (your own room)', AT12, 13]]) {
   test(`LIVE, ${where}: while the server's readers are busy the panel shows the countdown, then the read goes on`, async () => {
     const { app, s } = await live(at, (url, opts, n) => (url === 'api/room' ? (n === 1 ? busy() : json(200, replyFor('desk', 'live'))) : undefined));
     try {
@@ -234,12 +231,12 @@ for (const how of ['call', 'warning']) {
   });
 }
 
-test('LIVE, Step 9: your own room read while calls were failing is played but not kept', async () => {
-  const { app, s } = await live(AT9, (url) => (url === 'api/room' ? json(200, degraded('call')) : undefined));
+test('LIVE, Step 12: your own room read while calls were failing is played but not kept', async () => {
+  const { app, s } = await live(AT12, (url) => (url === 'api/room' ? json(200, degraded('call')) : undefined));
   try {
     app.choose(photoFile(47));
     await app.settle(80);
-    assert.equal(app.step(), 10, 'built and on the road');
+    assert.equal(app.step(), 13, 'built and on the road');
     assert.deepEqual(app.levels(), []);
     assert.equal(s.posts.length, 1);
   } finally { s.restore(); }

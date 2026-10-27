@@ -5,18 +5,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { bootApp } from './apphost.js';
+import { AT_OWN as AT12 } from './roads.js';
 
-const AT9 = {
-  v: 3, step: 9, reached: 9, consent: true, own: null,
-  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
-  finished: [true, true, false], best: [1.24, null, null],
-};
 
 test('MOCK: a photo chosen on Your own room is shown here only: never fingerprinted, sent or stored', async () => {
-  const app = await bootApp({ mode: 'mock', road: AT9 });
+  const app = await bootApp({ mode: 'mock', road: AT12 });
   app.cardPrimary().click();
   await app.settle();
-  assert.equal(app.step(), 9);
+  assert.equal(app.step(), 12);
   assert.equal(app.why(), 'Continue to the end to go on', 'the header names the one way on');
   const digest = crypto.subtle.digest;
   let fingerprinted = 0, decoded = 0;
@@ -38,15 +34,15 @@ test('MOCK: a photo chosen on Your own room is shown here only: never fingerprin
   assert.deepEqual(app.requests.filter(([, u]) => /api\/room/.test(u)), [], 'never sent');
   assert.equal(app.storage.getItem('frameplay.levels'), null, 'no level stored');
   const road = app.savedRoad();
-  assert.equal(road.step, 9);
-  assert.equal(road.rooms[2], null, 'no room on the road');
+  assert.equal(road.step, 12);
+  assert.equal(road.rooms[3], null, 'no room on the road');
   assert.match(app.main(), /Your photo, on this device only\. Nothing was sent, and no level was made from it\./);
   assert.equal(app.doc.activeElement, app.button('Choose a photo'), 'the focus is back on Choose a photo, not lost to the page');
 });
 
 test('MOCK: Steps 2 and 5 hold no file input at all', async () => {
   for (const [step, rooms] of [[2, [null, null, null]], [5, [{ kind: 'sample', id: 'desk' }, null, null]]]) {
-    const app = await bootApp({ mode: 'mock', road: { ...AT9, step, reached: step, rooms, finished: [step > 2, false, false], best: [null, null, null] } });
+    const app = await bootApp({ mode: 'mock', road: { ...AT12, step, reached: step, rooms, finished: [step > 2, false, false], best: [null, null, null] } });
     app.cardPrimary().click();
     await app.settle();
     assert.equal(app.step(), step);

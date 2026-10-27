@@ -123,6 +123,14 @@ async function sampleTitle(id) {
   return SAMPLES.some((s) => s.id === id) ? (await sample(id)).room.title : id || 'no room';
 }
 
+// A room's title for the words on a pick step: a sample's own, a photo's
+// as its level says (when in memory).
+async function roomTitle(ref) {
+  if (ref.kind === 'sample' || ref.kind === 'rehearsal') return sampleTitle(ref.id);
+  const entry = A.live.get(refKey(ref));
+  return entry && !entry.built.error ? entry.built.level.title : 'your photo';
+}
+
 // The mode that made a photo room's level kept on this device, or null.
 function keptOrigin(ref) {
   const kept = ref && ref.kind === 'photo' ? S.loadLevel(ref.sha256) : null;
@@ -535,7 +543,7 @@ async function render() {
     else if (kind === 'pick') await screenRoom(main, slot, token);
     else if (kind === 'found') await screenFound(main, slot, token);
     else if (kind === 'play') await screenPlay(main, slot, null, token);
-    else if (kind === 'two') await screenTwo(main, token);
+    else if (kind === 'three') await screenThree(main, token);
     else if (kind === 'own') await screenOwn(main, token);
     else if (kind === 'end') await screenEnd(main, token);
     else await screenFree(main, token);
@@ -561,10 +569,10 @@ function photoOffWords() {
   return OFF_WORDS.mock;
 }
 
-function roomCard(entry, { disabledWhy, onPick, tour = true, title = null }) {
+function roomCard(entry, { disabledWhy, onPick, tour = true, title = null, chosen = false }) {
   const level = entry.built.level;
   return roomCardView({
-    title: title || (entry.room ? entry.room.title : level.title), origin: level.origin, disabledWhy, onPick, tour,
+    title: title || (entry.room ? entry.room.title : level.title), origin: level.origin, disabledWhy, onPick, tour, chosen,
     draw: (thumb) => {
       // a photo of another shape keeps its shape, centred
       const f = fitSize(320, 240, entry.picture.width, entry.picture.height);
@@ -575,8 +583,14 @@ function roomCard(entry, { disabledWhy, onPick, tour = true, title = null }) {
 
 async function screenRoom(main, slot, token) {
   const rehearsal = A.mode === 'rehearsal' && A.health && A.health.rehearsal ? A.health.rehearsal.room : null;
+  // the room the road already holds here (chosen as the road went on, or
+  // picked before): one primary goes on with it
+  const here = A.road.rooms[slot];
+  const hereTitle = here ? await roomTitle(here) : null;
+  if (token !== A.renderToken) return;
   const view = pickView({
     slot, off: photoOffWords(), onFile: (f) => choosePhoto(slot, f, view.panel),
+    chosen: here ? { title: hereTitle, onContinue: () => setRoad(R.forward(A.road)) } : null,
     // not while the stand-in's key drill holds the picker off
     rehearse: rehearsal && !liveOff() && SAMPLES.some((x) => x.id === rehearsal) ? {
       label: 'Rehearse the live path',
@@ -585,15 +599,17 @@ async function screenRoom(main, slot, token) {
     } : null,
   });
   const check = checkAgainButton();
-  if (check) view.section.querySelector('.actions').append(check);
+  if (check) view.actions.append(check);
   main.replaceChildren(view.section);
-  const other = slot === 1 ? A.road.rooms[0] : null;
+  // a sample room an earlier step holds is not picked again here
+  const earlier = A.road.rooms.slice(0, slot);
   for (const s of SAMPLES) {
     const entry = await sample(s.id);
     if (token !== A.renderToken) return;
-    const used = other && other.kind === 'sample' && other.id === s.id;
+    const used = earlier.findIndex((r) => r && r.kind === 'sample' && r.id === s.id);
     view.cards.append(roomCard(entry, {
-      disabledWhy: used ? 'Already your first room' : null,
+      disabledWhy: used >= 0 ? `Already your ${['first', 'second'][used]} room` : null,
+      chosen: !!here && here.kind === 'sample' && here.id === s.id,
       onPick: () => setRoad(R.chooseRoom(A.road, slot, { kind: 'sample', id: s.id })),
     }));
   }
@@ -638,7 +654,7 @@ async function missingRoom(main, slot, token) {
       chooseAgain((f) => restoreMarked(f, shown), 'Pick the same photo you marked; it stays on this device', onward(false)),
       shown);
     why = 'Pick the same photo to see your marks';
-  } else if (ref && ref.kind === 'photo' && slot === 2 && sends && !otherMode) {
+  } else if (ref && ref.kind === 'photo' && slot === R.OWN_SLOT && sends && !otherMode) {
     // your own room, with every check its mode makes (src/own.js)
     kids.push(el('h1', { text: 'Pick your photo again' }),
       el('p', { text: A.mode === 'live'
@@ -647,7 +663,7 @@ async function missingRoom(main, slot, token) {
       chooseAgain((f) => ownPhoto(f, panel, shown, { inPlace: true }), 'Pick the same photo you made this room from', onward(false)),
       panel, shown);
     why = 'Pick the same photo to play this room';
-  } else if (ref && ref.kind === 'photo' && slot === 2) {
+  } else if (ref && ref.kind === 'photo' && slot === R.OWN_SLOT) {
     kids.push(el('h1', { text: 'This room cannot load here' }),
       el('p', { text: otherMode
         ? `This room was made in ${kept.toUpperCase()}. This copy runs in ${A.mode.toUpperCase()}, so its level cannot load here, and this copy cannot make it again.`
@@ -813,7 +829,7 @@ function endOfRound(slot, r, level) {
     onClick: () => { if (A.view) { A.view.restart(); A.view.focusGame(); } updateTour(); },
   };
   const pickOther = {
-    label: A.mode === 'live' || slot === 2 ? 'New photo' : 'Pick another room',
+    label: A.mode === 'live' || slot === R.OWN_SLOT ? 'New photo' : 'Pick another room',
     onClick: () => {
       if (free) { A.free = null; render(); return; }
       setRoad({ ...A.road, step: R.PICK_STEPS[slot] });
@@ -828,10 +844,10 @@ function endOfRound(slot, r, level) {
   clearVeil();
 }
 
-async function screenTwo(main, token) {
+async function screenThree(main, token) {
   const { section, cards } = compareView({ primaryLabel: R.primaryLabel(A.road), onContinue: () => setRoad(R.toOwnRoom(A.road)) });
   main.replaceChildren(section);
-  for (const slot of [0, 1]) {
+  for (const slot of [0, 1, 2]) {
     const ref = A.road.rooms[slot];
     const entry = await levelFor(ref);
     if (token !== A.renderToken) return;
@@ -856,7 +872,7 @@ async function screenFree(main, token) {
     if (token !== A.renderToken) return;
     cards.append(roomCard(entry, { onPick: () => { A.free = { kind: 'sample', id: s.id }; render(); } }));
   }
-  const own = A.road.rooms[2];
+  const own = A.road.rooms[R.OWN_SLOT];
   const ownEntry = R.ownMade(A.road) ? await levelFor(own) : null;
   if (token !== A.renderToken) return;
   // titled by its row: in REHEARSAL it carries the sample's own title
@@ -915,7 +931,7 @@ function ownDeps(signal = null, seen = {}) {
     // the photo of your own room marked by hand: made again from the marks
     // kept here, never read again
     marked: (photo) => {
-      const own = A.road.rooms[2];
+      const own = A.road.rooms[R.OWN_SLOT];
       if (!own || own.kind !== 'marked' || !own.made || own.sha256 !== photo.sha256) return null;
       const entry = A.live.get(refKey(own)) || keptMarkedEntry(S.loadMarks(photo.sha256), photo.sha256, photo.picture);
       return entry ? { ref: own, entry } : null;
@@ -1007,7 +1023,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     for (const s of SAMPLES) await sample(s.id);
     const r = await cancellable((signal) => makeOwnRoom({
       mode, rehearsalRoom: rehearsalRoom(), file, deps: ownDeps(signal, seen),
-      sameAs: inPlace ? A.road.rooms[2].sha256 : null,
+      sameAs: inPlace ? A.road.rooms[R.OWN_SLOT].sha256 : null,
       onWords: readWords(panel, signal, (i) => { step = i; }),
     }));
     setBusy(false);
@@ -1018,7 +1034,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
       else if (!degradedReply(seen.reply)) S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
       A.live.set(refKey(r.ref), r.entry);
       if (inPlace) render();
-      else setRoad(R.chooseRoom(A.road, 2, r.ref));
+      else setRoad(R.chooseRoom(A.road, R.OWN_SLOT, r.ref));
       return;
     }
     panel.hidden = true;
@@ -1070,7 +1086,7 @@ function showOwnResult(box, r, onMark = null, again = null) {
   box.hidden = false;
 }
 
-// Mark a photo: from Step 9 on to Step 10 (Your marks), with the photo and
+// Mark a photo: from Step 12 on to Step 13 (Your marks), with the photo and
 // any marks kept on this device for it. The fingerprint is taken here, on
 // this device, only to keep the marks with it; nothing is sent. When a room
 // was made from this photo's marks before, it is back as it was.
@@ -1091,7 +1107,7 @@ async function markPhoto(photo) {
       say('Your marks for this photo were on this device: the room made from them is back. Nothing was sent.');
     }
     setBusy(false);
-    setRoad(R.chooseRoom(A.road, 2, { ...ref, made: !!entry }));
+    setRoad(R.chooseRoom(A.road, R.OWN_SLOT, { ...ref, made: !!entry }));
   } catch (e) {
     setBusy(false);
     say(e.message);
@@ -1100,7 +1116,7 @@ async function markPhoto(photo) {
   }
 }
 
-// The marking board: on Step 10, or in place on Step 11 when the level made
+// The marking board: on Step 13, or in place on Step 14 when the level made
 // from the marks is missing. Making the room keeps the step: the reveal (or
 // the round) follows on the same step.
 function screenMarking(main, ref) {
@@ -1179,7 +1195,7 @@ async function makeFromMarks(ref, marker) {
 const MARKED_NOT_SAME = 'That is not the photo you marked. Nothing was sent.';
 async function restoreMarked(file, shown) {
   if (A.busy) return;
-  const ref = A.road.rooms[2];
+  const ref = A.road.rooms[R.OWN_SLOT];
   setBusy(true);
   try {
     const why = photoRefusal(file);
@@ -1202,9 +1218,9 @@ async function restoreMarked(file, shown) {
 }
 
 // ---- the tour ----
-// this step's line: your own room marked by hand has its own on Step 10
+// this step's line: your own room marked by hand has its own on Step 13
 function tourNow() {
-  const own = A.road.rooms[2];
+  const own = A.road.rooms[R.OWN_SLOT];
   const marked = own && own.kind === 'marked' ? (document.querySelector('#main .marking') ? 'marking' : 'made') : null;
   return tourStep(A.road.step, marked);
 }
@@ -1370,7 +1386,7 @@ function liveOff() {
   return sentences(
     A.mode === 'rehearsal' ? 'Off: the local stand-in answered as the live AI does for an account or model problem' : 'Off: the live AI is unavailable on this server right now',
     reason,
-    'The sample rooms still work, and on Step 9 you can mark your own room by hand; nothing is sent',
+    `The sample rooms still work, and on Step ${R.OWN_STEP} you can mark your own room by hand; nothing is sent`,
     mins ? `The server tries again in about ${mins} minute${mins === 1 ? '' : 's'}: press Check again then.` : 'Press Check again to ask the server once more.',
   );
 }

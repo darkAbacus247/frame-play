@@ -21,7 +21,7 @@ const BAND = 'REHEARSAL · local stand-in, not Meta. No photo leaves this machin
 const noop = () => {};
 
 const rooms = {};
-for (const id of ['desk', 'living']) rooms[id] = loadRoom(JSON.parse(readFileSync(new URL(`../rooms/${id}.json`, import.meta.url), 'utf8')));
+for (const id of ['desk', 'living', 'apartment']) rooms[id] = loadRoom(JSON.parse(readFileSync(new URL(`../rooms/${id}.json`, import.meta.url), 'utf8')));
 export const mockLevel = (id) => buildLevel(inputFromRoom(rooms[id], '2026-10-27T10:00:00Z')).level;
 
 // a LIVE read of the desk with every extra line the reveal can show
@@ -64,7 +64,8 @@ export function markedLevel() {
   const marks = r.objects.filter((o) => o.on_surface).map((o) => ({ role: o.role === 'flat' ? 'solid' : o.role, box: [o.bounds.x0 - 8, o.bounds.y0 - 8, o.bounds.x1 + 8, o.bounds.y1 + 8].map(Math.round) }));
   return buildLevel(inputFromReply(markedReply(marks, r.width, r.height), { kind: 'marked', sha256: SHA }, undefined, '2026-10-27T10:00:00Z')).level;
 }
-const ownRooms = (own) => [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, own];
+const SAMPLE_REFS = [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, { kind: 'sample', id: 'apartment' }];
+const ownRooms = (own) => [...SAMPLE_REFS, own];
 
 // The marking board's screen as the page fills it: n boxes, so n chips.
 export function markingScreen(n) {
@@ -88,22 +89,33 @@ export function screens(mode) {
   const out = [];
   const welcome = V.welcomeView({ mode, primaryLabel: R.primaryLabel(R.newRoad()), onConsent: noop });
   out.push({ name: 'Welcome', step: 1, section: welcome.section });
-  for (const slot of [0, 1]) {
+  // each pick step as it first opens (Step 2) and as the road reaches it
+  // with its room already chosen (Steps 5 and 8, and any step gone back to)
+  for (const [slot, chosen] of [[0, false], [0, true], [1, true], [2, true]]) {
     const off = mode === 'live' ? null : V.OFF_WORDS[mode];
-    const v = V.pickView({ slot, off, onFile: noop, rehearse: mode === 'rehearsal' ? { label: 'Rehearse the live path', tip: 't', onClick: noop } : null });
-    v.cards.append(card('desk'), slot === 1 ? V.roomCardView({ title: rooms.living.title, origin: 'mock', disabledWhy: 'Already your first room', onPick: noop }) : card('living'));
-    out.push({ name: `Pick room ${slot + 1}`, step: R.PICK_STEPS[slot], section: v.section, road: { rooms: slot ? [{ kind: 'sample', id: 'desk' }, null, null] : [null, null, null] } });
+    const here = chosen ? ['desk', 'living', 'apartment'][slot] : null;
+    const v = V.pickView({
+      slot, off, onFile: noop, rehearse: mode === 'rehearsal' ? { label: 'Rehearse the live path', tip: 't', onClick: noop } : null,
+      chosen: here ? { title: rooms[here].title, onContinue: noop } : null,
+    });
+    const earlier = ['desk', 'living', 'apartment'].slice(0, slot);
+    for (const id of ['desk', 'living', 'apartment']) {
+      const used = earlier.indexOf(id);
+      v.cards.append(V.roomCardView({ title: rooms[id].title, origin: 'mock', disabledWhy: used >= 0 ? `Already your ${['first', 'second'][used]} room` : null, chosen: id === here, onPick: noop }));
+    }
+    const roadRooms = [...SAMPLE_REFS.slice(0, slot + (chosen ? 1 : 0)), null, null, null, null].slice(0, 4);
+    out.push({ name: `Pick room ${slot + 1}${chosen ? ', chosen' : ''}`, step: R.PICK_STEPS[slot], section: v.section, road: { rooms: roadRooms } });
   }
   const found = mode === 'live'
     ? [{ ...liveRead(), fromDevice: true, step: R.OWN_STEP + 1 }]
-    : [{ level: mockLevel('desk'), step: 3 }, { level: mockLevel('living'), step: 6 }];
+    : [{ level: mockLevel('desk'), step: 3 }, { level: mockLevel('living'), step: 6 }, { level: mockLevel('apartment'), step: 9 }];
   for (const f of found) {
     const v = V.foundView({ level: f.level, summary: f.summary || null, fromDevice: !!f.fromDevice, slot: R.slotOf(f.step), actions: { play: noop, describe: noop, walls: noop, leave: noop } });
     out.push({ name: `What the AI found (${f.level.title})`, step: f.step, section: v.section, reveal: { v, level: f.level } });
   }
-  const cmp = V.compareView({ primaryLabel: R.primaryLabel({ step: 8 }), onContinue: noop });
-  for (const [k, id] of ['desk', 'living'].entries()) cmp.cards.append(V.roomSumView({ level: mockLevel(id), best: k ? null : 1.24 }).article);
-  out.push({ name: 'Your two rooms', step: 8, section: cmp.section, pictures: { 'two-pic': (w) => (w * 768) / 1024 } });
+  const cmp = V.compareView({ primaryLabel: R.primaryLabel({ step: R.THREE_STEP }), onContinue: noop });
+  for (const [k, id] of ['desk', 'living', 'apartment'].entries()) cmp.cards.append(V.roomSumView({ level: mockLevel(id), best: [1.24, null, 2.31][k] }).article);
+  out.push({ name: 'Your three rooms', step: R.THREE_STEP, section: cmp.section, pictures: { 'sum-pic': (w) => (w * 768) / 1024 }, road: { rooms: [...SAMPLE_REFS, null], finished: [true, true, true, false] } });
   const ownStates = [['as it opens', null]];
   if (mode === 'mock') {
     ownStates.push(['with a landscape photo kept here', { kind: 'kept', picture: canvas(1024, 768), words: MOCK_WORDS }, true]);
@@ -127,26 +139,27 @@ export function screens(mode) {
   // your marks: as it opens, and with a dozen boxes; then the room made from them
   for (const n of [0, 12]) {
     const v = markingScreen(n);
-    out.push({ name: `Your marks (${n} boxes)`, step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'marked', sha256: SHA, made: false }), finished: [true, true, false] }, reveal: { v, level: { picture: { width: 1024, height: 768 } } } });
+    out.push({ name: `Your marks (${n} boxes)`, step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'marked', sha256: SHA, made: false }), finished: [true, true, true, false] }, reveal: { v, level: { picture: { width: 1024, height: 768 } } } });
   }
   {
     const level = markedLevel();
-    const v = V.foundView({ level, summary: null, fromDevice: true, slot: 2, actions: { play: noop, describe: noop, walls: noop, remark: noop, leave: noop } });
-    out.push({ name: 'Your room, from your marks', step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, false] }, reveal: { v, level } });
+    const v = V.foundView({ level, summary: null, fromDevice: true, slot: R.OWN_SLOT, actions: { play: noop, describe: noop, walls: noop, remark: noop, leave: noop } });
+    out.push({ name: 'Your room, from your marks', step: R.OWN_STEP + 1, section: v.section, road: { rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, true, false] }, reveal: { v, level } });
   }
   const own = mode !== 'mock';
-  const road = { rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, own ? { kind: 'photo', sha256: 'ab'.repeat(32) } : null], own: own ? null : 'skipped', finished: [true, true, own], best: [1.24, null, own ? 1.6 : null] };
-  const closing = V.closingRooms({ road, mode, levels: [mockLevel('desk'), mockLevel('living'), own ? liveRead().level : null], summaries: [null, null, { named: 9 }] });
+  const road = { rooms: ownRooms(own ? { kind: 'photo', sha256: 'ab'.repeat(32) } : null), own: own ? null : 'skipped', finished: [true, true, true, own], best: [1.24, null, 2.31, own ? 1.6 : null] };
+  const samples = [mockLevel('desk'), mockLevel('living'), mockLevel('apartment')];
+  const closing = V.closingRooms({ road, mode, levels: [...samples, own ? liveRead().level : null], summaries: [null, null, null, { named: 9 }] });
   out.push({ name: 'The end', step: R.LAST_STEP, section: V.closingView({ rooms: closing, mode, primaryLabel: 'Free play', actions: {} }), road });
-  const markedRoad = { ...road, own: null, rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, true], best: [1.24, null, 1.1] };
-  const markedRows = V.closingRooms({ road: markedRoad, mode, levels: [mockLevel('desk'), mockLevel('living'), markedLevel()] });
+  const markedRoad = { ...road, own: null, rooms: ownRooms({ kind: 'marked', sha256: SHA, made: true }), finished: [true, true, true, true], best: [1.24, null, 2.31, 1.1] };
+  const markedRows = V.closingRooms({ road: markedRoad, mode, levels: [...samples, markedLevel()] });
   out.push({ name: 'The end, your own room marked', step: R.LAST_STEP, section: V.closingView({ rooms: markedRows, mode, primaryLabel: 'Free play', actions: {} }), road: markedRoad });
   const free = V.freeView();
-  free.cards.append(card('desk'), card('living'));
+  free.cards.append(card('desk'), card('living'), card('apartment'));
   if (own) free.cards.append(V.roomCardView({ title: 'A morning desk with a mug and three coins', origin: mode, onPick: noop }));
   out.push({ name: 'Free play', step: R.FREE_PLAY, section: free.section });
   const freeMarked = V.freeView();
-  freeMarked.cards.append(card('desk'), card('living'), V.roomCardView({ title: 'Your own room: marked by you', origin: 'marked', onPick: noop }));
+  freeMarked.cards.append(card('desk'), card('living'), card('apartment'), V.roomCardView({ title: 'Your own room: marked by you', origin: 'marked', onPick: noop }));
   out.push({ name: 'Free play, your own room marked', step: R.FREE_PLAY, section: freeMarked.section });
   return out;
 }

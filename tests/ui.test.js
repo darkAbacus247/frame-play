@@ -44,11 +44,11 @@ test('the welcome-back card is modal too, with Start fresh secondary', () => {
   let chosen = '';
   showCard(dialog, {
     title: 'Welcome back',
-    primary: { label: 'Continue where you left off (Step 4 of 12: Play)', onClick: () => { chosen = 'continue'; } },
+    primary: { label: 'Continue where you left off (Step 4 of 15: Play)', onClick: () => { chosen = 'continue'; } },
     secondary: [{ label: 'Start fresh', onClick: () => { chosen = 'fresh'; } }],
   });
   assert.equal(doc.modal, dialog);
-  assert.equal(doc.activeElement.textContent, 'Continue where you left off (Step 4 of 12: Play)');
+  assert.equal(doc.activeElement.textContent, 'Continue where you left off (Step 4 of 15: Play)');
   dialog.querySelectorAll('button')[1].click();
   assert.equal(chosen, 'fresh');
   assert.equal(dialog.open, false);
@@ -78,7 +78,7 @@ for (const which of ['an end card', 'the welcome-back card']) {
     const show = () => showCard(dialog, which === 'an end card'
       ? { title: 'Room cleared!', primary: { label: 'Continue: another room', onClick: () => calls.push('primary') },
         secondary: [{ label: 'Play this room again', onClick: () => calls.push('again') }] }
-      : { title: 'Welcome back', primary: { label: 'Continue where you left off (Step 4 of 12: Play)', onClick: () => calls.push('primary') },
+      : { title: 'Welcome back', primary: { label: 'Continue where you left off (Step 4 of 15: Play)', onClick: () => calls.push('primary') },
         secondary: [{ label: 'Start fresh', onClick: () => calls.push('fresh') }] });
     show();
     const [, second] = dialog.querySelectorAll('button');

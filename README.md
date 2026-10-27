@@ -12,11 +12,21 @@ Status: work in progress. This repository was created on 2026-10-26 after
 
 ## The road
 
-One road with one step counter: Welcome, then two sample rooms (pick, see
-what the AI found, play), the two side by side, then **your own room**: a
-photo from your device, or from the camera where the browser offers one.
-What happens to that photo depends on the server's mode, and Step 9 says
-so before you choose one.
+One road of 15 steps with one step counter: Welcome, then the three sample
+rooms in a row, The Desk Top, The Living Room and The Apartment (each:
+pick, see what the AI found, play), the three side by side (Your three
+rooms), then **your own room**: a photo from your device, or from the
+camera where the browser offers one. What happens to that photo depends on
+the server's mode, and Step 12 says so before you choose one.
+
+The rooms follow one another: when a round ends, win or lose, the end
+card's primary goes straight on to the next room's What the AI found. The
+pick steps stay on the road with the next room already chosen there, so
+← (or the browser's Back, or Choose a different room) still reaches them,
+and any room can be picked there instead. A road saved by the earlier
+12-step page reads onto this one: its rooms and results are kept, and it
+goes on from the first room it has not played (The Apartment, chosen for
+it).
 
 ### Sample rooms
 
@@ -116,11 +126,11 @@ doorway.
 The people refusal (a person in the photo) and Muse Spark declining to
 read a photo for its content are the refusals with no marking after them:
 such a photo makes no room in any way. A photo that is
-refused is not shown on Step 9; the screen says in words why no room was
+refused is not shown on Step 12; the screen says in words why no room was
 made from it, and the photo appears again only on the marking board, if
 you choose to mark it.
 
-**Mark it yourself.** On Step 10 (named Your marks) you pick what a box is
+**Mark it yourself.** On Step 13 (named Your marks) you pick what a box is
 (a coin to collect, an obstacle, a hazard or the exit) and drag one over
 each object, with a mouse, pen or finger, or with the keyboard alone (Tab
 to the photo; a box cursor: the arrow keys move it, Shift with an arrow
