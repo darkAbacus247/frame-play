@@ -134,6 +134,38 @@ class AgainstAFake(unittest.TestCase):
         self.assertEqual(c.exception.message, 'The Model API did not answer in time. Please try the same photo again.')
         self.assertLess(time.monotonic() - t0, 1.5, 'the timer covers the trickling body, not just each read')
 
+    def test_a_room_read_that_timed_out_is_sent_once(self):
+        def stall(req, handler):
+            time.sleep(0.6)
+            return None  # never answers within the timer
+        self.fake.always('/chat/completions', stall)
+        self.fake.always('/responses', stall)
+        with mock.patch.object(config, 'SPARK_TIMEOUT_S', 0.2), mock.patch.object(config, 'CALL_TIMEOUT_S', 0.2):
+            for route, sends in (('/chat/completions', 1), ('/responses', 2)):
+                with self.assertRaises(CallError, msg=route) as c:
+                    self.post(route)
+                self.assertEqual(c.exception.code, 'timeout')
+                self.assertTrue(c.exception.transient)
+                self.assertEqual(self.fake.count(route), sends, route)
+            with self.assertRaises(CallError):
+                self.t.post('/chat/completions', {}, time.monotonic() + 30, sleep=self.slept.append, retry_timeout=True)
+            self.assertEqual(self.fake.count('/chat/completions'), 3, 'the caller may ask for the retry')
+
+    def test_the_room_read_has_its_own_timer(self):
+        used = []
+        real = self.t.post_once
+
+        def spy(route, body, timeout):
+            used.append((route, timeout))
+            return real(route, body, timeout)
+        self.t.post_once = spy
+        self.fake.always('/chat/completions', ok_json({}))
+        self.fake.always('/responses', ok_json({}))
+        for route in ('/chat/completions', '/responses'):
+            self.t.post(route, {}, time.monotonic() + 100)
+        self.assertEqual(used,[('/chat/completions', config.SPARK_TIMEOUT_S), ('/responses', config.CALL_TIMEOUT_S)])
+        self.assertEqual((config.SPARK_TIMEOUT_S, config.CALL_TIMEOUT_S), (30.0, 20.0))
+
     def test_answer_caps(self):
         self.fake.always('/x', ok_json({'pad': 'x' * 5000}))
         with mock.patch.object(config, 'MAX_ANSWER_BYTES', 1000):

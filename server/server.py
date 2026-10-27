@@ -261,6 +261,7 @@ class FramePlayServer(ThreadingHTTPServer):
                 'photos_per_day': s.day_cap,
                 'usd_stop_per_day': s.usd_stop,
                 'seconds_per_call': config.CALL_TIMEOUT_S,
+                'seconds_per_read': config.SPARK_TIMEOUT_S,
                 'seconds_per_photo': config.PHOTO_TIMEOUT_S,
             },
         }

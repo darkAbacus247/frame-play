@@ -7,7 +7,8 @@
 - Answers are capped at 8 MiB, error bodies at 64 KiB.
 - One retry on a network error, 500 or 502, and on 503 only when
   Retry-After is 3 s or less. A 429 (not quota) is retried twice while time
-  remains, after Retry-After or 1 s, then 2 s. Never retried: 400, 401, 402, 403, 404, 413,
+  remains, after Retry-After or 1 s, then 2 s. A room read that timed out is
+  never sent again. Never retried: 400, 401, 402, 403, 404, 413,
   504, or a malformed answer. Retry-After is read as seconds or as a date.
 - With the owner's key, an account or model problem (401, 402, 403, a 404
   for a model route, a quota 429) marks the transport broken. While it is broken, the server sends
@@ -235,7 +236,8 @@ class Transport:
         except CallError:
             raise
         except (OSError, http.client.HTTPException, ValueError) as e:
-            if fired.is_set():
+            # the socket's own timeout may beat the timer's flag by a moment
+            if fired.is_set() or isinstance(e, TimeoutError):
                 raise CallError('timeout', TIMEOUT_WORDS, retryable=True, transient=True) from None
             raise CallError('network', NETWORK_WORDS, retryable=True, excerpt=type(e).__name__, transient=True) from None
         finally:
@@ -266,8 +268,15 @@ class Transport:
         except (UnicodeDecodeError, ValueError):
             raise CallError('malformed', MALFORMED_WORDS, status, excerpt=excerpt(data, self.holder)) from None
 
-    def post(self, route, body, deadline, sleep=time.sleep, clock=time.monotonic):
-        """With the retry table. Returns (parsed JSON, attempts, ms)."""
+    def post(self, route, body, deadline, sleep=time.sleep, clock=time.monotonic, retry_timeout=None):
+        """With the retry table. Returns (parsed JSON, attempts, ms).
+        The room read (/chat/completions) has its own longer timer and is not
+        sent again after a timeout: it may have been billed, and SAM needs the
+        rest of the photo's time. retry_timeout overrides that choice."""
+        spark = route == '/chat/completions'
+        if retry_timeout is None:
+            retry_timeout = not spark
+        per_call = config.SPARK_TIMEOUT_S if spark else config.CALL_TIMEOUT_S
         t0 = clock()
         attempt = 1
         while True:
@@ -275,11 +284,13 @@ class Transport:
             if left <= 0:
                 raise CallError('timeout', OUT_OF_TIME_WORDS, retryable=False, transient=True)
             try:
-                _, j = self.post_once(route, body, min(config.CALL_TIMEOUT_S, left))
+                _, j = self.post_once(route, body, min(per_call, left))
                 return j, attempt, int((clock() - t0) * 1000)
             except CallError as e:
                 e.attempt = attempt
                 if attempt >= (3 if e.status == 429 else 2) or not e.retryable:
+                    raise
+                if e.code == 'timeout' and not retry_timeout:
                     raise
                 wait = e.retry_after if e.retry_after is not None else 0
                 if e.status == 429 and e.retry_after is None:
