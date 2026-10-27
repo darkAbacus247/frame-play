@@ -40,10 +40,8 @@ test('the LIVE words never say "once", and count the calls the server makes', ()
   for (const t of [WHERE.live, OWN_NOTICE.live]) assert.match(t, /Meta’s Model API/);
 });
 
-// src/screens.js belongs to another builder this round: its LIVE words
-// still say 10 calls until the merge makes them 13. Kept as a todo so the
-// mismatch is reported on every run, never hidden.
-test('the page’s LIVE words count the calls the server makes', { todo: 'the merge changes "at most 10 calls" to "at most 13 calls" in src/screens.js (WHERE.live)' }, () => {
+// The page's LIVE words (src/screens.js, WHERE.live) count the same 13.
+test('the page’s LIVE words count the calls the server makes', () => {
   const N = serverCalls();
   const { texts } = liveTexts();
   for (const [where, t] of Object.entries(texts)) {

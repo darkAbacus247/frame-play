@@ -2,8 +2,8 @@
 // two sample rooms without breaking a layout rule: no scroll in main at
 // 839x945 and 1259x1418, 100% zoom, laid out by tests/layoutmodel.js as
 // tests/fit.test.js lays out every road screen (the same model, no
-// tolerance). The page lists its sample rooms in app.js (SAMPLES), which
-// the merge extends; these are the screens it will then draw.
+// tolerance). The page lists its sample rooms in app.js (SAMPLES); M5 added
+// the apartment there, and the cards laid out here are the ones it lists.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -15,7 +15,16 @@ import { headFor } from './screenset.js';
 
 const WINDOWS = [[839, 945], [1259, 1418]];
 const noop = () => {};
-const IDS = ['desk', 'living', 'apartment'];
+// the page's own list, read from app.js (importing it would start the page)
+const SAMPLES_SRC = /const SAMPLES = \[([\s\S]*?)\];/.exec(readFileSync(new URL('../app.js', import.meta.url), 'utf8'))[1];
+const IDS = [...SAMPLES_SRC.matchAll(/\{ id: '(\w+)', file: 'rooms\/(\w+)\.json' \}/g)].map((m) => { assert.equal(m[1], m[2]); return m[1]; });
+
+test('the page offers three sample rooms: The Desk Top, The Living Room and The Apartment', () => {
+  assert.deepEqual(IDS, ['desk', 'living', 'apartment']);
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.doesNotMatch(readme, /still offers the first two/, 'the README no longer says the page offers two');
+});
+
 const titles = Object.fromEntries(IDS.map((id) => [id, loadRoom(JSON.parse(readFileSync(new URL(`../rooms/${id}.json`, import.meta.url), 'utf8'))).title]));
 
 function pickScreens(mode) {

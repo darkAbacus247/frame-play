@@ -40,7 +40,10 @@ export function announce(level, ev, surfaceName) {
       return `The ${objectWords(level, ex)} is open.`;
     }
     case 'locked': return `Locked: collect ${ev.left} more.`;
-    case 'bump': return ev.k >= 0 ? `Blocked by the ${objectWords(level, ev.k)}` : `Blocked by the edge of the ${surfaceName || 'floor'}`;
+    // a bump with no thing near is a wall where the floor fences the play
+    // area (the event says wall: true), else the floor's edge; as
+    // blockedWords in src/play.js words it
+    case 'bump': return ev.k >= 0 ? `Blocked by the ${objectWords(level, ev.k)}` : ev.wall ? 'Blocked by a wall' : `Blocked by the edge of the ${surfaceName || 'floor'}`;
     case 'lose': return `The ${objectWords(level, ev.k)} got you.`;
     case 'win': return 'Room cleared!';
     default: return null;

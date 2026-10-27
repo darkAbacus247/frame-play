@@ -29,8 +29,7 @@ dining table and two chairs, a bed, a cabinet) and the exit in the
 bedroom, which only the kitchen opens onto. The stand-in answers for any
 of them (`--room apartment`), so a rehearsal of the apartment runs the
 whole live path: a read seen from above, a floor in four matches, the
-floor grown on the picture, walls and doorways. This copy's page still
-offers the first two on Steps 2 and 5.
+floor grown on the picture, walls and doorways.
 
 ### How a photo becomes a room
 

@@ -56,7 +56,7 @@ async function chooseAndMark(app, file) {
 function onlyItsOwnFiles(app) {
   for (const [method, url] of app.requests) {
     assert.equal(method, 'GET', `${method} ${url}`);
-    assert.match(url, /^(rooms\/(desk|living)\.json|api\/health)$/, url);
+    assert.match(url, /^(rooms\/(desk|living|apartment)\.json|api\/health)$/, url);
   }
 }
 

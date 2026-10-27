@@ -42,8 +42,9 @@ export function photoInput(onFile, camera = false) {
 export const WHERE = {
   mock: 'This page is in MOCK mode: no photo is sent anywhere, and you play sample rooms drawn by code.',
   // what server/pipeline.py does: one Muse Spark call, then one SAM call
-  // for the surface and one per kind of object (server/config.py caps them)
-  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it, at most 10 calls in all, each carrying the photo (a failed call may be sent one more time). This app does not store it.',
+  // for the floor (or surface) and one per kind of object, up to 11 kinds:
+  // 1 + 12 = 13 (server/config.py, SPARK_CALLS_PER_PHOTO and SAM_CALLS_PER_PHOTO)
+  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it, at most 13 calls in all, each carrying the photo (a failed call may be sent one more time). This app does not store it.',
   rehearsal: 'This page is in REHEARSAL mode: a local stand-in answers, not Meta, and no photo leaves this machine.',
 };
 // The key points: each one short line, none weaker than the full notice.
@@ -196,6 +197,16 @@ export function summaryLine(level, summary) {
   return `${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. Code ${tracedWords(level)}, then proved the room can be won.`;
 }
 
+// Where the play area came from, as the level says it (src/level.js and
+// floorFromReply in src/trace_in_box.js word it by mode: drawn by code, or
+// grown from Muse Spark's or the stand-in's points, or the horizon). A level
+// kept on this device before floors has no words: that is said plainly.
+export function floorLine(level) {
+  const f = level.provenance && level.provenance.floor;
+  if (f && typeof f.words === 'string' && f.words) return f.words;
+  return 'This level was kept on this device before floors were traced, so it does not say where its play area came from.';
+}
+
 export function proofLine(level) {
   const names = level.proof.order.map((id) => objectWords(level, level.objects.findIndex((o) => o.id === id)));
   const last = names.pop();
@@ -288,6 +299,8 @@ export function foundView({ level, summary, fromDevice, actions, slot = 0 }) {
     ], 'objects'),
     more(`Proof and changes by code (${changeCount(level.changes_by_code.length)})`, [
       el('p', { class: 'proof', text: proofLine(level) }),
+      el('h2', { class: 'small-h', text: 'Play area' }),
+      el('p', { class: 'floor-words', text: floorLine(level) }),
       el('h2', { class: 'small-h', text: 'Changes by code' }),
       changes,
     ], 'proof-more'),
