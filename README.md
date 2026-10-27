@@ -51,7 +51,9 @@ The photo itself is never stored, so on a return visit a photo room's level
 may not be in memory. That room's screen then makes it again right there,
 on the same step: pick the same photo (its level loads from this device
 when it was kept here, or the photo is read again), or send a stand-in room
-through the stand-in again. Where this copy cannot make it (a LIVE or
+through the stand-in again, only when the running stand-in answers for
+that same room (a stand-in started for another room would answer with its
+own room, so nothing is sent). Where this copy cannot make it (a LIVE or
 REHEARSAL room reopened in MOCK) the screen says so and the way on is
 forward. No primary button ever moves the step counter back. On the closing
 screen such a room says on which step it can be made again, or that this

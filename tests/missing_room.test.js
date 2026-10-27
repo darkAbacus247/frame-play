@@ -5,6 +5,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootApp } from './apphost.js';
+import { replyFor } from './replies.js';
+import { OTHER_ROOM_WORDS } from '../src/own.js';
+import * as R from '../src/road.js';
 
 const road = (S) => ({
   v: 3, step: S, reached: S, consent: true, own: null,
@@ -58,3 +61,61 @@ for (const mode of ['rehearsal', 'mock']) {
     assert.ok(app.step() >= 10, `the primary moved the counter to ${app.counter()}`);
   });
 }
+
+// A first or second room made by the stand-in (REHEARSAL), back on its
+// Found step on a return visit. Only the stand-in started for that very
+// room may make it again; any other would answer with its own room, drawn
+// over the wrong sample picture.
+const standInRoad = (slot, id) => {
+  const rooms = [{ kind: 'sample', id: 'desk' }, null, null];
+  rooms[slot] = { kind: 'rehearsal', id };
+  const step = slot === 0 ? 3 : 6;
+  return { v: 3, step, reached: step, consent: true, own: null, rooms, finished: [slot === 1, false, false], best: [null, null, null] };
+};
+
+for (const [slot, made, here, madeTitle, hereTitle] of [[0, 'living', 'desk', 'The Living Room', 'The Desk Top'], [1, 'desk', 'living', 'The Desk Top', 'The Living Room']]) {
+  test(`rehearsal: a room the ${made} stand-in made is not sent through the ${here} stand-in; nothing is sent`, async () => {
+    const step = slot === 0 ? 3 : 6;
+    const app = await bootApp({ mode: 'rehearsal', room: here, road: standInRoad(slot, made), answer: () => replyFor(here, 'rehearsal') });
+    app.cardPrimary().click();
+    await app.settle();
+    assert.equal(app.step(), step);
+    assert.equal(app.h1(), 'This room cannot load here');
+    assert.equal(app.button('Send it through the stand-in'), null);
+    assert.equal(app.mainPrimary(), null, 'no primary: the way on is in words');
+    const words = app.main();
+    assert.ok(words.includes(`stand-in for ${madeTitle}`) && words.includes(`answers for ${hereTitle}`), words);
+    assert.ok(words.includes(`Use ← to go back to Step ${R.PICK_STEPS[slot]} and pick a room.`), words);
+    // → is open here (its Play step says the same); where the header gives a
+    // reason, it names the way this screen offers
+    if (app.why()) assert.equal(app.why(), `Go back to Step ${R.PICK_STEPS[slot]} to pick a room`);
+    app.forward();
+    await app.settle();
+    assert.equal(app.button('Send it through the stand-in'), null, 'nor on its Play step');
+    assert.equal(app.posts(), 0);
+  });
+}
+
+test('rehearsal: the stand-in started for this room makes it again in place, and only from its answer for that room', async () => {
+  const app = await bootApp({ mode: 'rehearsal', room: 'desk', road: standInRoad(0, 'desk'), answer: () => replyFor('desk', 'rehearsal') });
+  app.cardPrimary().click();
+  await app.settle();
+  assert.equal(app.h1(), 'Rehearse this room again');
+  app.button('Send it through the stand-in').click();
+  await app.settle(60);
+  assert.equal(app.posts(), 1);
+  assert.equal(app.step(), 3, 'made again on the same step');
+  assert.ok(app.button('Play this room'), app.main());
+
+  // the server now answers for another room (restarted during the visit)
+  const other = await bootApp({ mode: 'rehearsal', room: 'desk', road: standInRoad(0, 'desk'), answer: () => replyFor('desk', 'rehearsal', { room: 'living' }) });
+  other.cardPrimary().click();
+  await other.settle();
+  other.button('Send it through the stand-in').click();
+  await other.settle(60);
+  assert.equal(other.posts(), 1);
+  assert.equal(other.step(), 3);
+  assert.ok(other.main().includes(OTHER_ROOM_WORDS), other.main());
+  assert.doesNotMatch(other.main(), /Nothing was sent/, 'something was sent');
+  assert.equal(other.button('Play this room'), null);
+});

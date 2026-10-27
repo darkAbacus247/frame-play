@@ -133,19 +133,21 @@ test('no sequence of road actions turns a made own room into "Not made"', () => 
 // its line names the step it was picked on, says what it was, and gives an
 // instruction only where this mode can make it again.
 test('a room not in memory names its own step, and only what this mode can do', () => {
-  const kinds = { photo: mine, rehearsal: { kind: 'rehearsal', id: 'desk' } };
+  // the running stand-in answers for the desk: it can make the desk again,
+  // never a room another sample's stand-in made
+  const kinds = { photo: mine, rehearsal: { kind: 'rehearsal', id: 'desk' }, 'other stand-in': { kind: 'rehearsal', id: 'living' } };
   for (const slot of [0, 1, 2]) {
     for (const [kind, ref] of Object.entries(kinds)) {
       for (const mode of ['live', 'rehearsal', 'mock']) {
         const rooms = [desk, living, null];
         rooms[slot] = ref;
         const road = { ...endRoad(true), rooms, own: null };
-        const line = closingRooms({ road, mode, levels: [null, null, null] })[slot].ai;
+        const line = closingRooms({ road, mode, room: mode === 'rehearsal' ? 'desk' : null, levels: [null, null, null] })[slot].ai;
         const at = `slot ${slot}, ${kind}, ${mode}: ${line}`;
         for (const m of line.matchAll(/Step (\d+)/g)) assert.equal(+m[1], R.PICK_STEPS[slot], at);
         if (/photo/.test(line)) assert.equal(kind, 'photo', at);
         if (/stand-in/.test(line)) assert.equal(kind, 'rehearsal', at);
-        const remakes = kind === 'photo' ? mode === 'live' || (slot === 2 && mode === 'rehearsal') : mode === 'rehearsal';
+        const remakes = kind === 'photo' ? mode === 'live' || (slot === 2 && mode === 'rehearsal') : kind === 'rehearsal' && mode === 'rehearsal';
         if (!remakes) {
           assert.doesNotMatch(line, /pick|send|Step/, at);
           assert.match(line, /this copy cannot make it again/, at);
@@ -155,13 +157,14 @@ test('a room not in memory names its own step, and only what this mode can do', 
       }
     }
   }
-  const one = (slot, ref, mode) => {
+  const one = (slot, ref, mode, room = null) => {
     const rooms = [desk, living, null];
     rooms[slot] = ref;
-    return closingRooms({ road: { ...endRoad(true), rooms }, mode, levels: [null, null, null] })[slot].ai;
+    return closingRooms({ road: { ...endRoad(true), rooms }, mode, room, levels: [null, null, null] })[slot].ai;
   };
   assert.match(one(0, mine, 'live'), /pick the same photo again on Step 2/);
-  assert.match(one(1, { kind: 'rehearsal', id: 'living' }, 'rehearsal'), /send it through the stand-in again on Step 5/);
+  assert.match(one(1, { kind: 'rehearsal', id: 'living' }, 'rehearsal', 'living'), /send it through the stand-in again on Step 5/);
+  assert.match(one(1, { kind: 'rehearsal', id: 'living' }, 'rehearsal', 'desk'), /this copy cannot make it again/, 'the desk’s stand-in cannot make the living room');
   assert.match(one(2, mine, 'live'), /pick the same photo again on Step 9/);
   // the opening line counts the rooms on the road, not those in memory
   const photos = { ...endRoad(true), rooms: [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }, { kind: 'photo', sha256: 'ef'.repeat(32) }] };

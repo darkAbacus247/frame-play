@@ -85,6 +85,16 @@ export function rehearsalVerdict(id, room, titleOf = (x) => x) {
   return { ok: false, why: 'In REHEARSAL the local stand-in (not Meta) only knows the sample rooms’ own pictures, and this photo is not one of them. Nothing was sent, and no level is made from it.' };
 }
 
+// In REHEARSAL, after a send: the stand-in's answer is used only when it
+// says it answered for the very room asked about. Its words, or null. (The
+// picture was sent by then, so they never say nothing was sent.) Shared by
+// your own room and a sample room rehearsed again, so the two always agree.
+export const OTHER_ROOM_WORDS = 'The stand-in answered for a different room than this picture shows, so its answer is not used.';
+export function standInReplyRefusal(reply, room) {
+  const r = reply && reply.provenance && reply.provenance.rehearsal;
+  return room && r && r.room === room ? null : OTHER_ROOM_WORDS;
+}
+
 // A level kept on this device for a photo, if it may be used here: made in
 // this very mode, for a copy of the same size. Otherwise null.
 export function keptLevel(kept, photo, mode) {
@@ -149,10 +159,8 @@ export async function makeOwnRoom({ mode, rehearsalRoom, file, deps, onWords = (
   const reply = await deps.send(photo.blob, onWords);
   const ok = acceptReply(mode, reply, photo);
   if (!ok.ok) return { kind: 'refused', picture: photo.picture, words: ok.why };
-  const answered = reply.provenance.rehearsal && reply.provenance.rehearsal.room;
-  if (mode === 'rehearsal' && answered && answered !== matched) {
-    return { kind: 'refused', picture: photo.picture, words: 'The stand-in answered for a different room than this picture shows, so its answer is not used.' };
-  }
+  const other = mode === 'rehearsal' ? standInReplyRefusal(reply, matched) : null;
+  if (other) return { kind: 'refused', picture: photo.picture, words: other };
   onWords('Tracing the outlines');
   const entry = await levelFromReply(reply, photo.picture, photo.pixels, ref, yieldNow);
   if (entry.built.error) return { kind: 'refused', picture: photo.picture, words: entry.built.error };

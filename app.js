@@ -14,7 +14,7 @@ import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tou
 import { describeRoom, stepsAway } from './src/words.js';
 import { acceptReply } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf } from './src/photo.js';
-import { levelFromReply, makeOwnRoom, signature, keptLevel } from './src/own.js';
+import { levelFromReply, makeOwnRoom, signature, keptLevel, standInReplyRefusal } from './src/own.js';
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
   freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS,
@@ -110,6 +110,10 @@ async function sample(id) {
   return entry;
 }
 
+async function sampleTitle(id) {
+  return SAMPLES.some((s) => s.id === id) ? (await sample(id)).room.title : id || 'no room';
+}
+
 function refKey(ref) {
   return ref.kind === 'photo' ? `photo:${ref.sha256}` : `${ref.kind}:${ref.id}`;
 }
@@ -189,10 +193,13 @@ async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
   }
 }
 
-async function readThroughServer(blob, copy, picture, pictureRef, onWords) {
+// standInRoom: in REHEARSAL, the room the answer must be for
+async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null) {
   const reply = await sendPhoto(blob, (m) => onWords(m.words));
   const ok = acceptReply(A.mode, reply, copy);
   if (!ok.ok) throw new Error(ok.why);
+  const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
+  if (other) throw new Error(other);
   onWords('Tracing the outlines');
   await new Promise((r) => setTimeout(r, 0)); // let the words show
   return levelFromReply(reply, picture, pixelsOf(picture), pictureRef);
@@ -217,13 +224,19 @@ function choosePhoto(slot, file, panel, opts) {
 }
 
 // Rehearsal: the stand-in's own sample picture goes through the live path,
-// so a stand-in level is never drawn over a photo.
+// so a stand-in level is never drawn over a photo. Only the picture of the
+// room the running stand-in answers for is sent, and only its answer for
+// that room is used.
 function rehearseRoom(slot, id, panel, opts) {
   return runLivePath(slot, panel, async (onWords) => {
+    const room = rehearsalRoom();
+    if (id !== room) {
+      throw new Error(`The local stand-in was started for ${await sampleTitle(room)}, not ${await sampleTitle(id)}, so it would answer for the wrong room. Nothing was sent.`);
+    }
     const s = await sample(id);
     const blob = await canvasJpeg(s.picture);
     const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
-    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords);
+    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room);
     return { ref: { kind: 'rehearsal', id }, entry };
   }, opts);
 }
@@ -451,9 +464,10 @@ async function screenRoom(main, slot, token) {
 // A room on the road whose level is not in memory. It is made again here,
 // on this same step, in the way this mode allows: a photo picked again (the
 // photo itself is never stored), a rehearsal room sent through the stand-in
-// again. Nothing here moves the counter back; where this mode cannot make
-// the room, the way on is forward.
-function missingRoom(main, slot) {
+// again (only by the stand-in started for that room). Nothing here moves
+// the counter back; where this copy cannot make your own room, the way on
+// is forward; a first or second room is picked again on its own step, with ←.
+async function missingRoom(main, slot, token) {
   const ref = A.road.rooms[slot];
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
   const shown = el('div', { class: 'own-result', hidden: true });
@@ -489,6 +503,14 @@ function missingRoom(main, slot) {
       chooseAgain((f) => choosePhoto(slot, f, panel, { inPlace: true }), 'Pick the same photo; nothing is sent if its level is on this device'),
       panel);
     why = 'Pick the same photo to play this room';
+  } else if (ref && ref.kind === 'rehearsal' && A.mode === 'rehearsal' && ref.id !== rehearsalRoom()) {
+    // another sample's stand-in made it: this stand-in would answer for its
+    // own room, so nothing is offered that sends
+    const made = await sampleTitle(ref.id), here = await sampleTitle(rehearsalRoom());
+    if (token !== A.renderToken) return;
+    kids.push(el('h1', { text: 'This room cannot load here' }),
+      el('p', { text: `This room was rehearsed with the stand-in for ${made}. This stand-in answers for ${here}, so it cannot make it here. Use ← to go back to Step ${R.PICK_STEPS[slot]} and pick a room.` }));
+    why = `Go back to Step ${R.PICK_STEPS[slot]} to pick a room`;
   } else if (ref && ref.kind === 'rehearsal' && A.mode === 'rehearsal') {
     kids.push(el('h1', { text: 'Rehearse this room again' }),
       el('p', { text: 'The stand-in’s level is made again on each visit.' }),
@@ -522,7 +544,7 @@ function describeSection(section, level, rt, state, button) {
 async function screenFound(main, slot, token) {
   const entry = await levelFor(A.road.rooms[slot]);
   if (token !== A.renderToken) return;
-  if (!entry) return missingRoom(main, slot);
+  if (!entry) return missingRoom(main, slot, token);
   if (entry.built.error) {
     main.replaceChildren(el('section', { class: 'screen sparse' }, [el('h1', { text: 'No level from this picture' }), el('p', { text: entry.built.error })]));
     return;
@@ -555,7 +577,7 @@ async function screenFound(main, slot, token) {
 async function screenPlay(main, slot, ref, token) {
   const entry = await levelFor(ref || A.road.rooms[slot]);
   if (token !== A.renderToken) return;
-  if (!entry && slot >= 0) return missingRoom(main, slot);
+  if (!entry && slot >= 0) return missingRoom(main, slot, token);
   if (!entry || entry.built.error) {
     main.replaceChildren(el('p', { text: entry ? entry.built.error : 'This room is not on this device any more.' }));
     return;
@@ -653,7 +675,7 @@ async function screenEnd(main, token) {
     entries.push(entry && !entry.built.error ? entry : null);
   }
   const rooms = closingRooms({
-    road: A.road, mode: A.mode,
+    road: A.road, mode: A.mode, room: rehearsalRoom(),
     levels: entries.map((e) => (e ? e.built.level : null)),
     summaries: entries.map((e) => (e ? e.summary : null)),
   });

@@ -361,8 +361,9 @@ export function ownResult(r) {
 // ---- the closing screen ----
 // Each room on the road, with one line of what happened and one sentence
 // of what the AI did. `levels` holds the three rooms' levels (null when not
-// made or not in memory), `summaries` the live reads' summaries.
-export function closingRooms({ road, levels, summaries = [], mode }) {
+// made or not in memory), `summaries` the live reads' summaries, `room`
+// the room the running stand-in answers for (REHEARSAL), or null.
+export function closingRooms({ road, levels, summaries = [], mode, room = null }) {
   return [0, 1, 2].map((slot) => {
     const level = levels[slot] || null;
     const ref = road.rooms[slot] || null;
@@ -382,19 +383,20 @@ export function closingRooms({ road, levels, summaries = [], mode }) {
       slot, heading, ref, playable: !!level,
       title: level ? level.title : null,
       result: resultLine(road, slot),
-      ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode),
+      ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode, room),
     };
   });
 }
 
 // A room on the road whose level is not in memory: how to see it again, on
-// the step where it was picked, only when this mode can make it again.
-export function missingLine(slot, ref, mode) {
+// the step where it was picked, only when this copy can make it again (a
+// stand-in room only by the stand-in started for that same room).
+export function missingLine(slot, ref, mode, room = null) {
   const gone = 'Its level is not in memory on this visit';
   if (ref && ref.kind === 'photo' && (mode === 'live' || (slot === 2 && mode === 'rehearsal'))) {
     return `${gone}; pick the same photo again on Step ${PICK_STEPS[slot]} to see it.`;
   }
-  if (ref && ref.kind === 'rehearsal' && mode === 'rehearsal') {
+  if (ref && ref.kind === 'rehearsal' && mode === 'rehearsal' && ref.id === room) {
     return `${gone}; send it through the stand-in again on Step ${PICK_STEPS[slot]} to see it.`;
   }
   return `${gone}, and this copy cannot make it again.`;

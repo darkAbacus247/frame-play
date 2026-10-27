@@ -1,20 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { loadRoom } from '../src/rooms.js';
-import { paintRoom } from '../src/painter.js';
-import { fillRings, maskBounds } from '../src/raster.js';
-import { REPLY_SCHEMA } from '../src/reply.js';
 import { LABELS } from '../src/level.js';
-import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, keptLevel, MOCK_WORDS } from '../src/own.js';
+import { makeOwnRoom, signature, matchSample, sigDistance, rehearsalVerdict, keptLevel, standInReplyRefusal, OTHER_ROOM_WORDS, MOCK_WORDS } from '../src/own.js';
+import { paintRoom } from '../src/painter.js';
+import { rooms, replyFor } from './replies.js';
 import { jpegLike } from './jpegsim.js';
 
-const rooms = {};
-for (const id of ['desk', 'living']) {
-  const room = loadRoom(JSON.parse(readFileSync(new URL(`../rooms/${id}.json`, import.meta.url), 'utf8')));
-  const rgba = paintRoom(room).rgba;
-  rooms[id] = { room, pixels: { width: room.width, height: room.height, data: rgba } };
-}
 const SAMPLES = Object.entries(rooms).map(([id, r]) => ({ id, title: r.room.title, sig: signature(r.pixels) }));
 const sent = (id) => ({ ...rooms[id].pixels, data: jpegLike(rooms[id].pixels.data, rooms[id].pixels.width, rooms[id].pixels.height, 90) });
 
@@ -45,27 +36,6 @@ function half({ width, height, data }) {
 // A picked file as these tests see it: its type and size, and the pixels the
 // page would hold after shrinking and re-encoding it.
 const file = (pixels, type = 'image/jpeg') => ({ type, size: 300000, pixels });
-
-// The server's reply for a sample room's picture, in a mode, with SAM's
-// exact boxes from the room's own shapes.
-function replyFor(id, mode, { room = id, status = 'ok', error = null } = {}) {
-  const r = rooms[id].room;
-  const objects = r.objects.filter((o) => o.on_surface).map((o, k) => {
-    const b = maskBounds(fillRings(o.rings, r.width, r.height), r.width, r.height);
-    return { id: `o${k + 1}`, name: o.name, instance: o.instance, role: o.role, reason: o.reason, on_surface: true,
-      box: [b.x0, b.y0, b.x1, b.y1], confidence: 0.9, seeds: [[(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]] };
-  });
-  return {
-    schema: REPLY_SCHEMA, request_id: 'r1', status,
-    provenance: { mode, label: LABELS[mode], models: mode === 'live' ? ['muse-spark-1.3', 'sam-3.1'] : [], calls: [], ...(mode === 'rehearsal' ? { rehearsal: { room } } : {}) },
-    received: { width: r.width, height: r.height },
-    scene: { title: r.title, theme_line: r.theme_line, people_present: status !== 'ok', scenery: [] },
-    surface: null,
-    objects: status === 'ok' ? objects : [],
-    warnings: [],
-    error,
-  };
-}
 
 function deps(reply) {
   const calls = { preview: 0, read: 0, send: 0 };
@@ -247,6 +217,20 @@ test('REHEARSAL builds from the stand-in’s own picture, and never from an answ
   const w = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(sent('desk')), deps: wrong.deps, yieldNow: quick });
   assert.equal(w.kind, 'refused');
   assert.match(w.words, /different room/);
+});
+
+test('one check of the stand-in’s room serves both rehearsal paths, and never says nothing was sent', async () => {
+  assert.equal(standInReplyRefusal(replyFor('desk', 'rehearsal'), 'desk'), null);
+  assert.equal(standInReplyRefusal(replyFor('desk', 'rehearsal', { room: 'living' }), 'desk'), OTHER_ROOM_WORDS);
+  const silent = replyFor('desk', 'rehearsal');
+  delete silent.provenance.rehearsal;
+  assert.equal(standInReplyRefusal(silent, 'desk'), OTHER_ROOM_WORDS, 'a reply that names no room is not used');
+  assert.equal(standInReplyRefusal(replyFor('desk', 'rehearsal'), null), OTHER_ROOM_WORDS, 'nor one with no room to compare');
+  assert.doesNotMatch(OTHER_ROOM_WORDS, /Nothing was sent/);
+  const own = deps(silent);
+  const r = await makeOwnRoom({ mode: 'rehearsal', rehearsalRoom: 'desk', file: file(sent('desk')), deps: own.deps, yieldNow: quick });
+  assert.equal(r.kind, 'refused');
+  assert.equal(r.words, OTHER_ROOM_WORDS);
 });
 
 test('LIVE builds the room from the models’ reply for this photo', async () => {
