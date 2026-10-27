@@ -29,8 +29,10 @@ CALL_TIMEOUT_S = 20.0
 PHOTO_TIMEOUT_S = 60.0
 SPARK_CALLS_PER_PHOTO = 1
 SAM_CALLS_PER_PHOTO = 9
-IN_FLIGHT = 2
-PER_HOUR = 40
+# Several judges at once: 4 photos in flight, 120 an hour. The day's cap and
+# the $5 stop stay the hard guards.
+IN_FLIGHT = 4
+PER_HOUR = 120
 PER_DAY = 200
 USD_STOP = 5.0
 # The first real desk read used 1,691 output tokens (1,151 reasoning); a
