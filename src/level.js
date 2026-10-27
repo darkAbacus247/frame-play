@@ -2,7 +2,7 @@
 // that the room can be won, the ordered repairs code may make (each one
 // listed), and validation. Pure logic: no page, no canvas.
 import { fillRings, maskBounds, traceMaskInBounds } from './raster.js';
-import { ringsInside } from './geom.js';
+import { ringsInside, bounds } from './geom.js';
 import { navParams, buildNav, gridDistances, cellCenter, findPath } from './nav.js';
 
 export const LEVEL_SCHEMA = 'frameplay.level/2';
@@ -375,6 +375,26 @@ function noLevelWords(level, rt, start, proof) {
   return `No level from this picture: ${why}`;
 }
 
+// Why an object standing on the surface is really the surface, or null: it
+// is named like the surface (the same last word), its box covers at least
+// 45% of the picture, or it covers at least 80% of the surface's box.
+function giantWhy(level, k) {
+  const o = level.objects[k];
+  if (!o.on_surface || o.role === 'flat') return null;
+  const head = (s) => String(s).trim().toLowerCase().split(/\s+/).pop().replace(/s$/, '');
+  const surface = level.surface && level.surface.rings && level.surface.rings.length ? level.surface : null;
+  if (surface && surface.name && head(o.name) === head(surface.name)) return `It is the ${surface.name} itself`;
+  const area = (b) => Math.max(0, b.x1 - b.x0) * Math.max(0, b.y1 - b.y0);
+  const ob = bounds(o.outline.rings);
+  if (area(ob) >= 0.45 * level.picture.width * level.picture.height) return 'It fills most of the picture';
+  if (surface) {
+    const sb = bounds(surface.rings);
+    const inter = { x0: Math.max(ob.x0, sb.x0), y0: Math.max(ob.y0, sb.y0), x1: Math.min(ob.x1, sb.x1), y1: Math.min(ob.y1, sb.y1) };
+    if (area(sb) > 0 && area(inter) >= 0.8 * area(sb)) return `It covers most of the ${surface.name || 'floor'}`;
+  }
+  return null;
+}
+
 // Build a level from the read of a room (sample or live): footprints, the
 // walk region, ordered repairs (each listed), the start and the proof.
 // Returns { level, rt } or { error } in words.
@@ -382,6 +402,16 @@ export function buildLevel(input) {
   const level = normalizeInput(input);
   const changes = level.changes_by_code;
   const say = (what, why) => changes.push({ what, why });
+
+  // giant objects are part of the surface: walked over, no footprint band,
+  // never drawn over the explorer
+  level.objects.forEach((o, k) => {
+    const why = giantWhy(level, k);
+    if (!why) return;
+    o.role = 'flat';
+    say(`The ${objectWords(level, k)} is part of the ${(level.surface && level.surface.name) || 'floor'}`, why);
+  });
+
   let rt = prepare(level);
 
   // a single exit: keep the first one, the rest become solid

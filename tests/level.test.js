@@ -293,6 +293,37 @@ test('a surface box made of several matches (a union) is just a wider box', () =
   assert.equal(res.rt.walk[740 * 1024 + 900], 1);
 });
 
+test('a frame-filling object is part of the floor: no footprint band, walked over', () => {
+  const res = buildLevel(liveInput([['bed', 'exit', [0, 0, 1024, 768]], ...ROOM.slice(1), ['lamp', 'solid', [300, 420, 360, 520]]]));
+  assert.ok(!res.error, res.error);
+  const { level, rt } = res;
+  const bed = level.objects[0];
+  assert.equal(bed.role, 'flat', 'so it is never drawn over the explorer');
+  assert.equal(bed.footprint, null);
+  assert.equal(rt.objs[0].footprint, null);
+  assert.deepEqual(level.changes_by_code[0], { what: 'The bed is part of the floor', why: 'It fills most of the picture' });
+  assert.ok(level.changes_by_code.some((c) => /became the exit/.test(c.what)), 'another object took over as the exit');
+  const at = (x, y) => rt.walk[y * rt.W + x];
+  assert.equal(at(500, 740), 1, 'no band across the bottom');
+  assert.equal(at(100, 600), 1);
+  assert.equal(level.proof.winnable, true);
+  assert.ok(validateLevel(JSON.parse(JSON.stringify(level))).ok);
+});
+
+test('an object named like the surface, or covering most of it, is the surface', () => {
+  const named = liveInput([['desk', 'solid', [0, 319, 1024, 687]], ['desk lamp', 'solid', [600, 420, 660, 520]], ...ROOM]);
+  named.surface.name = 'desk';
+  const res = buildLevel(named);
+  assert.ok(!res.error, res.error);
+  assert.equal(res.level.objects[0].role, 'flat');
+  assert.equal(res.level.objects[1].role, 'solid', 'a desk lamp is not the desk');
+  assert.deepEqual(res.level.changes_by_code, [{ what: 'The desk is part of the desk', why: 'It is the desk itself' }]);
+  const sofa = buildLevel(liveInput([['sofa', 'solid', [150, 380, 820, 720]], ...ROOM], [200, 400, 800, 700]));
+  assert.ok(!sofa.error, sofa.error);
+  assert.equal(sofa.level.objects[0].role, 'flat');
+  assert.equal(sofa.level.changes_by_code[0].why, 'It covers most of the floor');
+});
+
 test('validation refuses a foreign origin, a ring outside, two exits and no collectible', () => {
   const { built } = deskLevel();
   const good = JSON.stringify(built.level);
