@@ -176,6 +176,32 @@ class Reads(WithFake):
         self.assertEqual(r['error']['message'], 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.')
         self.assertIn('not found: mug', r['warnings'])
 
+    def completion(self, finish, **message):
+        return ok_json({'choices': [{'index': 0, 'finish_reason': finish, 'message': {'role': 'assistant', **message}}],
+                        'usage': {'prompt_tokens': 1354, 'completion_tokens': 4000}})
+
+    def test_a_read_cut_off_at_the_cap_says_so(self):
+        # A2: finish_reason "length" and half a JSON object
+        self.fake.on('/chat/completions', self.completion('length', content=json.dumps(READ)[:300]))
+        r = self.pipe.run(photo())
+        self.assertEqual((r['status'], r['error']['code']), ('error', 'cut_off'))
+        self.assertEqual(r['error']['message'], 'The room read was cut off before it finished. Please try the same photo '
+                                                'again; a photo with fewer things in it reads faster.')
+        self.assertEqual(self.fake.count('/chat/completions'), 1)
+        self.assertEqual(self.fake.count('/responses'), 0)
+        self.assertGreater(r['usage']['estimated_usd'], 0, 'a cut-off read is billed')
+
+    def test_a_refusal_in_its_own_field_is_a_refusal(self):
+        self.fake.on('/chat/completions', self.completion('stop', content=None, refusal='I cannot help with that.'))
+        r = self.pipe.run(photo())
+        self.assertEqual((r['status'], r['error']['code']), ('refused', 'content_filter'))
+        self.assertEqual(self.fake.count('/responses'), 0)
+
+    def test_an_empty_read_is_not_called_invalid_json(self):
+        self.fake.on('/chat/completions', self.completion('stop', content=None, refusal=None))
+        r = self.pipe.run(photo())
+        self.assertEqual((r['error']['code'], r['error']['message']), ('malformed', 'The room read came back empty.'))
+
     def test_a_malformed_read_keeps_a_short_redacted_excerpt(self):
         bad = ok_json({'choices': [{'finish_reason': 'stop', 'message': {'content': 'Sure! ' + TEST_VALUE + ' ' + 'z' * 800}}]})
         self.fake.on('/chat/completions', bad)

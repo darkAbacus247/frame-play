@@ -103,6 +103,8 @@ SCHEMA = {
 
 PROGRESS = (('read', 'Reading your room'), ('find', 'Finding every object'))
 PEOPLE_WORDS = 'This photo seems to show a person. Please use one with no people.'
+CUT_OFF_WORDS = ('The room read was cut off before it finished. Please try the same photo again; '
+                 'a photo with fewer things in it reads faster.')
 
 SPATIAL = {'left', 'right', 'top', 'bottom', 'behind', 'front', 'near', 'far', 'under', 'above', 'below', 'beside',
            'next', 'middle', 'center', 'centre', 'corner', 'on', 'in', 'at', 'back', 'side', 'upper', 'lower'}
@@ -174,19 +176,28 @@ def read_spark(j, holder=None):
     try:
         choice = j['choices'][0]
         finish = choice.get('finish_reason')
-        content = choice['message']['content']
-    except (KeyError, IndexError, TypeError):
-        raise CallError('malformed', 'The room read came back in an unexpected shape', excerpt=excerpt(json.dumps(j)[:600], holder)) from None
-    if finish == 'content_filter':
-        raise CallError('content_filter', 'Muse Spark declined to read this photo', billed=True)
+        message = choice['message']
+        content = message.get('content')
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise CallError('malformed', 'The room read came back in an unexpected shape.', excerpt=excerpt(json.dumps(j)[:600], holder)) from None
+    refusal = message.get('refusal')
+    if finish == 'content_filter' or (isinstance(refusal, str) and refusal.strip()):
+        raise CallError('content_filter', 'Muse Spark declined to read this photo.', billed=True,
+                        **({'excerpt': excerpt(refusal, holder)} if isinstance(refusal, str) and refusal.strip() else {}))
+    if finish == 'length':
+        # cut off at the output cap: half a JSON object, said as what it is
+        raise CallError('cut_off', CUT_OFF_WORDS, billed=True, transient=True,
+                        excerpt=excerpt(content, holder) if isinstance(content, str) else None)
     if isinstance(content, list):
         content = ''.join(p.get('text', '') for p in content if isinstance(p, dict))
+    if content is None or (isinstance(content, str) and not content.strip()):
+        raise CallError('malformed', 'The room read came back empty.')
     try:
         read = json.loads(content)
     except (TypeError, ValueError):
-        raise CallError('malformed', 'The room read was not valid JSON', excerpt=excerpt(content, holder)) from None
+        raise CallError('malformed', 'The room read was not valid JSON.', excerpt=excerpt(content, holder)) from None
     if not isinstance(read, dict) or not isinstance(read.get('people_present'), bool):
-        raise CallError('malformed', 'The room read is missing its fields', excerpt=excerpt(content, holder))
+        raise CallError('malformed', 'The room read is missing its fields.', excerpt=excerpt(content, holder))
     usage = j.get('usage') or {}
     tin = int(usage.get('prompt_tokens') or 0)
     tout = int(usage.get('completion_tokens') or 0)
