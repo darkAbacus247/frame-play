@@ -408,10 +408,10 @@ export function header({ lap, counter, why, tourOn = false, band = null }) {
     band ? el('p', { class: 'band', text: band }) : null,
   ]);
 }
-export function dock(mode) {
+export function dock(mode, sound = 'on') {
   return el('footer', { class: 'dock' }, [
     el('button', { type: 'button', class: 'btn' }, [el('span', { text: '⚙' }), el('span', { text: 'Settings' })]),
-    el('button', { type: 'button', class: 'btn', text: 'Sound: on' }),
+    el('button', { type: 'button', class: 'btn', text: `Sound: ${sound}` }),
     el('span', { class: `mode-chip ${mode}`, text: mode.toUpperCase() }),
     el('span', { class: 'mark', text: 'FRAME//PLAY' }),
   ]);
