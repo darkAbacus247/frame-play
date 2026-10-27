@@ -190,14 +190,14 @@ test('play: the board starts under the status line, level with the side column, 
     if (L.sideBeside) {
       assert.ok(Math.abs(L.board.top - L.side.top) <= 8, `${v.name}: board top ${L.board.top}, side column top ${L.side.top}`);
       assert.ok(L.board.right <= L.side.left, `${v.name}: the side column sits beside the board, not over it`);
-      assert.ok(L.side.right <= L.playW + 0.5, `${v.name}: the side column stays in main`);
+      assert.ok(L.side.right <= L.playW, `${v.name}: the side column stays in main`);
     } else {
       assert.ok(L.side.top >= L.label.bottom, `${v.name}: the side column flows below the board and its line`);
     }
     const under = L.label.top - L.board.bottom;
     assert.ok(under >= 0 && under <= 32, `${v.name}: the line under the board is ${under}px below it`);
     assert.ok(L.board.right <= L.playW, `${v.name}: the board fits main's width`);
-    if (L.room.h > L.minH) assert.ok(L.label.bottom <= L.spaceH + 0.5, `${v.name}: when it can, the board and its line fit above the dock`);
+    if (L.room.h > L.minH) assert.ok(L.label.bottom <= L.spaceH, `${v.name}: when it can, the board and its line fit above the dock`);
   }
   // wide windows: the board takes the whole width beside the side column or
   // the whole height, whichever runs out first
@@ -394,6 +394,15 @@ function columnsOf(chain, kids, vw, vh) {
   return n + extra;
 }
 
+test('the fit checks hold with no tolerance, as the README says', () => {
+  for (const f of ['./layout.test.js', './fit.test.js']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /<= (L\.)?(spaceH|space|playW) \+ [\d.]/, `${f} allows a tolerance`);
+  }
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+  assert.match(readme, /both with a layout model built on the stylesheet's own rules and no tolerance/);
+});
+
 test('the matcher: a play-screen rule never reaches a compare card', () => {
   const label = node('p', 'level-label');
   assert.ok(selectorMatches('.play > .level-label', [node('div', 'play'), label]));
@@ -479,7 +488,7 @@ test('play fits main without scrolling at 839x945 and 1259x1418, 100% zoom', asy
         const L = layPlay(vw, vh, m.header + m.dock);
         assert.ok(L.room.h > L.minH, `${vw}x${vh}: the board has room above its minimum`);
         const bottom = Math.max(L.label.bottom, L.side.bottom);
-        assert.ok(bottom <= L.spaceH + 0.5, `${vw}x${vh}${band ? ' rehearsal' : ''}: ${Math.round(bottom)}px of play in ${Math.round(L.spaceH)}px`);
+        assert.ok(bottom <= L.spaceH, `${vw}x${vh}${band ? ' rehearsal' : ''}: ${Math.round(bottom)}px of play in ${Math.round(L.spaceH)}px`);
       }
     }
   } finally {

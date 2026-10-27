@@ -43,7 +43,8 @@ circuit is complete: each room with whether you won and your best route,
 one sentence on what the AI did in it, and the ways on: Free play, Play
 again for any room, Try your own room (or, in MOCK, why it needs the live
 AI), and Start over, which asks first and clears nothing unless you
-confirm. Free play always opens on the list of rooms; a replay lasts only
+confirm. While a card or the settings are open, a round in play holds
+still, so no round ends under them. Free play always opens on the list of rooms; a replay lasts only
 while you stay on it, and its rounds never change the road's results (its
 end card says so). Your own room, when made, stays on the road: going
 back to its step and choosing Continue to the end keeps it, its result and

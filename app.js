@@ -614,6 +614,8 @@ async function screenPlay(main, slot, ref, token) {
     say: (t) => { say(t); progress(); },
     ui: uiFlags,
     sideExtras: [describeBtn, desc],
+    // a card (Start over?, welcome back) or the settings drawer holds the round
+    paused: () => cardOpen() || A.drawerOpen,
     onEnd: (r) => endOfRound(slot, r, level),
   });
   A.view.focusGame();

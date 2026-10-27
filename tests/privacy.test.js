@@ -59,3 +59,14 @@ test('the key points are no weaker than the full notice', () => {
   assert.match(WHERE.live, /camera data is removed/);
   assert.match(WHERE.live, /this app’s server/);
 });
+
+test('what is kept is said for this app only, the one thing this code can vouch for', () => {
+  const live = points('live')[2];
+  assert.equal(live, 'LIVE mode: your photo goes to Meta’s Model API to be read; this app keeps none.');
+  assert.ok(live.length <= 80);
+  assert.ok(OWN_NOTICE.live.endsWith('(Muse Spark, then SAM 3.1). This app keeps none.'));
+  assert.ok(OWN_NOTICE.live.length <= 151, `${OWN_NOTICE.live.length} characters`);
+  for (const mode of ['mock', 'live', 'rehearsal']) {
+    for (const t of [WHERE[mode], OWN_NOTICE[mode], ...points(mode)]) assert.doesNotMatch(t, /(^|\. )Not stored\./, `${mode}: a claim with no subject: ${t}`);
+  }
+});

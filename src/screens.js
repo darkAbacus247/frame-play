@@ -46,7 +46,7 @@ export const WHERE = {
 // The key points: each one short line, none weaker than the full notice.
 const WHERE_SHORT = {
   mock: 'MOCK mode: no photo is sent anywhere; sample rooms are drawn by code.',
-  live: 'LIVE mode: your photo goes to Meta’s Model API for this read only. Not stored.',
+  live: 'LIVE mode: your photo goes to Meta’s Model API to be read; this app keeps none.',
   rehearsal: 'REHEARSAL mode: a local stand-in answers; no photo leaves this machine.',
 };
 export const PEOPLE = 'Keep people and anything private out of the photo.';
@@ -305,7 +305,7 @@ export function freeView() {
 // What each mode does with a photo: the plain line in view; in REHEARSAL
 // the details one press away.
 export const OWN_NOTICE = {
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark, then SAM 3.1). Not stored.',
+  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark, then SAM 3.1). This app keeps none.',
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };

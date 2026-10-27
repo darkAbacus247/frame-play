@@ -52,7 +52,8 @@ export function mountReveal(root, { level, rt, picture, ui, maxHeight }) {
 }
 
 // opts: { level, rt, picture, ui: () => ({outlines, reducedMotion, highContrast, walls}),
-//         audio, say(text), onEnd({status, ratio, travelled, words}) }
+//         audio, say(text), onEnd({status, ratio, travelled, words}),
+//         paused(): true while the round must hold still }
 export function mountPlay(root, opts) {
   const { level, rt, picture, audio, say } = opts;
   let state = createRound(level, rt);
@@ -170,6 +171,9 @@ export function mountPlay(root, opts) {
     if (!last) last = t;
     acc += Math.min(0.25, (t - last) / 1000);
     last = t;
+    // while a card or the settings are open the round holds still, so a
+    // walk under them never ends the round (nor puts its card over theirs)
+    if (opts.paused && opts.paused()) acc = 0;
     let steps = 0;
     while (acc >= DT && steps < 8 && !ended) {
       const events = stepRound(state, level, rt, { dir: steering() });
