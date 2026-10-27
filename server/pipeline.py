@@ -267,9 +267,21 @@ def _rank(r):
 
 def choose(records, role):
     """Matches at or above 0.35, ranked by confidence then area, up to the
-    role's count (the surface's choice: no points to go by)."""
+    role's count."""
     keep = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
     return keep[:PER_NOUN.get(role, 1)]
+
+
+def surface_from(records):
+    """The play surface: one box around all of its matches at or above 0.35
+    (a floor split by a rug or a shadow is still one floor), with the best
+    confidence; or None."""
+    keep = [r for r in records if _conf(r) >= MIN_CONFIDENCE]
+    if not keep:
+        return None
+    boxes = [r['box'] for r in keep]
+    return {'box': [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)],
+            'confidence': max(_conf(r) for r in keep), 'matches': len(keep)}
 
 
 def _reach(p, box, W, H):
@@ -418,9 +430,18 @@ class Pipeline:
         except Refusal as e:
             extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
             return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused', 'error': {'code': e.code, 'message': e.message}}, extra)
+        done = []
+
+        def finish():
+            # the photo's place is free before its reply is sent, so a page
+            # that sends the next photo at once is not told to wait
+            if not done:
+                done.append(1)
+                self.limits.finish()
         try:
             if not stream:
                 reply = self.run(photo)
+                finish()
                 return handler.send_json(200, reply)
             handler.send_response(200)
             handler.common_headers()
@@ -450,10 +471,11 @@ class Pipeline:
                 if self.log is not None:
                     self.log.write(event='photo_failed', error=type(e).__name__)
                 reply = self.failed_reply()
+            finish()
             line({'type': 'reply', 'reply': reply})
             chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:
-            self.limits.finish()
+            finish()
 
     def failed_reply(self):
         """A read that broke after the stream began: an error reply in this
@@ -633,12 +655,14 @@ class Pipeline:
         stages['find'] = 'ok'
 
         surface = None
+        surface_matches = 0
         if room['surface']:
             parsed, err = answers[('surface', room['surface'])]
             if parsed is not None and not ('size_mismatch' in parsed.errors) and parsed.records:
-                best = choose(parsed.records, 'flat')
-                if best:
-                    surface = {'name': room['surface'], 'box': best[0]['box'], 'confidence': best[0]['confidence']}
+                whole = surface_from(parsed.records)
+                if whole:
+                    surface = {'name': room['surface'], 'box': whole['box'], 'confidence': whole['confidence']}
+                    surface_matches = whole['matches']
             if surface is None and err is not None:
                 warnings.append(f'not looked for: {room["surface"]} (the play surface; {first_sentence(err.message)}); '
                                 'the full width below the horizon is used')
@@ -662,7 +686,7 @@ class Pipeline:
             dropped[name].append((r, f'the same box was kept for the {winner}', 'same_box'))
         for c in calls:
             if c['stage'] == 'find' and c.get('surface'):
-                c['kept'] = 1 if surface else 0
+                c['kept'] = surface_matches
             elif c['stage'] == 'find' and c.get('noun') in dropped:
                 c['kept'] = sum(1 for q in picks if q[1] == c['noun'])
                 if dropped[c['noun']]:

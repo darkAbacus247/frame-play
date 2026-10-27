@@ -5,12 +5,13 @@ import socket
 import unittest
 from pathlib import Path
 
-from server import config
+from server import config, samtext
 from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
 from server.limits import Limits
 from server.meta_api import CallError, Transport
-from server.pipeline import Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims
+from server.pipeline import (Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims,
+                             surface_from)
 from server.samtext import compose
 from server.server import Log
 from server.tests import images, recorded
@@ -439,6 +440,16 @@ class RecordedDesk(unittest.TestCase):
         # on 10-27 this line would have read 0 kept for every name, with the
         # reader's codes beside them, and no capture would have been needed
 
+    def test_a_surface_in_two_matches_is_one_box(self):
+        # A3, through the pipeline: the desk answered as two patches
+        two = samtext.compose([{'box': [0, 400, 499, 767], 'confidence': 0.8, 'payload': 'abc'},
+                               {'box': [500, 380, 1023, 767], 'confidence': 0.7, 'payload': 'abc'}], recorded.W, recorded.H)
+        r = recorded.run({'desk': two})
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(r['surface'], {'name': 'desk', 'box': [0, 380, 1024, 768], 'confidence': 0.8})
+        desk = next(c for c in r['provenance']['calls'] if c.get('surface'))
+        self.assertEqual((desk['matches'], desk['kept']), (2, 2))
+
     def test_one_box_is_never_two_objects(self):
         # SAM answers "coffee mug" with the lamp: the lamp holds Muse Spark's
         # lamp points, so it stays the lamp, and the mug is placed by its own
@@ -487,6 +498,12 @@ class Choosing(unittest.TestCase):
         edge = point_regions([[2, 3]], 'exit', 1024, 768)
         self.assertEqual(edge[0][0], [0, 0, 54, 55], 'held inside the picture')
         self.assertEqual(point_regions([], 'solid', 1024, 768), [])
+
+    def test_the_surface_is_every_match_together(self):
+        # A3: a floor split in two is one floor; a weak match is left out
+        recs = [self.rec(0, [0, 400, 500, 768], 0.8), self.rec(1, [500, 380, 1024, 768], 0.7), self.rec(2, [0, 0, 50, 50], 0.2)]
+        self.assertEqual(surface_from(recs), {'box': [0, 380, 1024, 768], 'confidence': 0.8, 'matches': 2})
+        self.assertIsNone(surface_from([self.rec(0, [0, 0, 9, 9], 0.3)]))
 
     def test_settle_claims(self):
         a = self.rec(0, [0, 0, 10, 10], 0.9)
