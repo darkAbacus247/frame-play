@@ -258,6 +258,41 @@ test('a room that truly cannot be made says what was found and what is missing',
   assert.match(none.error, /Nothing was found standing on the floor\. Also found, but not standing on it: the rug\./);
 });
 
+const ROOM = [
+  ['box', 'exit', [150, 600, 250, 700]],
+  ['coin', 'collect', [480, 640, 520, 680]],
+  ['mug', 'solid', [700, 610, 780, 700]],
+];
+
+test('a surface box above the objects sets the horizon and fences nothing', () => {
+  const res = buildLevel(liveInput(ROOM, [0, 100, 1024, 300]));
+  assert.ok(!res.error, res.error);
+  const { level, rt } = res;
+  assert.deepEqual(level.changes_by_code, []);
+  assert.equal(level.surface.horizon_y, 100);
+  const at = (x, y) => rt.walk[y * rt.W + x];
+  assert.equal(at(500, 50), 0, 'above the horizon');
+  assert.equal(at(500, 400), 1, 'below the box, still the floor');
+  assert.equal(at(900, 740), 1, 'below and beside the box');
+  assert.ok(validateLevel(JSON.parse(JSON.stringify(level))).ok);
+});
+
+test('a surface box below the objects never puts their feet above the horizon', () => {
+  const res = buildLevel(liveInput(ROOM.map(([n, r, [x0, y0, x1, y1]]) => [n, r, [x0, y0 - 250, x1, y1 - 250]]), [0, 600, 1024, 768]));
+  assert.ok(!res.error, res.error);
+  assert.deepEqual(res.level.changes_by_code, []);
+  const feet = Math.min(...res.rt.objs.map((t) => t.footprint.top));
+  assert.ok(res.level.surface.horizon_y < feet - 20, `horizon ${res.level.surface.horizon_y}, feet ${feet}`);
+  assert.equal(res.level.proof.winnable, true);
+});
+
+test('a surface box made of several matches (a union) is just a wider box', () => {
+  const res = buildLevel(liveInput(ROOM, [0, 380, 1024, 768]));
+  assert.ok(!res.error, res.error);
+  assert.equal(res.level.surface.horizon_y, 380);
+  assert.equal(res.rt.walk[740 * 1024 + 900], 1);
+});
+
 test('validation refuses a foreign origin, a ring outside, two exits and no collectible', () => {
   const { built } = deskLevel();
   const good = JSON.stringify(built.level);

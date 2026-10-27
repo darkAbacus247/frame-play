@@ -79,15 +79,18 @@ export function prepare(level, opts = {}) {
     const fb = maskBounds(fp, W, H);
     t.footprint = { mask: fp, depth, baseline: t.b.y1, top: yTop, bounds: fb, boundary: boundaryInBox(fp, W, fb), area };
   }
-  let surfaceMask = null, horizon;
+  // An exact surface (drawn by code) fences the walk region. A surface known
+  // only as a box (a model's best match, perhaps one patch of the floor)
+  // sets the horizon and no more, and never above an object's footprint.
+  let top = Infinity;
+  for (const t of objs) if (t.footprint && t.footprint.top < top) top = t.footprint.top;
+  const byFeet = (top < Infinity ? top : 0.5 * H) - 0.03 * L;
+  let surfaceMask = null, horizon = byFeet;
   if (level.surface && level.surface.rings && level.surface.rings.length) {
-    surfaceMask = fillRings(level.surface.rings, W, H);
-    const sb = maskBounds(surfaceMask, W, H);
-    horizon = sb ? sb.y0 : 0.5 * H;
-  } else {
-    let top = Infinity;
-    for (const t of objs) if (t.footprint && t.footprint.top < top) top = t.footprint.top;
-    horizon = (top < Infinity ? top : 0.5 * H) - 0.03 * L;
+    const mask = fillRings(level.surface.rings, W, H);
+    const sb = maskBounds(mask, W, H);
+    if (sb) horizon = level.surface.source === 'exact' ? sb.y0 : Math.min(sb.y0, byFeet);
+    if (level.surface.source === 'exact') surfaceMask = mask;
   }
   horizon = clamp(horizon, 0.12 * H, 0.75 * H);
 
