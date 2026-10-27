@@ -185,13 +185,13 @@ export function mountPlay(root, opts) {
     for (const ev of events) {
       const words = announce(level, ev, surfaceName);
       switch (ev.type) {
-        case 'step': audio && audio.play('step'); fx.burst('dust', ...state.pos); break;
+        case 'step': audio && audio.play('step'); fx.burst('dust', ...state.pos); emit('step', { at: [...state.pos] }); break;
         case 'bump': audio && audio.play('bump'); break;
-        case 'collect': audio && audio.play('collect'); chipsDirty = true; fx.burst('coin', ...middle(ev.k)); break;
-        case 'unlock': audio && audio.play('unlock'); chipsDirty = true; unlockAt = performance.now(); if (exitK >= 0) fx.burst('exit', ...middle(exitK)); break;
+        case 'collect': audio && audio.play('collect'); chipsDirty = true; fx.burst('coin', ...middle(ev.k)); emit('coin', { k: ev.k, left: ev.left }); break;
+        case 'unlock': audio && audio.play('unlock'); chipsDirty = true; unlockAt = performance.now(); if (exitK >= 0) fx.burst('exit', ...middle(exitK)); emit('exit', { k: exitK }); break;
         case 'locked': audio && audio.play('locked'); break;
-        case 'lose': audio && audio.play('hazard'); fx.burst('hazard', ...state.pos); break;
-        case 'win': audio && audio.play('win'); fx.burst('win'); break;
+        case 'lose': audio && audio.play('hazard'); fx.burst('hazard', ...state.pos); emit('hazard', { k: ev.k, at: [...state.pos] }); break;
+        case 'win': audio && audio.play('win'); fx.burst('win'); emit('win', { k: ev.k, travelled: ev.travelled }); break;
         default: break;
       }
       if (words) say(words);
@@ -225,6 +225,7 @@ export function mountPlay(root, opts) {
       if (state.status !== 'playing') {
         ended = true;
         music('calm');
+        if (state.status !== 'won') emit('lose', { status: state.status });
         goalChips();
         const ratio = routeRatio(state, level);
         opts.onEnd && opts.onEnd({ status: state.status, ratio, travelled: state.travelled, words: endCardWords(level, state, ratio) });

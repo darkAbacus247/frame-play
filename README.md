@@ -153,6 +153,32 @@ down, so it never overshoots by a fraction of a pixel. The small tour offer
 that appears by itself after 45 seconds without progress stays only where
 it fits without making the screen scroll.
 
+## Sound and motion
+
+Every sound and the music are made in code with the Web Audio API; there
+are no audio files or samples, and the music is written for this game. The
+music is a calm loop of pads, a bass and a light melody that changes every
+phrase; it is quieter and sparser during a round and plays a short sting on
+the closing screen. It starts only with the first press or key, never by
+itself after a reload. Sound and music are on for a fresh visitor, the
+music at a gentle level under the game's own sounds (soft steps, a coin
+chime, a hazard thud, the exit opening, a win jingle, a loss sting, a
+shimmer as the reveal's outlines draw in, a quiet click on primary
+buttons). A hidden tab holds them all.
+
+Particles (coin sparkles, win confetti, a hazard puff, step dust, a trace
+along each outline on the reveal) are drawn on a second canvas laid over
+the board, so they never change its size or the page's layout. Their
+counts are capped, and with reduced motion (the system's setting or the
+page's) there are none.
+
+`src/settings_fx.js` builds the controls for the Settings drawer: Music on
+or off with a volume, Effects on or off, and Reduce motion (the same choice
+as the Motion switch). Each choice is kept on this device, and only once
+changed. The game tells a small event bus (`src/events.js`) what happens;
+the sound and the music listen. All of this is checked by unit tests
+against a stand-in AudioContext and a fake page, not yet in a browser.
+
 ## Running it
 
 Python 3.10 or newer, standard library only; no packages to install.

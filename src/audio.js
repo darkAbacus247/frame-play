@@ -2,8 +2,9 @@
 // start only after the first press or key, so the context is created then,
 // and the background music (src/music.js) starts with it: never by itself,
 // not after a reload until the next press or key.
-import { Music, MUSIC_DEFAULT_VOLUME } from './music.js';
+import { Music } from './music.js';
 import { on as listen } from './events.js';
+import { musicOn, musicVolume, effectsOn } from './settings_fx.js';
 
 // the soft steps are spaced at least this far apart, however fast the walk
 export const STEP_GAP = 0.2;
@@ -16,16 +17,21 @@ export class Synth {
     this.on = true;
     this.master = null;
     this.music = null;
-    this.musicOn = true;
-    this.musicVolume = MUSIC_DEFAULT_VOLUME;
+    // Music, its volume and Effects as saved on the device (src/settings_fx.js)
+    this.musicOn = musicOn();
+    this.musicVolume = musicVolume();
     this.mode = 'calm';
-    this.effects = true;
+    this.effects = effectsOn();
     this.lastStep = -1;
     // what the game tells the bus with no sound of its own (src/game.js
     // plays the round's sounds itself)
     listen('reveal', (d) => this.play('shimmer', d));
     listen('ui', () => this.play('click'));
     listen('closing', () => this.sting());
+    listen('settings', (st) => {
+      this.effects = st.effects !== false;
+      this.setMusic(st.music !== false, typeof st.volume === 'number' ? st.volume : this.musicVolume);
+    });
     // a hidden tab holds every sound and the music; it goes on when shown
     const doc = globalThis.document;
     if (doc && typeof doc.addEventListener === 'function') {
