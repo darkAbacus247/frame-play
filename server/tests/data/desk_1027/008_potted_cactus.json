@@ -1,0 +1,59 @@
+{
+ "about": "A real answer of 10-27 for the desk sample picture; ids and times redacted; no key, no photo.",
+ "route": "/responses",
+ "model": "sam-3.1",
+ "noun": "potted cactus",
+ "answer": {
+  "metadata": {
+   "include_confidence": "true",
+   "mask_encoding": "one_bit"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "redacted",
+  "object": "response",
+  "status": "completed",
+  "created_at": 0,
+  "completed_at": 0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "redacted",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=806;y1=330;x2=897;y2=508;w=1024;h=768;c=0.9569892287254333|><|mask;x=0;y=0;c=0.9569892287254333;data=179,92,!!!!#4D]hL&GU26u:gxg7jAPDpckXH^vzp_2IQqG*#@?O)%zyZ.:6Z672-3[%KPtLz&F%#HgNX*A_.a-o@ieTKn9qjQ:(t@tx.iBuRUscR$b`H9kEcOBvA%SVlrnlL_Uf4?!!!|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}

@@ -15,12 +15,15 @@ import math
 import re
 import threading
 import time
+import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from server import config, samtext
 from server.limits import SAM_COST, SPARK_WORST, Refusal, spark_cost
 from server.meta_api import CallError, Transport, excerpt
+
+AGAIN = 'Please try the same photo again.'
 
 REPLY_SCHEMA = 'frameplay.room.reply/2'
 ROLES = ('collect', 'avoid', 'exit', 'solid', 'flat')
@@ -35,11 +38,28 @@ MIN_CONFIDENCE = 0.35
 SEED_REACH = 0.03
 FLOOR = 0.5
 SAME_BOX = 0.5
+# Spurious extra matches: with no point to go by, an extra match is kept
+# only at RELATIVE of the name's best or more (the desk's real coins were
+# 0.879 to 0.887; the notebook's stray match on the book stack 0.594); a
+# match with no point that lies INSIDE (85%) another name's kept box is
+# not a second thing. A box under MIN_SIDE px once held to the picture is
+# no box.
+RELATIVE = 0.75
+INSIDE = 0.85
+MIN_SIDE = 2
+# Boxes that are the surface rather than a thing on it: named like it (the
+# same last word), filling GIANT of the picture, or covering COVERS of the
+# surface's box (the level side uses the same rules).
+GIANT = 0.45
+COVERS = 0.8
 # When SAM finds nothing usable for a thing (point_regions): a region around
 # Muse Spark's points, grown by 5% of the long side; points to collect less
 # than 10% apart are one thing.
 POINT_MARGIN = 0.05
 POINT_GROUP = 0.10
+# SAM calls at once for one photo, the exit and the things to collect first
+SAM_WORKERS = 4
+JOB_ORDER = {'exit': 0, 'collect': 1, 'surface': 2, 'avoid': 3, 'solid': 4, 'flat': 5}
 
 PROMPT = """You are reading one photo of a room or a desk top for a small game.
 An explorer will walk on ONE play surface (such as floor, desk, table, bed or counter).
@@ -99,14 +119,43 @@ SCHEMA = {
 }
 
 PROGRESS = (('read', 'Reading your room'), ('find', 'Finding every object'))
-PEOPLE_WORDS = 'This photo seems to show a person. Please use one with no people.'
+PEOPLE_WORDS = ('This photo seems to show a person (people in posters, screens, framed photos and mirrors count too). '
+                'Please use one with no people.')
+# Errors after which the same photo, sent again, may well be read: passing
+# faults on the way, and answers that came out wrong this time. The reply
+# says so in error.retry_same.
+RETRY_SAME = {'busy', 'sam_busy', 'sam_unavailable', 'cut_off', 'malformed', 'server_error', 'names_unusable'}
 
-SPATIAL = {'left', 'right', 'top', 'bottom', 'behind', 'front', 'near', 'far', 'under', 'above', 'below', 'beside',
-           'next', 'middle', 'center', 'centre', 'corner', 'on', 'in', 'at', 'back', 'side', 'upper', 'lower'}
+
+def sentence(words):
+    """Words that end as a sentence ends, so the page's own words read on."""
+    words = str(words).strip()
+    return words if not words or words[-1] in '.!?' else words + '.'
+
+
+def reply_error(error):
+    """An error for a reply: whole sentences, and whether the same photo,
+    sent again, could be read (by its code, unless the error says)."""
+    retry = error.get('retry_same')
+    return {**error, 'message': sentence(error.get('message', '')),
+            'retry_same': bool(error.get('code') in RETRY_SAME if retry is None else retry)}
+NAMES_WORDS = f"Muse Spark's names for the things in this photo could not be used. {AGAIN}"
+CUT_OFF_WORDS = ('The room read was cut off before it finished. Please try the same photo again; '
+                 'a photo with fewer things in it reads faster.')
+
+# Words of relation only: "side table", "front door", "top hat" and
+# "corner shelf" are things.
+SPATIAL = {'left', 'right', 'behind', 'under', 'above', 'below', 'beside', 'near', 'next', 'on', 'in', 'at',
+           'between', 'inside', 'underneath', 'beneath', 'atop', 'against'}
+# A people or body word is the thing only when it is the whole name or its
+# last word: "hand" and "chair leg" go, "hand towel", "arm chair" and
+# "baby crib" stay.
 PEOPLE = {'person', 'people', 'man', 'men', 'woman', 'women', 'child', 'children', 'kid', 'kids', 'boy', 'girl', 'baby',
           'human', 'face', 'head', 'hand', 'hands', 'arm', 'arms', 'leg', 'legs', 'foot', 'feet', 'finger', 'fingers',
           'body', 'hair', 'eye', 'eyes', 'mouth', 'selfie', 'someone', 'me', 'you', 'him', 'her', 'them'}
 LIST_WORDS = {'and', 'or', 'with', 'plus'}
+# Words of letters (accents too) and digits, joined inside by ' or -.
+WORD = r"[^\W_]+(?:['-][^\W_]+)*"
 
 
 def name_problem(name):
@@ -114,19 +163,20 @@ def name_problem(name):
     words = name.split()
     if not 1 <= len(words) <= 3:
         return 'not 1 to 3 words'
-    if not re.fullmatch(r"[a-z][a-z' -]*[a-z]|[a-z]", name):
-        return 'not a plain noun phrase'
-    if any(w in LIST_WORDS for w in words) or ',' in name or '/' in name:
+    if any(w in LIST_WORDS for w in words) or ',' in name or '/' in name or '&' in name:
         return 'a list'
+    if not re.fullmatch(f'{WORD}(?: {WORD})*', name) or not any(ch.isalpha() for ch in name):
+        return 'not a plain noun phrase'
     if any(w in SPATIAL for w in words):
         return 'a spatial word'
-    if any(w in PEOPLE for w in words):
+    if words[-1] in PEOPLE:
         return 'a people or body word'
     return None
 
 
 def normalize_name(raw):
-    return re.sub(r'\s+', ' ', str(raw).strip().lower())
+    text = unicodedata.normalize('NFC', str(raw)).replace('’', "'")
+    return re.sub(r'\s+', ' ', text.strip().lower())
 
 
 def clip(text, n):
@@ -171,19 +221,28 @@ def read_spark(j, holder=None):
     try:
         choice = j['choices'][0]
         finish = choice.get('finish_reason')
-        content = choice['message']['content']
-    except (KeyError, IndexError, TypeError):
-        raise CallError('malformed', 'The room read came back in an unexpected shape', excerpt=excerpt(json.dumps(j)[:600], holder)) from None
-    if finish == 'content_filter':
-        raise CallError('content_filter', 'Muse Spark declined to read this photo', billed=True)
+        message = choice['message']
+        content = message.get('content')
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise CallError('malformed', f'The room read came back in an unexpected shape. {AGAIN}', excerpt=excerpt(json.dumps(j)[:600], holder)) from None
+    refusal = message.get('refusal')
+    if finish == 'content_filter' or (isinstance(refusal, str) and refusal.strip()):
+        raise CallError('content_filter', 'Muse Spark declined to read this photo.', billed=True,
+                        **({'excerpt': excerpt(refusal, holder)} if isinstance(refusal, str) and refusal.strip() else {}))
+    if finish == 'length':
+        # cut off at the output cap: half a JSON object, said as what it is
+        raise CallError('cut_off', CUT_OFF_WORDS, billed=True, transient=True,
+                        excerpt=excerpt(content, holder) if isinstance(content, str) else None)
     if isinstance(content, list):
         content = ''.join(p.get('text', '') for p in content if isinstance(p, dict))
+    if content is None or (isinstance(content, str) and not content.strip()):
+        raise CallError('malformed', f'The room read came back empty. {AGAIN}')
     try:
         read = json.loads(content)
     except (TypeError, ValueError):
-        raise CallError('malformed', 'The room read was not valid JSON', excerpt=excerpt(content, holder)) from None
+        raise CallError('malformed', f'The room read was not valid JSON. {AGAIN}', excerpt=excerpt(content, holder)) from None
     if not isinstance(read, dict) or not isinstance(read.get('people_present'), bool):
-        raise CallError('malformed', 'The room read is missing its fields', excerpt=excerpt(content, holder))
+        raise CallError('malformed', f'The room read is missing its fields. {AGAIN}', excerpt=excerpt(content, holder))
     usage = j.get('usage') or {}
     tin = int(usage.get('prompt_tokens') or 0)
     tout = int(usage.get('completion_tokens') or 0)
@@ -197,6 +256,7 @@ def clean_read(read, W, H, warnings):
     reasons of 80 characters, seeds in pixels. Merges repeated names."""
     objs = []
     by_name = {}
+    unusable = 0  # things on the surface whose names were dropped
     raw = read.get('objects') if isinstance(read.get('objects'), list) else []
     for o in raw[:8]:
         if not isinstance(o, dict):
@@ -205,6 +265,7 @@ def clean_read(read, W, H, warnings):
         why = name_problem(name)
         if why:
             warnings.append(f'dropped the name "{clip(name, 40)}": {why}')
+            unusable += o.get('on_surface') is not False
             continue
         role = o.get('role') if o.get('role') in ROLES else 'solid'
         seeds = []
@@ -228,6 +289,7 @@ def clean_read(read, W, H, warnings):
         'theme_line': clip(read.get('theme_line', ''), 120),
         'surface': surface,
         'objects': objs,
+        'unusable': unusable,
     }
 
 
@@ -253,9 +315,21 @@ def _rank(r):
 
 def choose(records, role):
     """Matches at or above 0.35, ranked by confidence then area, up to the
-    role's count (the surface's choice: no points to go by)."""
+    role's count."""
     keep = sorted((r for r in records if _conf(r) >= MIN_CONFIDENCE), key=_rank)
     return keep[:PER_NOUN.get(role, 1)]
+
+
+def surface_from(records):
+    """The play surface: one box around all of its matches at or above 0.35
+    (a floor split by a rug or a shadow is still one floor), with the best
+    confidence; or None."""
+    keep = [r for r in records if _conf(r) >= MIN_CONFIDENCE]
+    if not keep:
+        return None
+    boxes = [r['box'] for r in keep]
+    return {'box': [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)],
+            'confidence': max(_conf(r) for r in keep), 'matches': len(keep)}
 
 
 def _reach(p, box, W, H):
@@ -289,10 +363,19 @@ def choose_matches(records, seeds, role, W, H):
         kept = [(usable[k], True) for k in sorted(picked)]
         dropped += [(r, 'no_point') for k, r in enumerate(usable) if k not in picked]
     else:
-        kept = [(r, False) for r in usable if _conf(r) >= FLOOR]
+        best = _conf(usable[0]) if usable else 0.0
+        kept = [(r, False) for r in usable if _conf(r) >= FLOOR and _conf(r) >= RELATIVE * best]
         dropped += [(r, 'below_floor') for r in usable if _conf(r) < FLOOR]
-    dropped += [(r, 'over_count') for r, _ in kept[cap:]]
-    return kept[:cap], dropped
+        dropped += [(r, 'relative') for r in usable if _conf(r) >= FLOOR and _conf(r) < RELATIVE * best]
+    # two matches of one name on the same thing are one thing
+    single = []
+    for r, seeded in kept:
+        if any(iou(r['box'], s['box']) >= SAME_BOX for s, _ in single):
+            dropped.append((r, 'twice'))
+        else:
+            single.append((r, seeded))
+    dropped += [(r, 'over_count') for r, _ in single[cap:]]
+    return single[:cap], dropped
 
 
 def iou(a, b):
@@ -303,21 +386,85 @@ def iou(a, b):
     return inter / union if union else 0.0
 
 
+def inside(a, b):
+    """The share of box a that lies in box b."""
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    area = (a[2] - a[0]) * (a[3] - a[1])
+    return ix * iy / area if area else 0.0
+
+
 def settle_claims(picks):
     """One box is never two objects: of matches of different names that
     cover the same thing (IoU at least SAME_BOX), the one holding a Muse
-    Spark point wins, then the more confident, then the earlier name.
+    Spark point wins, then the more confident, then the earlier name. A
+    match holding no point that lies INSIDE a box kept for another name is
+    a part of that thing, not a second one (a coin Muse Spark pointed at
+    may still lie on a notebook).
     picks: [(order, name, record, seeded)]. Returns (kept, lost) where lost
-    holds (pick, the name that kept the box)."""
+    holds (pick, the name that kept the box, 'same_box' or 'inside')."""
     ranked = sorted(picks, key=lambda q: (not q[3], -_conf(q[2]), q[0], q[2]['id']))
     kept, lost = [], []
     for q in ranked:
         rival = next((k for k in kept if k[1] != q[1] and iou(k[2]['box'], q[2]['box']) >= SAME_BOX), None)
         if rival:
-            lost.append((q, rival[1]))
+            lost.append((q, rival[1], 'same_box'))
+            continue
+        rival = None if q[3] else next((k for k in kept if k[1] != q[1] and inside(q[2]['box'], k[2]['box']) >= INSIDE), None)
+        if rival:
+            lost.append((q, rival[1], 'inside'))
         else:
             kept.append(q)
     return kept, lost
+
+
+def held(box, W, H):
+    """A box held to the picture on every side, in whole pixels, or None
+    when less than MIN_SIDE px of it is left."""
+    try:
+        x0, y0, x1, y1 = (int(round(float(v))) for v in box)
+    except (TypeError, ValueError):
+        return None
+    x0, x1 = max(0, min(W, x0)), max(0, min(W, x1))
+    y0, y1 = max(0, min(H, y0)), max(0, min(H, y1))
+    if x1 - x0 < MIN_SIDE or y1 - y0 < MIN_SIDE:
+        return None
+    return [x0, y0, x1, y1]
+
+
+def held_records(records, W, H):
+    """SAM's records with their boxes held to the picture; (kept, emptied)."""
+    kept, emptied = [], []
+    for r in records:
+        box = held(r['box'], W, H)
+        (kept if box else emptied).append({**r, 'box': box or r['box']})
+    return kept, emptied
+
+
+def head(name):
+    """A name's last word, without a plural s: 'desk lamp' is a lamp."""
+    words = str(name).strip().lower().split()
+    return words[-1].removesuffix('s') if words else ''
+
+
+def surface_like(name, box, surface_name, surface_box, W, H):
+    """Why a thing's box is really the play surface, or None: named like the
+    surface (by its last word only), filling most of the picture, or
+    covering most of the surface's box."""
+    if surface_name and head(name) == head(surface_name):
+        return 'named'
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    if area >= GIANT * W * H:
+        return 'giant'
+    if surface_box:
+        s_area = (surface_box[2] - surface_box[0]) * (surface_box[3] - surface_box[1])
+        if s_area and inside(surface_box, box) >= COVERS:
+            return 'covers'
+    return None
+
+
+def union(boxes):
+    return [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]
 
 
 def point_regions(seeds, role, W, H):
@@ -357,7 +504,43 @@ DROP_WORDS = {
     'no_point': 'none of Muse Spark’s points for it fell in it',
     'below_floor': 'its confidence was under 0.5',
     'over_count': 'more matches than its role keeps',
+    'relative': 'its confidence was far under its best match’s',
+    'twice': 'it is the same thing as a better match',
+    'empty_box': 'its box held to the picture is empty',
 }
+SURFACE_WORDS = {
+    'named': 'it is the play surface',
+    'giant': 'it fills most of the picture, so it is part of the play surface',
+    'covers': 'it covers most of the play surface, so it is part of it',
+}
+
+SAM_BUSY_WORDS = 'SAM 3.1 is busy right now. Please try the same photo again in a minute.'
+SAM_UNAVAILABLE_WORDS = 'SAM 3.1 could not be reached just now. Please try the same photo again in a minute.'
+SAM_UNREADABLE_WORDS = "SAM 3.1 answered in a form this app could not read. This is the app's fault, not your photo's."
+NOTHING_FOUND_WORDS = ('SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace '
+                       'around instead. Try another photo with clearer edges.')
+
+
+def first_sentence(words):
+    """An error's words without its advice, for a warning's brackets."""
+    return re.split(r'(?<=[.!?])\s', str(words).strip(), maxsplit=1)[0].rstrip('.')
+
+
+def unreadable(parsed):
+    """An answer that came back but could not be read at all: no frame, only
+    broken records, or a picture of another size."""
+    return parsed is not None and ('size_mismatch' in parsed.errors or (
+        not parsed.records and ('no_frame' in parsed.errors or 'malformed_record' in parsed.errors)))
+
+
+def sam_failure(errs):
+    """The error for SAM calls that failed (never the photo's fault), or None
+    when one of them failed for good (not a passing fault)."""
+    if not errs or not all(getattr(e, 'transient', False) for e in errs):
+        return None
+    if all(getattr(e, 'status', None) == 429 for e in errs):
+        return {'code': 'sam_busy', 'message': SAM_BUSY_WORDS}
+    return {'code': 'sam_unavailable', 'message': SAM_UNAVAILABLE_WORDS}
 
 
 class Pipeline:
@@ -375,10 +558,20 @@ class Pipeline:
             self.limits.admit()
         except Refusal as e:
             extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
-            return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused', 'error': {'code': e.code, 'message': e.message}}, extra)
+            return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused',
+                                           'error': reply_error({'code': e.code, 'message': e.message})}, extra)
+        done = []
+
+        def finish():
+            # the photo's place is free before its reply is sent, so a page
+            # that sends the next photo at once is not told to wait
+            if not done:
+                done.append(1)
+                self.limits.finish()
         try:
             if not stream:
                 reply = self.run(photo)
+                finish()
                 return handler.send_json(200, reply)
             handler.send_response(200)
             handler.common_headers()
@@ -408,10 +601,11 @@ class Pipeline:
                 if self.log is not None:
                     self.log.write(event='photo_failed', error=type(e).__name__)
                 reply = self.failed_reply()
+            finish()
             line({'type': 'reply', 'reply': reply})
             chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:
-            self.limits.finish()
+            finish()
 
     def failed_reply(self):
         """A read that broke after the stream began: an error reply in this
@@ -422,7 +616,7 @@ class Pipeline:
             prov['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
         return {'schema': REPLY_SCHEMA, 'request_id': uuid.uuid4().hex, 'status': 'error', 'provenance': prov,
                 'objects': [], 'warnings': [],
-                'error': {'code': 'server_error', 'message': 'The server could not finish reading this photo. Please try again.'}}
+                'error': reply_error({'code': 'server_error', 'message': 'The server could not finish reading this photo. Please try again.'})}
 
     # ---- the pipeline ----
     def model_words(self, model):
@@ -467,7 +661,7 @@ class Pipeline:
                 'objects': objects or [],
                 'usage': {**usage, 'estimated_usd': round(usage['estimated_usd'], 5)},
                 'warnings': warnings,
-                'error': error,
+                'error': reply_error(error) if error is not None else None,
             }
             if s.mode == 'rehearsal':
                 r['provenance']['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
@@ -510,8 +704,15 @@ class Pipeline:
             if e.code == 'content_filter':
                 return reply('refused', {'code': 'content_filter', 'message': 'Muse Spark declined to read this photo. Please try another one.'})
             # the answer's HTTP status, so the page can tell a refused key
-            # (401) from other errors
-            return reply('error', {'code': e.code, 'message': e.message, **({'status': e.status} if isinstance(e.status, int) else {})})
+            # (401) from other errors; an account or model problem turns the
+            # picker off
+            # the same photo again may well be read after a passing fault or
+            # an answer that came out wrong this time
+            latched = getattr(e, 'latched', False)
+            code = 'live_unavailable' if latched else e.code
+            retry = not latched and (getattr(e, 'transient', False) or e.code in RETRY_SAME)
+            return reply('error', {'code': code, 'message': e.message, 'retry_same': retry,
+                                   **({'status': e.status} if isinstance(e.status, int) else {})})
         cost = spark_cost(tin, tout)
         self.limits.settle(res, cost)
         usage.update(calls=usage['calls'] + 1, spark_calls=1, tokens_in=tin, tokens_out=tout, reasoning_tokens=reasoning)
@@ -527,6 +728,11 @@ class Pipeline:
         scene = {'title': room['title'], 'theme_line': room['theme_line'], 'people_present': False,
                  'scenery': [{'name': o['name'], 'reason': o['reason']} for o in room['objects'] if not o['on_surface']]}
         on = [o for o in room['objects'] if o['on_surface']]
+        if not on and room['unusable']:
+            # Muse Spark saw things, but named none of them in a way SAM can
+            # look for: not the photo's fault
+            stages['read'] = 'names'
+            return reply('error', {'code': 'names_unusable', 'message': NAMES_WORDS}, scene=scene)
         if not on:
             stages['read'] = 'nothing'
             return reply('error', {'code': 'nothing_found', 'message': 'Muse Spark found nothing standing on a surface in this photo. Try another photo.'}, scene=scene)
@@ -534,8 +740,12 @@ class Pipeline:
         # stage 3: find every object
         if progress:
             progress(*PROGRESS[1])
-        nouns = [o['name'] for o in on][:config.SAM_CALLS_PER_PHOTO - (1 if room['surface'] else 0)]
+        # over the call ceiling, the exit and the things to collect go first
+        ranked = sorted(on, key=lambda o: JOB_ORDER.get(o['role'], 9))
+        nouns = [o['name'] for o in ranked][:config.SAM_CALLS_PER_PHOTO - (1 if room['surface'] else 0)]
+        role_of = {o['name']: o['role'] for o in on}
         jobs = ([('surface', room['surface'])] if room['surface'] else []) + [('object', n) for n in nouns]
+        jobs.sort(key=lambda job: JOB_ORDER['surface'] if job[0] == 'surface' else JOB_ORDER.get(role_of[job[1]], 9))
         answers = {}
 
         def find(job):
@@ -573,7 +783,7 @@ class Pipeline:
                 usage['estimated_usd'] += SAM_COST
             return job, parsed, None
 
-        with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, min(SAM_WORKERS, len(jobs)))) as pool:
             results = list(pool.map(find, jobs))
         usage['sam_calls'] = sum(1 for c in calls if c['stage'] == 'find')
         usage['calls'] += usage['sam_calls']
@@ -585,16 +795,17 @@ class Pipeline:
         stages['find'] = 'ok'
 
         surface = None
+        surface_matches = 0
+        surface_err = None
         if room['surface']:
-            parsed, err = answers[('surface', room['surface'])]
+            parsed, surface_err = answers[('surface', room['surface'])]
             if parsed is not None and not ('size_mismatch' in parsed.errors) and parsed.records:
-                best = choose(parsed.records, 'flat')
-                if best:
-                    surface = {'name': room['surface'], 'box': best[0]['box'], 'confidence': best[0]['confidence']}
-            if surface is None:
-                warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
-        # which matches are which object: each name's own choice, then no box
-        # kept by two names
+                whole = surface_from(held_records(parsed.records, W, H)[0])
+                if whole:
+                    surface = {'name': room['surface'], 'box': whole['box'], 'confidence': whole['confidence']}
+                    surface_matches = whole['matches']
+        # which matches are which object: each name's own choice (boxes held
+        # to the picture), then no box kept by two names
         picks = []
         dropped = {}
         for k, o in enumerate(on):
@@ -603,15 +814,46 @@ class Pipeline:
             parsed, err = answers[('object', o['name'])]
             if err is not None or 'size_mismatch' in parsed.errors:
                 continue
-            kept, lost = choose_matches(parsed.records, o['seeds'], o['role'], W, H)
+            records, emptied = held_records(parsed.records, W, H)
+            kept, lost = choose_matches(records, o['seeds'], o['role'], W, H)
             picks += [(k, o['name'], r, seeded) for r, seeded in kept]
-            dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost]
+            dropped[o['name']] = [(r, DROP_WORDS[why], why) for r, why in lost + [(r, 'empty_box') for r in emptied]]
         picks, lost = settle_claims(picks)
-        for (k, name, r, seeded), winner in lost:
-            dropped[name].append((r, f'the same box was kept for the {winner}', 'same_box'))
+        for (k, name, r, seeded), winner, why in lost:
+            words = f'the same box was kept for the {winner}' if why == 'same_box' else f'it lies inside the {winner}'
+            dropped[name].append((r, words, why))
+        # boxes that are the surface, not a thing on it, join the surface (or
+        # become it, when SAM found none); the name is not traced by points
+        absorbed = []
+        for q in picks:
+            why = surface_like(q[1], q[2]['box'], room['surface'], surface and surface['box'], W, H)
+            if why:
+                absorbed.append((q, why))
+        if absorbed:
+            picks = [q for q in picks if not any(q is a for a, _ in absorbed)]
+            boxes = [q[2]['box'] for q, _ in absorbed]
+            if surface is None:
+                named = any(why == 'named' for _, why in absorbed)
+                biggest = max(absorbed, key=lambda a: (a[0][2]['box'][2] - a[0][2]['box'][0]) * (a[0][2]['box'][3] - a[0][2]['box'][1]))
+                surface = {'name': room['surface'] if named else biggest[0][1], 'box': union(boxes),
+                           'confidence': max(_conf(q[2]) for q, _ in absorbed)}
+                surface_matches = 0
+            else:
+                surface['box'] = union([surface['box']] + boxes)
+            for q, why in absorbed:
+                words = SURFACE_WORDS[why]
+                if surface['name'] == q[1] and why != 'named':
+                    words = words.replace('is part of the play surface', 'is the play surface')
+                dropped[q[1]].append((q[2], words, 'surface'))
+        absorbed_names = {q[1] for q, _ in absorbed} - {q[1] for q in picks}
+        if room['surface'] and surface is None and surface_err is not None:
+            warnings.append(f'not looked for: {room["surface"]} (the play surface; {first_sentence(surface_err.message)}); '
+                            'the full width below the horizon is used')
+        elif room['surface'] and surface is None:
+            warnings.append(f'not found: {room["surface"]} (the play surface); the full width below the horizon is used')
         for c in calls:
             if c['stage'] == 'find' and c.get('surface'):
-                c['kept'] = 1 if surface else 0
+                c['kept'] = surface_matches
             elif c['stage'] == 'find' and c.get('noun') in dropped:
                 c['kept'] = sum(1 for q in picks if q[1] == c['noun'])
                 if dropped[c['noun']]:
@@ -624,8 +866,10 @@ class Pipeline:
                 continue
             parsed, err = answers[('object', o['name'])]
             picked = []
+            # a call that failed never looked: the photo is not to blame
+            looked = err is None
             if err is not None:
-                why = err.message if isinstance(err, (CallError, Refusal)) else 'error'
+                why = first_sentence(err.message) if isinstance(err, (CallError, Refusal)) else 'an error'
             elif 'size_mismatch' in parsed.errors:
                 why = 'the answer was for a different picture size'
             else:
@@ -634,15 +878,22 @@ class Pipeline:
                         warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
                 picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
                 why = None
+            if not picked and o['name'] in absorbed_names:
+                continue  # it is the surface, said above
+            if not picked and room['surface'] and head(o['name']) == head(room['surface']):
+                warnings.append(f'not used: {o["name"]} ({SURFACE_WORDS["named"]})')
+                continue
             if not picked:
                 # SAM found nothing usable: Muse Spark's own points, when it
                 # gave any, still say where the thing is
                 regions = point_regions(o['seeds'], o['role'], W, H)
+                said = (f'not found: {o["name"]}' if looked else f'not looked for: {o["name"]}') + (f' ({why})' if why else '')
                 if not regions:
-                    warnings.append(f'not found: {o["name"]}' + (f' ({why})' if why else ''))
+                    warnings.append(said)
                     continue
-                warnings.append(f'not found by SAM 3.1: {o["name"]}' + (f' ({why})' if why else '')
-                                + '; code traces around Muse Spark’s points for it instead')
+                if looked:
+                    said = f'not found by SAM 3.1: {o["name"]}' + (f' ({why})' if why else '')
+                warnings.append(said + '; code traces around Muse Spark’s points for it instead')
                 for box, pts in regions:
                     if len(objects) >= MAX_OBJECTS:
                         break
@@ -674,17 +925,38 @@ class Pipeline:
                              'payload_chars': (m['mask'] or {}).get('payload_chars')},
                 })
         by_sam = sum(1 for o in objects if o['found_by'] == 'sam')
+        sent = [answers[('object', n)] for n in nouns]
+        errs = [e for _, e in sent if e is not None]
+        latched = next((e for _, e in answers.values() if getattr(e, 'latched', False)), None)
+        if latched is not None and not by_sam:
+            # an account or model problem: the page turns the picker off
+            stages['find'] = 'live_unavailable'
+            return reply('error', {'code': 'live_unavailable', 'message': latched.message,
+                                   **({'status': latched.status} if isinstance(latched.status, int) else {})}, scene=scene)
         if spend_stopped and not by_sam:
             return reply('refused', {'code': 'spend_stop', 'message': 'This server reached its spending stop while reading this photo.'}, scene=scene)
+        # every call failed for a passing reason: no room from Muse Spark's
+        # points alone (it would be kept on the device); the same photo again
+        # will be looked at
+        failure = sam_failure(errs)
+        if failure and (len(errs) == len(sent) or not objects):
+            stages['find'] = failure['code']
+            return reply('error', failure, scene=scene)
         if not objects:
+            if any(unreadable(p) for p, _ in sent):
+                stages['find'] = 'unreadable'
+                return reply('error', {'code': 'sam_unreadable', 'message': SAM_UNREADABLE_WORDS}, scene=scene)
+            if errs:
+                stages['find'] = 'sam_error'
+                return reply('error', {'code': 'sam_error', 'message': errs[0].message}, scene=scene)
             stages['find'] = 'nothing'
-            return reply('error', {'code': 'nothing_found', 'message': 'SAM 3.1 found none of the things Muse Spark named, and Muse Spark gave no points to trace around instead. Try another photo with clearer edges.'}, scene=scene, surface=surface)
+            return reply('error', {'code': 'nothing_found', 'message': NOTHING_FOUND_WORDS}, scene=scene, surface=surface)
         found['sam'] = by_sam
         found['points'] = len(objects) - by_sam
         if found['points']:
             stages['find'] = 'points' if not by_sam else 'some_points'
-        if self.clock() > deadline:
-            return reply('error', {'code': 'timeout', 'message': 'The photo ran out of time. Please try again.'}, scene=scene)
+        # no last check of the clock: every call kept to the photo's time,
+        # and what was found is kept
         return reply('ok', None, scene=scene, surface=surface, objects=objects)
 
     def _log_photo(self, r, stages):

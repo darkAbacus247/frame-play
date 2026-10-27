@@ -1,0 +1,59 @@
+{
+ "about": "A real answer of 10-27 for the desk sample picture; ids and times redacted; no key, no photo.",
+ "route": "/responses",
+ "model": "sam-3.1",
+ "noun": "desk",
+ "answer": {
+  "metadata": {
+   "include_confidence": "true",
+   "mask_encoding": "one_bit"
+  },
+  "top_logprobs": 0,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "service_tier": "auto",
+  "model": "sam-3.1",
+  "background": false,
+  "tools": [],
+  "tool_choice": "auto",
+  "truncation": "disabled",
+  "id": "redacted",
+  "object": "response",
+  "status": "completed",
+  "created_at": 0,
+  "completed_at": 0,
+  "error": null,
+  "incomplete_details": null,
+  "output": [
+   {
+    "type": "message",
+    "id": "redacted",
+    "role": "assistant",
+    "content": [
+     {
+      "type": "output_text",
+      "text": "<0f>0<|box;x1=0;y1=319;x2=1023;y2=686;w=1024;h=768;c=0.7852349281311035|><|mask;x=0;y=0;c=0.7852349281311035;data=368,1024,!!!!(F?F!f%)Opthj.mZwq:EdAsonb8Sz4IiLyt56XV@A1#dlcE_+sakrhsMs'WjuP*AioZlyO)KxNFd*vXwMp/mzUvnFec3@fa)JjPw{ccc=#/JLXr#TE*2ZgTs*NbHp.fITlmI!u7Uu5a`y=1:{G=Os@W4_q@M6glq54=i%n%&iawalf`5`lt(RmklLbhRsrS75Jl_I3@3JP3acL6h.7vkG[Fl35%6iiD!KnkR#IZ3irs]yN%8C^g%F?N[xt]cC_ij5_[T?75aUmL:w+wHQ8(s)0Mj$F=KWfAEIoUSXjYrIR3hV0M1&BZ%-#?]GwE1?d{5W`jVE)M$q/vh$KwbRCM`1xhAyW5q?d%rM71tyS%&tYy4bhhh5RU-j7PSDUcfl2cv&8Ne$NG6t#*%_gp.r9`2-Y`@{`+7[L*U1az7%.`f(3009QAagKa-47J-`XT1L^5%9_vo$gtXS%u-J`85?#$WkopDmL0ypO7*#lu]oO-th=]BFaX&Z)A%m0u/kQL^kegVXP[DweeVcZob.q$Hry0j#m0?xUhM'R?R=?%VCeo8^vHFIWW7zAf?QP&e9#qF`di33dIh`tO#7fL3/kndkCiDm]lskKL3)e%rAt#D3!jJo-iqYvp(y](JyR+6VW$Gw*c%D-[%8qzu'd+8Q6=GT9Q[8:9l]RnA$o%J#r{=yr4Z|>\n",
+      "annotations": [],
+      "logprobs": []
+     }
+    ],
+    "status": "completed"
+   }
+  ],
+  "instructions": null,
+  "usage": {
+   "input_tokens": 0,
+   "input_tokens_details": {
+    "cached_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 0,
+   "images_processed": 1
+  },
+  "parallel_tool_calls": true,
+  "store": false
+ }
+}
