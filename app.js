@@ -165,7 +165,9 @@ function setBusy(on) {
   if (!on) A.busyFocus = null;
 }
 
-function progressPanel(panel, lines, current, error) {
+// After a failure, again: the read once more.
+// error: the words; again: { retry, tip } or null
+function progressPanel(panel, lines, current, error, { again = null } = {}) {
   panel.hidden = false;
   // never a null child: the page's own replaceChildren would write 'null'
   const kids = [el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', {
@@ -173,7 +175,27 @@ function progressPanel(panel, lines, current, error) {
     text: `${t}${i < current ? ' · done' : i === current && !error ? '…' : ''}`,
   })))];
   if (error) kids.push(el('p', { class: 'error', role: 'alert', text: error }));
+  if (error && again) {
+    demotePrimaries();
+    kids.push(el('div', { class: 'actions' }, [retryButton(again)]));
+  }
   panel.replaceChildren(...kids);
+}
+
+// One primary on the screen: the others become plain buttons.
+function demotePrimaries(root = $('main')) {
+  for (const p of root.querySelectorAll('[data-primary]')) {
+    p.removeAttribute('data-primary');
+    p.classList.remove('primary');
+    if (p.getAttribute('data-tour') === 'primary') p.removeAttribute('data-tour');
+  }
+}
+
+// The same photo read once more: no new pick, no file dialog.
+function retryButton(again) {
+  return el('button', {
+    type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Try this photo again', tip: again.tip, onclick: again.retry,
+  });
 }
 
 const FREE_WORDS = 'Rounds in Free play do not change your road.';
@@ -188,15 +210,19 @@ function sentences(...parts) {
 
 // What a failed read says about itself, from the reply's error or from what
 // the send's error carries (absent-safe: a server or a send that says
-// nothing of it gives { code: null }).
+// nothing of these gives { code: null, retrySame: false }).
 function failureOf(e, reply = null) {
   const er = (reply && reply.error) || (e && (e.error || (e.reply && e.reply.error))) || {};
-  return { code: er.code || (e && e.code) || null };
+  return {
+    code: er.code || (e && e.code) || null,
+    retrySame: !!(er.retry_same || (e && (e.retry_same || e.retrySame))),
+  };
 }
 
 // inPlace: the room is already on the road (its level was not in memory):
 // it is made again on the same step, never by moving the counter back.
-async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
+// again: reads the same photo once more, offered when a failure says so.
+async function runLivePath(slot, panel, make, { inPlace = false, again = null } = {}) {
   if (A.busy) return;
   setBusy(true);
   let step = 0;
@@ -213,14 +239,17 @@ async function runLivePath(slot, panel, make, { inPlace = false } = {}) {
     else setRoad(R.chooseRoom(A.road, slot, ref));
   } catch (e) {
     setBusy(false);
-    progressPanel(panel, LIVE_LINES, step, inPlace ? e.message : `${e.message} You can try another photo, or play a sample room below.`);
+    const f = failureOf(e, e.reply);
+    const retry = again && f.retrySame;
+    const ways = inPlace ? null : retry ? 'You can also pick another photo, or play a sample room below.' : 'You can try another photo, or play a sample room below.';
+    progressPanel(panel, LIVE_LINES, step, sentences(e.message, ways), { again: retry ? { retry: again, tip: 'Sends the same photo again; no need to pick it' } : null });
     say(e.message);
-    liveFailed(e, failureOf(e, e.reply));
+    liveFailed(e, f);
   }
 }
 
 // standInRoom: in REHEARSAL, the room the answer must be for. A refused
-// reply rides on the error (e.reply), so its error code can be read.
+// reply rides on the error (e.reply), so its code and retry_same can be read.
 async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null) {
   const reply = await sendPhoto(blob, (m) => onWords(m.words));
   const ok = acceptReply(A.mode, reply, copy);
@@ -251,7 +280,7 @@ function choosePhoto(slot, file, panel, opts) {
     const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords);
     if (!entry.built.error) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
     return { ref, entry };
-  }, opts);
+  }, { ...opts, again: () => choosePhoto(slot, file, panel, opts) });
 }
 
 // Rehearsal: the stand-in's own sample picture goes through the live path,
@@ -269,7 +298,7 @@ function rehearseRoom(slot, id, panel, opts) {
     const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
     const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room);
     return { ref: { kind: 'rehearsal', id }, entry };
-  }, opts);
+  }, { ...opts, again: () => rehearseRoom(slot, id, panel, opts) });
 }
 
 // ---- the road ----
@@ -768,7 +797,8 @@ async function screenEnd(main, token) {
 // sample picture; LIVE sends it to Meta's models.
 const coarsePointer = mq('(pointer: coarse)');
 
-// seen.reply: the server's reply, once one came (its error's code)
+// seen.reply: the server's reply, once one came (its error's code and
+// retry_same)
 function ownDeps(seen = {}) {
   return {
     preview: previewPhoto,
@@ -837,6 +867,9 @@ async function screenOwn(main, token) {
 const IN_PLACE_WAYS = 'Pick the same photo, or continue to the end.';
 // after a photo no model can read here (MOCK, or a read refused or failed)
 const MARK_WAYS = 'You can mark the room yourself instead, try another photo, or continue to the end.';
+// and when the failure says the same photo may work again
+const RETRY_MARK_WAYS = 'You can try this photo again, mark the room yourself instead, try another photo, or continue to the end.';
+const RETRY_WAYS = 'You can try this photo again, try another photo, or continue to the end.';
 async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   if (A.busy) return;
   setBusy(true);
@@ -850,6 +883,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
   // the photo can be marked by hand instead (never in place: that is a
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
+  const again = { retry: () => ownPhoto(file, panel, shown, { inPlace }), tip: 'Sends the same photo again; no need to pick it' };
   const seen = { reply: null };
   try {
     // the samples' fingerprints, for a rehearsal's check (a return visit
@@ -864,7 +898,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
       },
     });
     setBusy(false);
-    if (r.notSame) r.words = `${r.words} ${IN_PLACE_WAYS}`;
+    if (r.notSame) r.words = sentences(r.words, IN_PLACE_WAYS);
     if (r.kind === 'built') {
       if (r.ref.kind === 'marked') say('Your marks for this photo were on this device: nothing was sent.');
       else if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
@@ -876,43 +910,50 @@ async function ownPhoto(file, panel, shown, { inPlace = false } = {}) {
     }
     panel.hidden = true;
     const onMark = r.markable ? marking(r.picture, r.sha256 || null) : null;
-    if (onMark && r.kind === 'refused') r.words = `${r.words} ${MARK_WAYS}`;
-    showOwnResult(shown, r, onMark);
+    const retry = r.kind === 'refused' && failureOf(null, seen.reply).retrySame;
+    if (r.kind === 'refused' && !r.notSame) r.words = sentences(r.words, onMark ? (retry ? RETRY_MARK_WAYS : MARK_WAYS) : retry && !inPlace ? RETRY_WAYS : null);
+    showOwnResult(shown, r, onMark, retry ? again : null);
     say(r.kind === 'kept' ? 'Your photo is shown here and stays on this device. Nothing was sent. You can mark your room.' : r.words);
     if (r.kind === 'refused' && seen.reply) liveFailed(null, failureOf(null, seen.reply));
   } catch (e) {
     setBusy(false);
+    const f = failureOf(e, e.reply);
     // a read that failed after the photo was read here (src/own.js): it
     // can be marked instead
     const onMark = e.photo ? marking(e.photo.picture, e.photo.sha256) : null;
     // only the ways this screen offers
-    const words = `${e.message} ${inPlace ? IN_PLACE_WAYS : onMark ? MARK_WAYS : 'You can try another photo, or continue to the end.'}`;
+    const ways = inPlace ? (f.retrySame ? null : IN_PLACE_WAYS) : onMark ? (f.retrySame ? RETRY_MARK_WAYS : MARK_WAYS) : f.retrySame ? RETRY_WAYS : 'You can try another photo, or continue to the end.';
+    const words = sentences(e.message, ways);
     // MOCK sends nothing, so it shows no progress lines: only the words;
     // a read that can be marked instead says why, then the way on, as a
     // refusal does
-    if (sends && !onMark) progressPanel(panel, LIVE_LINES, step, words);
+    if (sends && !onMark) progressPanel(panel, LIVE_LINES, step, words, { again: f.retrySame ? again : null });
     else {
       panel.hidden = true;
-      showOwnResult(shown, { kind: 'refused', words }, onMark);
+      showOwnResult(shown, { kind: 'refused', words }, onMark, f.retrySame ? again : null);
     }
     say(e.message);
-    if (sends) liveFailed(e, failureOf(e, e.reply));
+    if (sends) liveFailed(e, f);
   }
 }
 
 // onMark: the photo can be marked instead; its button becomes the one
-// primary on the screen, right under the photo or the words
-function showOwnResult(box, r, onMark = null) {
-  if (onMark) {
-    for (const p of $('main').querySelectorAll('[data-primary]')) {
-      p.removeAttribute('data-primary');
-      p.classList.remove('primary');
-      if (p.getAttribute('data-tour') === 'primary') p.removeAttribute('data-tour');
-    }
-    A.missingWhy = 'Mark your room, or continue to the end';
+// primary on the screen, right under the photo or the words. again: the
+// same photo once more, then the primary (Mark your room stays beside it).
+function showOwnResult(box, r, onMark = null, again = null) {
+  if (onMark || again) {
+    demotePrimaries();
+    A.missingWhy = onMark ? 'Mark your room, or continue to the end' : A.missingWhy;
     renderHeader();
   }
-  box.replaceChildren(...ownResult(r, onMark ? { mark: () => onMark() } : null).filter(Boolean));
+  const kids = ownResult(r, onMark ? { mark: () => onMark() } : null).filter(Boolean);
+  if (again) {
+    for (const k of kids) demotePrimaries(k);
+    const row = kids.find((k) => k.classList && k.classList.contains('actions'));
+    if (row) row.replaceChildren(retryButton(again), ...row.children);
+    else kids.push(el('div', { class: 'actions' }, [retryButton(again)]));
+  }
+  box.replaceChildren(...kids);
   box.hidden = false;
 }
 

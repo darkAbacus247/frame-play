@@ -3,7 +3,7 @@
 // handed to replaceChildren shows as the word 'null' here too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bootApp, textOf } from './apphost.js';
+import { bootApp, textOf, photoFile } from './apphost.js';
 import { fakeDocument } from './fakedom.js';
 import { replyFor } from './replies.js';
 
@@ -32,9 +32,84 @@ for (const [name, answer] of [['an answer', () => replyFor('desk', 'rehearsal')]
     if (answer) {
       assert.equal(app.step(), 3, 'read and built');
     } else {
-      assert.deepEqual(tags(panel), ['OL', 'P'], 'after an error: the lines and the words');
+      assert.deepEqual(tags(panel), ['OL', 'P'], 'after an error: the lines and the words (no retry_same: no button)');
       assert.match(textOf(panel), /could not be re-encoded/);
     }
     assert.doesNotMatch(textOf(app.$('main')), /\bnull\b|\bundefined\b/);
   });
 }
+
+// ---- LIVE: whole sentences, Try this photo again ----
+// The test answers api/room through the fetch the app host installs (kept
+// through the setter); everything else goes to the app host's own.
+const AT9 = {
+  v: 3, step: 9, reached: 9, consent: true, own: null,
+  rooms: [{ kind: 'sample', id: 'desk' }, { kind: 'sample', id: 'living' }, null],
+  finished: [true, true, false], best: [1.2, 1.3, null],
+};
+const json = (status, body) => ({ ok: status >= 200 && status < 300, status, headers: { get: (k) => (k.toLowerCase() === 'content-type' ? 'application/json' : null) }, json: async () => body });
+function serve(handler) {
+  const orig = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  let inner = null;
+  const posts = [];
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    get: () => async (url, opts = {}) => {
+      if (opts.method === 'POST') posts.push(opts);
+      const r = await handler(String(url), opts, posts.length);
+      return r === undefined ? inner(url, opts) : r;
+    },
+    set: (f) => { inner = f; },
+  });
+  return { posts, restore: () => Object.defineProperty(globalThis, 'fetch', orig) };
+}
+async function live(at, handler) {
+  const s = serve(handler);
+  const app = await bootApp({ mode: 'live', road: at, answer: () => replyFor('desk', 'live') });
+  if (app.cardOpen()) { app.cardPrimary().click(); await app.settle(); }
+  return { app, s };
+}
+const BUSY = { code: 'sam_busy', message: 'SAM 3.1 is busy right now. Please try the same photo again in a minute.', retry_same: true };
+const primaries = (app) => app.$('main').querySelectorAll('[data-primary]').map(textOf);
+
+test('LIVE: a failure without a period reads as whole sentences, and with no retry_same there is no Try this photo again', async () => {
+  const { app, s } = await live(road, (url) => (url === 'api/room' ? json(500, { status: 'error', error: { code: 'timeout', message: 'The Model API did not answer in time' } }) : undefined));
+  try {
+    app.choose(photoFile(41));
+    await app.settle(60);
+    const panel = app.$('main').querySelector('.progress');
+    assert.equal(textOf(panel.querySelector('.error')), 'The Model API did not answer in time. You can try another photo, or play a sample room below.');
+    assert.equal(app.button('Try this photo again'), null);
+  } finally { s.restore(); }
+});
+
+test('LIVE, Step 2: retry_same gives Try this photo again as the one primary; it sends the same photo again, with no new pick', async () => {
+  const { app, s } = await live(road, (url, opts, n) => (url === 'api/room' ? json(200, n === 1 ? replyFor('desk', 'live', { status: 'error', error: BUSY }) : replyFor('desk', 'live')) : undefined));
+  try {
+    app.choose(photoFile(42));
+    await app.settle(60);
+    const panel = app.$('main').querySelector('.progress');
+    assert.equal(textOf(panel.querySelector('.error')), 'SAM 3.1 is busy right now. Please try the same photo again in a minute. You can also pick another photo, or play a sample room below.');
+    assert.deepEqual(primaries(app), ['Try this photo again']);
+    app.button('Try this photo again').click();
+    await app.settle(80);
+    assert.equal(s.posts.length, 2);
+    assert.equal(s.posts[1].body.size, s.posts[0].body.size, 'the same copy');
+    assert.equal(app.step(), 3, 'read and built');
+  } finally { s.restore(); }
+});
+
+test('LIVE, Step 9: retry_same puts Try this photo again first, Mark your room beside it', async () => {
+  const { app, s } = await live(AT9, (url) => (url === 'api/room' ? json(200, replyFor('desk', 'live', { status: 'error', error: BUSY })) : undefined));
+  try {
+    app.choose(photoFile(43));
+    for (let i = 0; i < 200 && !app.button('Try this photo again'); i++) await app.settle(2);
+    const words = textOf(app.$('main').querySelector('.own-result .error'));
+    assert.equal(words, 'SAM 3.1 is busy right now. Please try the same photo again in a minute. You can try this photo again, mark the room yourself instead, try another photo, or continue to the end.');
+    assert.deepEqual(primaries(app), ['Try this photo again']);
+    assert.ok(app.button('Mark your room'));
+    app.button('Try this photo again').click();
+    await app.settle(60);
+    assert.equal(s.posts.length, 2);
+  } finally { s.restore(); }
+});
