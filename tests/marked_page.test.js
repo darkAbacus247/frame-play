@@ -48,11 +48,12 @@ async function chooseAndMark(app, file) {
 }
 
 // every request the page made, as [method, url]: in MOCK only its own files
-// and the health check, all GET, none carrying a body
+// (our kitchen photo for its card's thumbnail) and the health check, all
+// GET, none carrying a body
 function onlyItsOwnFiles(app) {
   for (const [method, url] of app.requests) {
     assert.equal(method, 'GET', `${method} ${url}`);
-    assert.match(url, /^(rooms\/(desk|living|apartment)\.json|api\/health)$/, url);
+    assert.match(url, /^(rooms\/(desk|living|apartment)\.json|rooms\/kitchen\.jpg|api\/health)$/, url);
   }
 }
 

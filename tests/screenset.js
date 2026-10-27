@@ -117,6 +117,10 @@ export function screens(mode) {
       const used = earlier.indexOf(id);
       v.cards.append(V.roomCardView({ title: rooms[id].title, origin: 'mock', disabledWhy: used >= 0 ? `Already your ${['first', 'second'][used]} room` : null, chosen: id === here, onPick: noop }));
     }
+    // and our kitchen, the fourth card: in MOCK off, with its why, where no
+    // server answered (the longest card); in REHEARSAL replayed
+    const ours = { live: { replay: false, off: null }, rehearsal: { replay: true, off: null }, mock: { replay: true, off: 'o', short: 'Off here: no replay on this server' } }[mode];
+    v.cards.append(V.oursCardView({ ours, onPick: noop }));
     const roadRooms = [...SAMPLE_REFS.slice(0, slot + (chosen ? 1 : 0)), null, null, null, null].slice(0, 4);
     out.push({ name: `Pick room ${slot + 1}${chosen ? ', chosen' : ''}`, step: R.PICK_STEPS[slot], section: v.section, road: { rooms: roadRooms } });
   }
@@ -132,7 +136,7 @@ export function screens(mode) {
   out.push({ name: 'Your three rooms', step: R.THREE_STEP, section: cmp.section, pictures: { 'sum-pic': (w) => (w * 768) / 1024 }, road: { rooms: [...SAMPLE_REFS, null], finished: [true, true, true, false] } });
   const ownStates = [['as it opens', null]];
   if (mode === 'mock') {
-    ownStates.push(['as it opens, with no server to replay ours', null, false, { replay: true, off: 'Off here: the server did not answer, so Meta’s recorded answer for our kitchen photo cannot be replayed.' }]);
+    ownStates.push(['as it opens, with no server to replay ours', null, false, { replay: true, off: 'Off here: the server did not answer, so Meta’s recorded answer for our kitchen photo cannot be replayed.', short: 'Off here: no server answered' }]);
     ownStates.push(['with a landscape photo kept here', { kind: 'kept', picture: canvas(1024, 768), words: MOCK_WORDS }, true]);
     ownStates.push(['with a portrait photo kept here', { kind: 'kept', picture: canvas(768, 1024), words: MOCK_WORDS }, true]);
   } else {
@@ -150,9 +154,14 @@ export function screens(mode) {
     if (markable) demote(v.section);
     if (result) {
       v.shown.replaceChildren(...V.ownResult(result, markable ? { mark: noop } : null).filter(Boolean)); v.shown.hidden = false; v.shown.removeAttribute('hidden');
-      // the page's showOwnResult: what Use ours does gives way to the result
-      const line = v.section.querySelector('.ours-line');
-      if (line) { line.hidden = true; line.setAttribute('hidden', ''); }
+      // the page's showOwnResult: what our kitchen does, and the advice, give
+      // way to the result; our kitchen's card stays, without its thumbnail
+      for (const sel of ['.ours-line', '.advice']) {
+        const e = v.section.querySelector(sel);
+        if (e) { e.hidden = true; e.setAttribute('hidden', ''); }
+      }
+      const card = v.section.querySelector('.ours-card');
+      if (card) card.classList.add('compact');
     }
     out.push({ name: `Your own room, ${what}`, step: R.OWN_STEP, section: v.section, road: markable ? { why: 'Mark your room, or continue to the end' } : undefined });
   }

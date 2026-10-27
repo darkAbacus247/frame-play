@@ -21,6 +21,7 @@ import { levelFromReply, makeOwnRoom, signature, fineGrid, objectBoxes, keptLeve
 import {
   welcomeView, pickView, roomCardView, foundView, revealHeight, compareView, roomSumView, roomGoneView,
   freeView, ownView, ownResult, closingRooms, closingView, photoInput, OFF_WORDS, markView, leaveButton, LEAVE_CARD,
+  oursCardView, OURS_TITLE,
 } from './src/screens.js';
 
 const $ = (id) => document.getElementById(id);
@@ -126,6 +127,7 @@ async function sampleTitle(id) {
 // A room's title for the words on a pick step: a sample's own, a photo's
 // as its level says (when in memory).
 async function roomTitle(ref) {
+  if (isOurs(ref)) return 'our kitchen';
   if (ref.kind === 'sample' || ref.kind === 'rehearsal') return sampleTitle(ref.id);
   const entry = A.live.get(refKey(ref));
   return entry && !entry.built.error ? entry.built.level.title : 'your photo';
@@ -361,6 +363,8 @@ function choosePhoto(slot, file, panel, opts) {
       return { ref, entry: kept };
     }
     const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal);
+    // our kitchen, read fresh: its words say it is ours, not the player's
+    if (opts && opts.ours && entry.summary) entry.summary.ours = true;
     // a cancelled read is not used, so not kept either; nor one made while
     // calls were failing
     if (!entry.built.error && !entry.degraded && !signal.aborted) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
@@ -572,10 +576,10 @@ function photoOffWords() {
   return OFF_WORDS.mock;
 }
 
-function roomCard(entry, { disabledWhy, onPick, tour = true, title = null, chosen = false }) {
+function roomCard(entry, { disabledWhy, onPick, tour = true, title = null, chosen = false, origin = null }) {
   const level = entry.built.level;
   return roomCardView({
-    title: title || (entry.room ? entry.room.title : level.title), origin: level.origin, disabledWhy, onPick, tour, chosen,
+    title: title || (entry.room ? entry.room.title : level.title), origin: origin || level.origin, disabledWhy, onPick, tour, chosen,
     draw: (thumb) => {
       // a photo of another shape keeps its shape, centred
       const f = fitSize(320, 240, entry.picture.width, entry.picture.height);
@@ -616,6 +620,9 @@ async function screenRoom(main, slot, token) {
       onPick: () => setRoad(R.chooseRoom(A.road, slot, { kind: 'sample', id: s.id })),
     }));
   }
+  // our kitchen, a real photo, beside the sample rooms
+  const ours = oursHere(slot);
+  view.cards.append(oursCardView({ ours, draw: ours.draw, held: ours.held, chosen: isOurs(here), onPick: () => pickOurs(slot, view.panel) }));
   if (A.busy) setBusy(true);
 }
 
@@ -648,22 +655,38 @@ async function missingRoom(main, slot, token) {
   const kept = keptOrigin(ref);
   const otherMode = kept && kept !== A.mode;
   let why = null;
+  const own = slot === R.OWN_SLOT;
   if (ref && ref.kind === 'replay') {
-    // ours, replayed: made again on each visit where this server can
+    // ours, replayed: made again on each visit where this server can; in a
+    // sample room's slot the way on without it is the room's own pick step
     if (canReplay()) {
       kids.push(el('h1', { text: 'Replay our kitchen again' }),
         el('p', { text: 'The replay of Meta’s recorded answer for our kitchen photo is made again on each visit. No model is called now.' }),
         el('div', { class: 'actions' }, [
-          el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Replay it again', tip: 'Replays Meta’s recorded answer for our kitchen photo; no model is called now', onclick: () => replayOursHere(panel, { inPlace: true }) }),
-          onward(false),
+          el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Replay it again', tip: 'Replays Meta’s recorded answer for our kitchen photo; no model is called now', onclick: () => replayOursHere(panel, { inPlace: true, slot }) }),
+          own ? onward(false) : null,
         ]), panel);
       why = 'Replay it again to play this room';
-    } else {
+    } else if (own) {
       kids.push(el('h1', { text: 'This room cannot load here' }),
         el('p', { text: 'This room is the replay of Meta’s recorded answer for our kitchen photo, and this copy cannot replay it (its server did not answer).' }),
         el('div', { class: 'actions' }, [onward(true)]));
       why = 'Continue to the end to go on';
+    } else {
+      kids.push(el('h1', { text: 'This room cannot load here' }),
+        el('p', { text: `This room is the replay of Meta’s recorded answer for our kitchen photo, and this copy cannot replay it (its server did not answer). Use ← to go back to Step ${R.PICK_STEPS[slot]} and pick a sample room.` }));
+      why = `Go back to Step ${R.PICK_STEPS[slot]} to pick a room`;
     }
+  } else if (isOurs(ref) && fresh() && !otherMode) {
+    // ours, read fresh: read again with no file to pick (its level, kept on
+    // this device, loads with no model call)
+    kids.push(el('h1', { text: 'Read our kitchen again' }),
+      el('p', { text: 'The photo itself is never stored. Our kitchen photo is read again: if its level was kept on this device it loads with no model call.' }),
+      el('div', { class: 'actions' }, [
+        el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: 'Read it again', tip: 'Our kitchen photo again; nothing is sent if its level is on this device', onclick: () => oursAgain(slot, panel, shown) }),
+        own ? onward(false) : null,
+      ]), panel, shown);
+    why = 'Read it again to play this room';
   } else if (ref && ref.kind === 'marked') {
     // marked by hand: made again in any mode from the marks kept here,
     // and nothing is sent
@@ -875,7 +898,7 @@ async function screenThree(main, token) {
       continue;
     }
     const { level, rt } = entry.built;
-    const { article, pic } = roomSumView({ level, best: A.road.best[slot] });
+    const { article, pic } = roomSumView({ level, best: A.road.best[slot], title: isOurs(ref) ? OURS_TITLE : null });
     cards.append(article);
     // the whole card width, keeping the picture's aspect
     A.reveals.push(mountReveal(pic, { level, rt, picture: entry.picture, ui: uiFlags }));
@@ -891,14 +914,28 @@ async function screenFree(main, token) {
     if (token !== A.renderToken) return;
     cards.append(roomCard(entry, { onPick: () => { A.free = { kind: 'sample', id: s.id }; render(); } }));
   }
+  // our kitchen, played in a sample room's slot, as a sample room is
+  for (const slot of [0, 1, 2]) {
+    const ref = A.road.rooms[slot];
+    if (!isOurs(ref)) continue;
+    const entry = await levelFor(ref);
+    if (token !== A.renderToken) return;
+    if (entry && !entry.built.error) cards.append(roomCard(entry, { title: OURS_TITLE, origin: oursOrigin(entry), onPick: () => { A.free = ref; render(); } }));
+  }
   const own = A.road.rooms[R.OWN_SLOT];
   const ownEntry = R.ownMade(A.road) ? await levelFor(own) : null;
   if (token !== A.renderToken) return;
   // titled by its row: in REHEARSAL it carries the sample's own title
-  if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { title: ownTitle(ownEntry.built.level), onPick: () => { A.free = own; render(); } }));
+  if (ownEntry && !ownEntry.built.error) cards.append(roomCard(ownEntry, { title: ownTitle(ownEntry), origin: oursOrigin(ownEntry), onPick: () => { A.free = own; render(); } }));
 }
 
-const ownTitle = (level) => `Your own room: ${level.origin === 'marked' ? 'marked by you' : level.origin === 'replay' ? 'our kitchen' : level.title}`;
+// our kitchen read fresh is LIVE, and not the player's photo
+const oursFresh = (entry) => entry.built.level.origin === 'live' && !!entry.summary && entry.summary.ours === true;
+const oursOrigin = (entry) => (oursFresh(entry) ? 'ours' : null);
+const ownTitle = (entry) => {
+  const level = entry.built.level;
+  return `Your own room: ${level.origin === 'marked' ? 'marked by you' : level.origin === 'replay' || oursFresh(entry) ? 'our kitchen' : level.title}`;
+};
 
 // ---- the closing screen ----
 // The last step of the road: the circuit is complete, each room with what
@@ -986,7 +1023,7 @@ async function screenOwn(main, token) {
   const off = liveOff();
   const view = ownView({
     mode: ownMode(), primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
-    sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road), ours: oursHere(),
+    sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road), ours: oursHere(R.OWN_SLOT),
     actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.passOwnRoom(A.road)), ours: () => useOurs(view.panel, view.shown) },
   });
   // the live AI unavailable: said in place of MOCK's notice; a photo is
@@ -997,7 +1034,8 @@ async function screenOwn(main, token) {
 }
 
 // ---- ours: the sample kitchen photo ----
-// "Don't have a photo? Use ours": in LIVE the author's kitchen photo is read
+// Our kitchen (a real photo), offered as a card on every step where a photo
+// can be chosen (Steps 2, 5, 8 and 12): in LIVE the author's kitchen photo is read
 // fresh, exactly as a chosen photo is (one send); anywhere no model may be
 // called (MOCK, REHEARSAL, the live AI unavailable) this page's server
 // replays Meta's real recorded answer for it through its own pipeline, and
@@ -1008,14 +1046,86 @@ const OURS_OFF = {
   none: 'Off here: the server did not answer, so Meta’s recorded answer for our kitchen photo cannot be replayed.',
   old: 'Off here: this server cannot replay Meta’s recorded answer for our kitchen photo.',
 };
-function oursHere() {
-  if (fresh()) return { replay: false, off: null };
-  return { replay: true, off: canReplay() ? null : A.health ? OURS_OFF.old : OURS_OFF.none };
+// the same, in a few words, on the card itself
+const OURS_SHORT = { none: 'Off here: no server answered', old: 'Off here: no replay on this server' };
+// our kitchen on the road: replayed, or read fresh as a photo
+const isOurs = (r) => !!r && ((r.kind === 'replay' && r.id === 'kitchen') || (r.kind === 'photo' && r.sha256 === OURS.sha256));
+const ORDINAL = ['first', 'second', 'third'];
+// How our kitchen can be picked in a slot: { replay, off, short, draw, held }
+// (src/screens.js oursCardView). Like a sample room it is never on the road
+// twice: an earlier room, or your own room, that holds it keeps it (a later
+// sample room's slot trades places with this one).
+function oursHere(slot) {
+  const k = A.road.rooms.findIndex((r, j) => j !== slot && isOurs(r) && (j < slot || j === R.OWN_SLOT));
+  const held = k < 0 ? null : k === R.OWN_SLOT ? 'Already your own room' : `Already your ${ORDINAL[k]} room`;
+  if (fresh()) return { replay: false, off: null, short: null, draw: drawOurs, held };
+  const why = canReplay() ? null : A.health ? 'old' : 'none';
+  return { replay: true, off: why ? OURS_OFF[why] : null, short: why ? OURS_SHORT[why] : null, draw: drawOurs, held };
 }
 
+// Our kitchen's thumbnail: the photo itself, fetched once from this page's
+// own server (the same GET as Use ours) and decoded on this device, kept in
+// its own shape. Nothing is sent; a thumbnail that cannot load stays blank.
+let oursPicture = null;
+function drawOurs(thumb) {
+  if (!oursPicture) oursPicture = oursBlob().then((b) => decodeToCanvas(b, OURS.width, OURS.height)).catch(() => null);
+  oursPicture.then((pic) => {
+    if (!pic) { oursPicture = null; return; }
+    const ctx = thumb.getContext && thumb.getContext('2d');
+    if (!ctx) return;
+    const f = fitSize(320, 240, OURS.width, OURS.height);
+    ctx.drawImage(pic, (320 - f.cssW) / 2, (240 - f.cssH) / 2, f.cssW, f.cssH);
+  }).catch(() => {});
+}
+
+async function oursFile() {
+  const blob = await oursBlob();
+  return typeof File === 'function' ? new File([blob], 'kitchen.jpg', { type: 'image/jpeg' }) : blob;
+}
+
+// Our kitchen picked on Step 2, 5 or 8: in LIVE read fresh as a chosen photo
+// is (one send, kept on the device like one); elsewhere replayed.
+async function pickOurs(slot, panel) {
+  if (A.busy) return;
+  if (!fresh()) return replayOursHere(panel, { slot });
+  let file;
+  try {
+    file = await oursFile();
+  } catch (e) {
+    progressPanel(panel, LIVE_LINES, 0, sentences(e.message, 'You can play a sample room below.'));
+    say(e.message);
+    return;
+  }
+  return choosePhoto(slot, file, panel, { ours: true });
+}
+
+// Our kitchen read fresh again, in place, on its own step (its level was
+// not in memory): no file to pick.
+async function oursAgain(slot, panel, shown) {
+  if (A.busy) return;
+  let file;
+  try {
+    file = await oursFile();
+  } catch (e) {
+    showOwnResult(shown, { kind: 'refused', words: e.message });
+    say(e.message);
+    return;
+  }
+  if (slot === R.OWN_SLOT) return ownPhoto(file, panel, shown, { inPlace: true, ours: true });
+  return choosePhoto(slot, file, panel, { inPlace: true, ours: true });
+}
+
+// A photo's result shown on your own room: what our kitchen does, and the
+// advice on choosing a photo, give it room; our kitchen's card stays, its
+// thumbnail stepping aside (src/screens.js ownView).
 function hideOursLine() {
-  const line = $('main').querySelector('.ours-line');
-  if (line) line.hidden = true;
+  const main = $('main');
+  for (const sel of ['.ours-line', '.own .advice']) {
+    const e = main.querySelector(sel);
+    if (e) e.hidden = true;
+  }
+  const card = main.querySelector('.ours-card.wide');
+  if (card) card.classList.add('compact');
 }
 
 async function oursBlob() {
@@ -1034,8 +1144,7 @@ function useOurs(panel, shown) {
 async function useOursFresh(panel, shown) {
   let file;
   try {
-    const blob = await oursBlob();
-    file = typeof File === 'function' ? new File([blob], 'kitchen.jpg', { type: 'image/jpeg' }) : blob;
+    file = await oursFile();
   } catch (e) {
     showOwnResult(shown, { kind: 'refused', words: e.message });
     say(e.message);
@@ -1047,14 +1156,16 @@ async function useOursFresh(panel, shown) {
 // The replay: the photo fetched and decoded here, the recorded answer
 // replayed by the server's pipeline, the level built from it on this
 // device. inPlace: the room is already on the road (its level was not in
-// memory): made again on the same step.
-async function replayOursHere(panel, { shown = null, inPlace = false } = {}) {
+// memory): made again on the same step. slot: the room's slot (your own
+// room's, or a sample room's when it is picked on Step 2, 5 or 8).
+async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.OWN_SLOT } = {}) {
   if (A.busy) return;
   setBusy(true);
   if (shown) shown.hidden = true;
   let step = 0;
   progressPanel(panel, REPLAY_LINES, step, null, { cancel: cancelRead });
-  const ways = inPlace ? 'You can replay it again, or continue to the end.' : 'You can choose a photo of your own, try again, or continue to the end.';
+  const ways = slot !== R.OWN_SLOT ? (inPlace ? 'You can replay it again, or use ← to pick another room.' : 'You can try again, or play a sample room below.')
+    : inPlace ? 'You can replay it again, or continue to the end.' : 'You can choose a photo of your own, try again, or continue to the end.';
   try {
     const r = await cancellable((signal) => replayOurs({
       deps: {
@@ -1078,7 +1189,7 @@ async function replayOursHere(panel, { shown = null, inPlace = false } = {}) {
     A.live.set(refKey(r.ref), r.entry);
     say(REPLAY_WORDS);
     if (inPlace) render();
-    else setRoad(R.chooseRoom(A.road, R.OWN_SLOT, r.ref));
+    else setRoad(R.chooseRoom(A.road, slot, r.ref));
   } catch (e) {
     setBusy(false);
     progressPanel(panel, REPLAY_LINES, step, sentences(e.message, ways));
@@ -1183,8 +1294,8 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
 // primary on the screen, right under the photo or the words. again: the
 // same photo once more, then the primary (Mark your room stays beside it).
 function showOwnResult(box, r, onMark = null, again = null) {
-  // what Use ours does gives its room to what became of the photo (the
-  // button stays, with its words in its tip)
+  // what our kitchen does gives its room to what became of the photo (its
+  // card stays, with its words in its tip)
   hideOursLine();
   if (onMark || again) {
     demotePrimaries();

@@ -17,9 +17,11 @@
 // and Back from there comes straight home to it. A room made and played is
 // never passed by: Continue to the end keeps it on the road.
 //
-// Your own room may also be ours: the sample kitchen photo (Use ours). In
-// LIVE it is read as a photo is; elsewhere its recorded answer is replayed,
-// and the slot holds { kind: 'replay', id: 'kitchen' }.
+// Any room may also be ours: our kitchen, a real photo, offered beside the
+// sample rooms and beside Choose a photo. In LIVE it is read as a photo is;
+// elsewhere its recorded answer is replayed, and the slot holds
+// { kind: 'replay', id: 'kitchen' }. In a sample room's slot it is played as
+// a sample room is.
 //
 // Your own room may also be marked by hand (src/marks.js): its slot then
 // holds { kind: 'marked', sha256, made }. Choosing to mark a photo puts it
@@ -152,9 +154,10 @@ export function giveConsent(road) {
   return go({ ...road, consent: true }, 2);
 }
 
-// A room picked on its step. A sample room another sample slot already
-// holds trades places with this slot's room (each keeps its own results),
-// so every room stays pickable and no room is on the road twice.
+// A room picked on its step. A room another sample slot already holds (a
+// sample room, or our kitchen) trades places with this slot's room (each
+// keeps its own results), so every room stays pickable and no room is on
+// the road twice.
 export function chooseRoom(road, slot, ref) {
   const step = PICK_STEPS[slot];
   if (step == null || road.step !== step) return road;
@@ -163,7 +166,7 @@ export function chooseRoom(road, slot, ref) {
   const best = road.best.slice();
   // a room marked again from scratch starts its results again too
   const same = rooms[slot] && sameRef(rooms[slot], ref) && !(ref.kind === 'marked' && !ref.made);
-  const j = !same && slot < SAMPLE_SLOTS && ref.kind === 'sample'
+  const j = !same && slot < SAMPLE_SLOTS && ref.kind !== 'marked'
     ? rooms.findIndex((r, k) => k !== slot && k < SAMPLE_SLOTS && sameRef(r, ref)) : -1;
   if (j >= 0) {
     // the two slots trade rooms, each room with its own results
@@ -335,16 +338,20 @@ export function sanitizeRoad(o) {
   const raw = Number.isInteger(o.step) && o.step >= 1 && o.step <= last ? o.step : null;
   if (!raw) return null;
   const step = old ? OLD_STEP(raw) : raw;
-  const ref = (r) => {
+  const plainRef = (r) => {
     if (!r || typeof r !== 'object') return null;
     if ((r.kind === 'sample' || r.kind === 'rehearsal') && typeof r.id === 'string' && /^[a-z0-9_-]{1,32}$/.test(r.id)) return { kind: r.kind, id: r.id };
     if (r.kind === 'photo' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)) return { kind: 'photo', sha256: r.sha256 };
     return null;
   };
-  // a marked room, or the sample kitchen's replay, only in your own room's slot
+  // our kitchen's replay in any slot
+  const ref = (r) => {
+    if (r && typeof r === 'object' && r.kind === 'replay' && r.id === 'kitchen') return { kind: 'replay', id: 'kitchen' };
+    return plainRef(r);
+  };
+  // a marked room only in your own room's slot
   const ownRef = (r) => {
     if (r && typeof r === 'object' && r.kind === 'marked' && typeof r.sha256 === 'string' && /^[0-9a-f]{64}$/.test(r.sha256)) return { kind: 'marked', sha256: r.sha256, made: r.made === true };
-    if (r && typeof r === 'object' && r.kind === 'replay' && r.id === 'kitchen') return { kind: 'replay', id: 'kitchen' };
     return ref(r);
   };
   const at = (list, k, f) => f(Array.isArray(list) ? list[k] : undefined);

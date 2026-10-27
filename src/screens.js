@@ -92,16 +92,20 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
 }
 
 // ---- picking a sample room (steps 2, 5 and 8) ----
-export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in', marked: 'MARKED · by you', replay: 'REPLAY · recorded answer' };
+// ours: our kitchen read fresh in LIVE (it is not the player's photo)
+export const TAGS = { mock: 'MOCK · sample room', live: 'LIVE · your photo', rehearsal: 'REHEARSAL · stand-in', marked: 'MARKED · by you', replay: 'REPLAY · recorded answer', ours: 'LIVE · our photo' };
 
-// chosen: this card's room is the one on the road at this step
-export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, tour = true, chosen = false }) {
+// chosen: this card's room is the one on the road at this step; tip: its
+// own tip in place of "Play <title>" (a disabled card's tip is its why);
+// cls: more classes; primary: the one emphasized control on its screen
+export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, tour = true, chosen = false, tip = null, cls = '', primary = false }) {
   const thumb = el('canvas', { class: 'thumb', width: '320', height: '240', 'aria-hidden': 'true' });
   if (draw) draw(thumb);
   return el('button', {
-    type: 'button', class: chosen ? 'room-card chosen' : 'room-card', 'data-tour': tour ? 'room-card' : null, disabled: !!disabledWhy,
+    type: 'button', class: ['room-card', chosen ? 'chosen' : '', primary ? 'primary-card' : '', cls].filter(Boolean).join(' '),
+    'data-tour': primary ? 'primary' : tour ? 'room-card' : null, 'data-primary': primary ? 'true' : null, disabled: !!disabledWhy,
     'aria-current': chosen ? 'true' : null,
-    tip: disabledWhy || `Play ${title}`, onclick: onPick,
+    tip: tip || disabledWhy || `Play ${title}`, onclick: onPick,
   }, [
     thumb,
     el('span', { class: 'room-title', text: title }),
@@ -367,11 +371,12 @@ export function bestWords(best) {
   return best <= 1.05 ? 'Your best: the shortest route' : `Your best: ${best.toFixed(1)} times the shortest`;
 }
 
-export function roomSumView({ level, best }) {
+// title: the room's own name in place of its level's (our kitchen)
+export function roomSumView({ level, best, title = null }) {
   const pic = el('div', { class: 'sum-pic' });
   const article = el('article', { class: 'room-sum' }, [
     pic,
-    el('h2', { text: level.title }),
+    el('h2', { text: title || level.title }),
     el('ul', { class: 'facts' }, [
       el('li', { text: `Objects found: ${level.objects.length}` }),
       el('li', { text: `Shortest route: ${level.proof.route_length.toLocaleString('en')} px` }),
@@ -390,7 +395,7 @@ export function roomGoneView(slot, isPhoto) {
 }
 
 // ---- free play ----
-export const FREE_LINE = 'Pick any room: the three sample rooms, and your own room once it is made. Rounds here do not change your road.';
+export const FREE_LINE = 'Pick any room: the three sample rooms, our kitchen once it is on your road, and your own room once it is made. Rounds here do not change your road.';
 export function freeView() {
   const cards = el('div', { class: 'room-cards' });
   const section = el('section', { class: 'screen' }, [
@@ -411,23 +416,52 @@ export const OWN_NOTICE = {
 };
 const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo, or a copy edited enough for the check to see, is refused in words, nothing is sent, and no level is made from it; an edit of a few pixels can pass, and the stand-in answers with its sample’s own places. A refused photo can still become your room: you mark it yourself, and nothing more is sent.';
 
-// "Don't have a photo? Use ours": the author's own kitchen photo, beside
-// Choose a photo. What it does, by the way it is read here.
+// Our kitchen: the author's own kitchen photo, as a card beside Choose a
+// photo and beside the sample rooms. What it does, by the way it is read here.
 export const OURS_WORDS = {
   fresh: 'No photo of your own? Use ours: the author’s own photo of a real kitchen, read fresh by Meta’s models, as a photo you choose is.',
   replay: 'No photo of your own? Use ours: the author’s own photo of a real kitchen. Meta’s models read it on Oct 27, 2026; this copy replays their recorded answer, and no model is called now.',
 };
-export const OURS_LABEL = 'Don’t have a photo? Use ours';
+export const OURS_TITLE = 'Our kitchen (a real photo)';
+const OURS_TIPS = {
+  fresh: 'The author’s kitchen photo, read by Meta’s models as your photo would be',
+  replay: 'The author’s kitchen photo, with Meta’s recorded answer replayed; no model is called now',
+};
+
+// Our kitchen's card. ours: { replay (its recorded answer is replayed; else
+// it is read fresh), off (why it cannot be used here, or null), short (the
+// same in a few words, for the card) }; draw(canvas): its thumbnail;
+// held: why it is not picked here (another step holds it), or null; wide:
+// the thumbnail beside the words (beside Choose a photo)
+export function oursCardView({ ours, onPick, draw, chosen = false, held = null, primary = false, wide = false }) {
+  const why = held || (ours.off ? ours.short || ours.off : null);
+  const tip = held ? null : ours.off || OURS_TIPS[ours.replay ? 'replay' : 'fresh'];
+  const origin = ours.replay ? 'replay' : 'ours';
+  if (!wide) return roomCardView({ title: OURS_TITLE, origin, disabledWhy: why, onPick, draw, chosen, tip, primary, cls: 'ours-card' });
+  const thumb = el('canvas', { class: 'thumb', width: '320', height: '240', 'aria-hidden': 'true' });
+  if (draw) draw(thumb);
+  return el('button', {
+    type: 'button', class: ['room-card', 'ours-card', 'wide', primary ? 'primary-card' : ''].filter(Boolean).join(' '),
+    'data-primary': primary ? 'true' : null, 'data-tour': primary ? 'primary' : null, disabled: !!why, tip: tip || why, onclick: onPick,
+  }, [
+    thumb,
+    el('span', { class: 'card-text' }, [
+      el('span', { class: 'room-title', text: OURS_TITLE }),
+      el('span', { class: `tag ${origin}`, text: TAGS[origin] }),
+      why ? el('span', { class: 'why', text: why }) : null,
+    ]),
+  ]);
+}
 
 // actions: { file(f), skip, ours }; camera: offer the camera; sampleLink:
 // the REHEARSAL picture to save, or null; made: a room is already made here;
-// ours: { replay (its recorded answer is replayed; else it is read fresh),
-// off (why it cannot be used here, or null) }, or null
+// ours: { replay, off, short, draw (its thumbnail), held } as oursCardView
+// takes them, or null
 export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, actions }) {
   const m = OWN_NOTICE[mode] ? mode : 'mock';
   const sends = m !== 'mock';
   // in MOCK, ours is the one room a model's answer can make here: the primary
-  const oursFirst = !sends && !!ours && !ours.off;
+  const oursFirst = !sends && !!ours && !ours.off && !ours.held;
   const panel = el('div', { class: 'progress', hidden: true, 'aria-live': 'polite' });
   const shown = el('div', { class: 'own-result', hidden: true });
   const fileIn = photoInput(actions.file);
@@ -445,12 +479,8 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
     type: 'button', class: sends || oursFirst ? 'btn' : 'btn primary', 'data-primary': sends || oursFirst ? null : 'true', 'data-tour': sends || oursFirst ? null : 'primary',
     text: primaryLabel, tip: made ? 'Your own room stays as it is' : 'Go on without your own room', onclick: actions.skip,
   });
-  const oursBtn = ours ? el('button', {
-    type: 'button', class: oursFirst ? 'btn primary' : 'btn', 'data-primary': oursFirst ? 'true' : null, 'data-tour': oursFirst ? 'primary' : null,
-    text: OURS_LABEL, disabled: !!ours.off, onclick: actions.ours,
-    tip: ours.off || (ours.replay ? 'The author’s kitchen photo, with Meta’s recorded answer replayed; no model is called now' : 'The author’s kitchen photo, read by Meta’s models as your photo would be'),
-  }) : null;
-  const oursLine = ours ? el('p', { class: 'why ours-line', text: ours.off || OURS_WORDS[ours.replay ? 'replay' : 'fresh'] }) : null;
+  const oursBtn = ours ? oursCardView({ ours, onPick: actions.ours, draw: ours.draw, held: ours.held || null, primary: oursFirst, wide: true }) : null;
+  const oursLine = ours && !ours.held ? el('p', { class: 'why ours-line', text: ours.off || OURS_WORDS[ours.replay ? 'replay' : 'fresh'] }) : null;
   const section = el('section', { class: 'screen own' }, [
     el('h1', { text: 'Your own room' }),
     el('p', { class: 'advice', text: 'A photo of your own room or desk top: clear edges on a plain floor or desk work best. No people.' }),
@@ -551,7 +581,8 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
           : 'No room was made from a photo of your own, and nothing was invented.',
       };
     }
-    const ours = ref && ref.kind === 'replay';
+    // our kitchen, replayed or read fresh, in any slot
+    const ours = !!ref && (ref.kind === 'replay' || (!!summaries[slot] && summaries[slot].ours === true));
     return {
       slot, heading, ref, playable: !!level,
       title: ref && ref.kind === 'marked' ? 'marked by you' : ours ? 'our kitchen' : level ? level.title : null,
@@ -569,7 +600,7 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
 export function missingLine(slot, ref, mode, room = null, kept = null, canReplay = false) {
   const gone = 'Its level is not in memory on this visit';
   // ours, replayed: any mode replays it again, where the server can
-  if (ref && ref.kind === 'replay') return canReplay ? `${gone}; replay it again on Step ${OWN_STEP} to see it.` : `${gone}, and this copy cannot replay it.`;
+  if (ref && ref.kind === 'replay') return canReplay ? `${gone}; replay it again on Step ${PICK_STEPS[slot]} to see it.` : `${gone}, and this copy cannot replay it.`;
   // marked by hand: any mode makes it again from the marks on this device
   if (ref && ref.kind === 'marked') return `${gone}; choose the same photo again on Step ${OWN_STEP + 1} to load it from your marks on this device.`;
   const otherMode = kept && kept !== mode;

@@ -110,7 +110,7 @@ test('→ onto a pick step chooses the next room there, as the end card does', a
   assert.match(app.main(), /On your road: The Apartment\./);
   assert.deepEqual(app.savedRoad().rooms[2], APARTMENT);
   // the first and second rooms cannot be picked again here
-  const disabled = app.$('main').querySelectorAll('.room-card').filter((c) => c.disabled).map(textOf);
+  const disabled = app.$('main').querySelectorAll('.room-card:not(.ours-card)').filter((c) => c.disabled).map(textOf);
   assert.equal(disabled.length, 2);
   assert.match(disabled.join(' '), /Already your first room/);
   assert.match(disabled.join(' '), /Already your second room/);

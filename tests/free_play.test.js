@@ -17,7 +17,7 @@ async function atTheEnd() {
 function isTheList(app) {
   assert.equal(app.step(), 16);
   assert.equal(app.h1(), 'Free play');
-  assert.match(app.main(), /Pick any room: the three sample rooms, and your own room once it is made\. Rounds here do not change your road\./);
+  assert.match(app.main(), /Pick any room: the three sample rooms, our kitchen once it is on your road, and your own room once it is made\. Rounds here do not change your road\./);
   assert.equal(app.$('main').querySelectorAll('.room-card').length, 3, 'the three sample rooms (your own room was passed by)');
   assert.equal(app.$('main').querySelector('.game'), null, 'no board');
 }

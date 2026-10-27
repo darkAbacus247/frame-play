@@ -23,7 +23,12 @@ The rooms follow one another: when a round ends, win or lose, the end
 card's primary goes straight on to the next room's What the AI found. The
 pick steps stay on the road with the next room already chosen there, so
 ← (or the browser's Back, or Choose a different room) still reaches them,
-and any room can be picked there instead. A road saved by the earlier
+and any room can be picked there instead. Every pick step offers four
+cards: the three sample rooms and **Our kitchen (a real photo)**, with its
+thumbnail (see "Don't have a photo? Use ours" below). Picked there, our
+kitchen is played as a sample room is: its result, Your three rooms, the
+closing screen and Free play all show it, the next sample room follows it,
+and, like a sample room, it is never on the road twice. A road saved by the earlier
 12-step page reads onto this one: its rooms and results are kept, and it
 goes on from the first room it has not played (The Apartment, chosen for
 it).
@@ -115,8 +120,10 @@ area, every outline a decoded mask, walls and doorways.
 
 ### Don't have a photo? Use ours
 
-Beside **Choose a photo**, your own room offers **Don't have a photo? Use
-ours**: `rooms/kitchen.jpg`, a photo of a real kitchen. It is the author's
+Everywhere a photo can be chosen, our kitchen is offered as a card with its
+thumbnail, **Our kitchen (a real photo)**: beside the three sample rooms on
+Steps 2, 5 and 8, and beside **Choose a photo** on your own room (Step 12).
+It is `rooms/kitchen.jpg`, a photo of a real kitchen. It is the author's
 own photo, taken by the author, with its camera data removed (1024 x 399,
 no people), and it is released with this repository under its license.
 
@@ -145,10 +152,12 @@ no people), and it is released with this repository under its license.
   masks gave 5 exact outlines plus the floor, code made 2 changes, and the
   room can be won.
 
-In MOCK, where a server answers, Use ours is the one primary on your own
-room (it is the one room a model's answer can make there); with no server
-at all it is off, and says why. A replayed room is never kept on the
-device: on a return visit it is replayed again in place.
+In MOCK, where a server answers, our kitchen's card is the one primary on
+your own room (it is the one room a model's answer can make there); with
+no server at all it is off, and says why, on every screen that offers it.
+A replayed room is never kept on the device: on a return visit it is
+replayed again in place. Its thumbnail is the photo itself, fetched from
+this page's own server and decoded on the device; nothing is sent for it.
 
 **Floors, walls and doorways.** Where a room's floor is known (drawn by
 code in a sample room, or grown by code from a LIVE or REHEARSAL read),

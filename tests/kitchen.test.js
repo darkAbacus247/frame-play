@@ -14,7 +14,7 @@ import { replayReply, liveKitchenReply, KITCHEN_JPG, KITCHEN_PIXELS, W, H } from
 import { replayOurs, OURS, OURS_REF, REPLAY_WORDS, OURS_NOT_SAME, OURS_REPLY_NOT_SAME } from '../src/own.js';
 import { acceptReply } from '../src/reply.js';
 import { validateLevel, LABELS } from '../src/level.js';
-import { summaryLine, aiLine, closingRooms, OURS_LABEL, OURS_WORDS } from '../src/screens.js';
+import { summaryLine, aiLine, closingRooms, OURS_TITLE, OURS_WORDS } from '../src/screens.js';
 import { sanitizeRoad, OWN_SLOT, OWN_STEP, LAST_STEP } from '../src/road.js';
 import { installFakeDocument } from './fakedom.js';
 
@@ -85,11 +85,12 @@ test('a replay is used only for the very photo, and only as a replay', async () 
   assert.match(acceptReply('live', reply, OURS).why, /answered with a replay where a fresh read was asked for/);
 });
 
-test('a saved road keeps ours only in your own room’s slot', () => {
+test('a saved road keeps ours in any room’s slot', () => {
   const road = { ...AT_OWN, step: LAST_STEP, rooms: [...SAMPLE_ROOMS, OURS_REF], finished: [true, true, true, true] };
   assert.deepEqual(sanitizeRoad(JSON.parse(JSON.stringify(road))).rooms[OWN_SLOT], OURS_REF);
   assert.equal(sanitizeRoad(JSON.parse(JSON.stringify(road))).step, LAST_STEP);
-  assert.equal(sanitizeRoad({ ...road, rooms: [OURS_REF, null, null, null], step: 3 }).rooms[0], null);
+  assert.deepEqual(sanitizeRoad({ ...road, rooms: [OURS_REF, null, null, null], finished: [false, false, false, false], step: 3 }).rooms[0], OURS_REF);
+  assert.equal(sanitizeRoad({ ...road, rooms: [OURS_REF, null, null, null], finished: [false, false, false, false], step: 3 }).step, 3);
   assert.equal(sanitizeRoad({ ...road, rooms: [...SAMPLE_ROOMS, { kind: 'replay', id: 'other' }] }).rooms[OWN_SLOT], null);
 });
 
@@ -114,7 +115,7 @@ async function ownStep(opts) {
   assert.equal(app.step(), OWN_STEP);
   return app;
 }
-const oursButton = (app) => app.button(OURS_LABEL);
+const oursButton = (app) => app.$('main').querySelector('.ours-card');
 const posted = (app) => app.requests.filter(([m]) => m === 'POST').map(([, u]) => u);
 
 for (const mode of ['mock', 'rehearsal']) {
@@ -122,10 +123,14 @@ for (const mode of ['mock', 'rehearsal']) {
     const app = await ownStep({ mode, server: true, replay: replayReply });
     const b = oursButton(app);
     assert.ok(b && !b.disabled, 'beside Choose a photo');
+    assert.ok(textOf(b).startsWith(`${OURS_TITLE} REPLAY · recorded answer`), textOf(b));
+    assert.ok(b.querySelector('canvas.thumb'), 'with its thumbnail');
     assert.ok(app.button('Choose a photo'), 'Choose a photo stays');
+    assert.equal(b.parentNode, app.button('Choose a photo').parentNode, 'in the same row');
     assert.ok(app.main().includes(OURS_WORDS.replay), 'what it does, said before it is pressed');
     // in MOCK it is the one primary; in REHEARSAL Choose a photo stays the primary
-    assert.equal(textOf(app.mainPrimary()), mode === 'mock' ? OURS_LABEL : 'Choose a photo');
+    assert.equal(app.mainPrimary() === b, mode === 'mock');
+    if (mode !== 'mock') assert.equal(textOf(app.mainPrimary()), 'Choose a photo');
     paintCanvases(app, KITCHEN_PIXELS);
     try {
       b.click();
