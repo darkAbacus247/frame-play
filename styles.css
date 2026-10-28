@@ -371,6 +371,10 @@ dialog.card .label { color: var(--muted); }
 .tag.mock { color: var(--mock); border-color: var(--mock); }
 .tag.live { color: var(--accent); border-color: var(--accent); }
 .tag.rehearsal { color: var(--mock); border-color: var(--mock); }
+/* on the 11rem cards a tag keeps to one line (a size smaller, a little less padding:
+   "MOCK · sample room" was 169 px for 150); one that must wrap where a card is narrower
+   gets a softer corner, never a squeezed oval */
+.room-card .tag { font-size: 0.875rem; line-height: 1.4; padding: 0 0.375rem; border-radius: var(--s2); }
 /* our kitchen beside Choose a photo: the thumbnail beside its words and its
    own button; the words as wide as they need, so the title and its badge
    each stay on one line */
