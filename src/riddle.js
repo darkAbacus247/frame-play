@@ -220,7 +220,7 @@ export function placeOf(level, k) {
   const x = (b.x0 + b.x1) / 2, y = (b.y0 + b.y1) / 2;
   const v = y < H / 3 ? 'top' : y > (2 * H) / 3 ? 'bottom' : 'middle';
   const h = x < W / 3 ? 'left' : x > (2 * W) / 3 ? 'right' : 'middle';
-  return v === h ? 'middle' : `${v}, ${h}`;
+  return v === h ? 'middle' : `${v} ${h}`;
 }
 
 // The choices for "Answer with": every thing with an outline, in

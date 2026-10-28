@@ -78,12 +78,14 @@ export function hasFloor(level) {
 // as the doorway, in picture pixels.
 export const FLOOR_STYLE = { edge: '#ffffff', under: 'rgba(0,0,0,0.55)', door: '#7cf2c4', doorFill: 'rgba(124,242,196,0.28)' };
 
-// Where each numbered badge goes on the reveal: beside its object, clear of
-// every outline and of the other badges, inside the picture.
-export function badgeSpots(level, r) {
+// Where each numbered badge goes on the reveal (and each role badge in
+// play): beside its object, clear of every outline, of the other badges and
+// of the MOCK stamp (`avoid`, boxes drawn over the picture), inside it.
+export function badgeSpots(level, r, avoid = []) {
   const W = level.picture.width, H = level.picture.height;
   const rings = level.objects.map((o) => o.outline.rings);
   const placed = [];
+  const free = ([x, y]) => avoid.every((a) => x < a.x - r || x > a.x + a.w + r || y < a.y - r || y > a.y + a.h + r);
   return level.objects.map((o, k) => {
     const b = bounds(o.outline.rings);
     const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, g = r + 4;
@@ -91,7 +93,7 @@ export function badgeSpots(level, r) {
       [cx, b.y0 - g], [b.x1 + g, cy], [b.x0 - g, cy], [cx, b.y1 + g],
       [b.x1 + g, b.y0 - g], [b.x0 - g, b.y0 - g], [b.x1 + g, b.y1 + g], [b.x0 - g, b.y1 + g],
     ];
-    const inside = ([x, y]) => x >= r && y >= r && x <= W - r && y <= H - r;
+    const inside = ([x, y]) => x >= r && y >= r && x <= W - r && y <= H - r && free([x, y]);
     const clear = ([x, y]) => {
       for (const rs of rings) {
         if (pointInShape(x, y, rs) || distToRings(x, y, rs) < r + 2) return false;
@@ -110,10 +112,10 @@ export function badgeSpots(level, r) {
 // null when even the smallest would crowd, and the picture shows outlines
 // without numbers.
 export const BADGE_RADII = [12, 10, 8];
-export function numberSpots(level, scale) {
+export function numberSpots(level, scale, avoid = []) {
   for (const rCss of BADGE_RADII) {
     const r = rCss / scale;
-    const spots = badgeSpots(level, r);
+    const spots = badgeSpots(level, r, avoid);
     const apart = spots.every((a, i) => spots.every((b, j) => j <= i || Math.hypot(a.x - b.x, a.y - b.y) >= 2 * r + 2 / scale));
     if (apart) return { r, rCss, spots };
   }
@@ -425,7 +427,7 @@ export class Renderer {
 
   drawNumbers(ui) {
     const { ctx, level } = this;
-    if (this.spotsScale !== this.scale) { this.numbers = numberSpots(level, this.scale); this.spotsScale = this.scale; }
+    if (this.spotsScale !== this.scale) { this.numbers = numberSpots(level, this.scale, this.stamp ? [this.stamp] : []); this.spotsScale = this.scale; }
     if (!this.numbers) return;
     const { r, rCss, spots } = this.numbers;
     const count = ui.outlineCount ?? level.objects.length;
@@ -502,13 +504,18 @@ export class Renderer {
     });
   }
 
+  // A role (or riddle) badge's place in play: the reveal's own rule, beside
+  // its object and clear of every outline, of the other badges and of the
+  // MOCK stamp, so badges never pile up on a cluttered photo (the 10-28
+  // review: the stove in our kitchen). Kept for the board's current scale.
   badgePos(k) {
-    const b = this.boxes[k];
     const r = this.px(12);
-    let y = b.y0 - r - this.px(6);
-    if (y - r < 0) y = b.y1 + r + this.px(6);
-    const x = Math.min(Math.max((b.x0 + b.x1) / 2, r), this.level.picture.width - r);
-    return [x, y, r];
+    if (!this.badges || this.badgesR !== r) {
+      this.badges = badgeSpots(this.level, r, this.stamp ? [this.stamp] : []);
+      this.badgesR = r;
+    }
+    const s = this.badges[k];
+    return [s.x, s.y, r];
   }
 
   drawBadges(state, ui) {

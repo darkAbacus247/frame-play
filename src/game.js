@@ -328,7 +328,7 @@ export function mountPlay(root, opts) {
     const reduced = !!(opts.ui && opts.ui().reducedMotion);
     riddle.timer = setTimeout(() => {
       if (handlers.onEnd) handlers.onEnd({ outcome, i, total: list.length, riddle: r, found: [...rs.found] });
-    }, outcome === 'skipped' ? 0 : reduced ? 400 : 1000);
+    }, outcome === 'skipped' ? 0 : reduced ? 600 : 1500);
   }
 
   function pickId(id, near) {
