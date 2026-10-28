@@ -11,7 +11,9 @@ reads them from a mapping it is given (os.environ when the server starts),
 keeps the key in a holder that never prints, and never writes it anywhere.
 """
 import ipaddress
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -225,6 +227,8 @@ class Settings:
     rehearsal_room: str = ''
     key_present: bool = False
     riddles: bool = True
+    # LIVE only: the folder that keeps the day's spend (server/limits.py)
+    data_dir: str = ''
 
     @property
     def label(self):
@@ -255,8 +259,12 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
         return Settings('rehearsal', 'Rehearsing against a local stand-in, not Meta. No key is held.',
                         None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles)
     if has_key and live_on:
+        # the day's spend is kept in a writable folder: FRAMEPLAY_DATA_DIR,
+        # or frameplay in the system's temporary folder
+        data_dir = (environ.get('FRAMEPLAY_DATA_DIR') or '').strip() or os.path.join(tempfile.gettempdir(), 'frameplay')
         return Settings('live', 'The key is present and FRAMEPLAY_LIVE is yes.',
-                        KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True, riddles=riddles)
+                        KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True, riddles=riddles,
+                        data_dir=data_dir)
     if has_key:
         why = 'The key is present but FRAMEPLAY_LIVE is not yes, so no model is called.'
     elif live_on:

@@ -441,7 +441,19 @@ given up. A photo is one Muse Spark
 call, at most 12 SAM 3.1 calls and one more Muse Spark call for its riddles
 (at most 14 calls in all): at the published prices about four to five
 cents, and about nine cents at worst (every call answered once; a call sent
-again costs again, and the estimate counts each send), so the stop allows at least 50 photos a day. If the Model API refuses the
+again costs again, and the estimate counts each send), so the stop allows at least 50 photos a day.
+
+The $5 stop is an estimate kept by this server, not a limit on the Meta
+account. In LIVE the day's estimated spend and photo count are kept in a
+small JSON file (`spend.json` in `FRAMEPLAY_DATA_DIR`, by default a
+`frameplay` folder in the system's temporary folder), keyed by the UTC day,
+read at start and written on every change, so a restart of the same server
+keeps the day's count. A fresh container (a rebuilt or moved Space, or a
+folder that is not kept) starts a new count; the per-photo and per-client
+caps still bound what it can spend. Health says where the count is kept
+(spend_kept: file or memory).
+
+If the Model API refuses the
 key, the account has no credit or quota, or a model is gone, the server
 stops sending photos, says so in health (live_state: unavailable), and lets
 one photo check again every 10 minutes. When LIVE cannot read a photo for

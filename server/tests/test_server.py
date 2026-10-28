@@ -306,6 +306,7 @@ class PerClient(unittest.TestCase):
             srv = build_server(s, '127.0.0.1', 0, log=Log(stream=[]))
             try:
                 self.assertEqual(srv.limits.clients is not None, counted, s.mode)
+                self.assertEqual(srv.health()['spend_kept'], 'memory', 'no data folder given')
                 ceilings = srv.health()['ceilings']
                 self.assertEqual((ceilings['photos_per_client_per_hour'], ceilings['photos_per_client_per_day']), (3, 10))
             finally:

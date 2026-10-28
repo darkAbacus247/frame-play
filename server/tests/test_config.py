@@ -26,6 +26,11 @@ class Modes(unittest.TestCase):
 
     def test_live_needs_both(self):
         s = settings_from({'MODEL_API_KEY': TEST_VALUE, 'FRAMEPLAY_LIVE': 'yes'})
+        # the day's spend is kept in a writable folder: the operator's, or the system's temporary one
+        self.assertTrue(s.data_dir.endswith('frameplay'))
+        self.assertEqual(settings_from({'MODEL_API_KEY': TEST_VALUE, 'FRAMEPLAY_LIVE': 'yes', 'FRAMEPLAY_DATA_DIR': '/data'}).data_dir, '/data')
+        self.assertEqual(settings_from({'FRAMEPLAY_DATA_DIR': '/data'}).data_dir, '', 'MOCK keeps no file')
+        self.assertEqual(settings_from({'FRAMEPLAY_DATA_DIR': '/data'}, 'http://127.0.0.1:9/v1').data_dir, '', 'nor does REHEARSAL')
         self.assertEqual(s.mode, 'live')
         self.assertIsInstance(s.key, KeyHolder)
         self.assertEqual(s.base, 'https://api.meta.ai/v1')

@@ -5,9 +5,14 @@ In LIVE each client also has its own photos an hour and a day
 (config.CLIENT_PER_HOUR and config.CLIENT_PER_DAY), on top of the server's:
 one visitor cannot use up the day for everyone.
 Each call reserves its worst-case cost under one lock before it is sent, so
-calls racing each other cannot pass the stop together. The counters live in
-memory: a restart clears them, so the account's own spend notification is
-the first line of defence and these are the second."""
+calls racing each other cannot pass the stop together. In LIVE the day's
+spend and photos are also kept in a small JSON file keyed by the UTC day
+(read at start, written on every change), so a restart of the same server
+keeps them; a fresh container starts a new count, and the per-photo and
+per-client ceilings still bound it. The account's own spend notification
+stays the first line of defence and these are the second."""
+import json
+import os
 import threading
 import time
 from collections import deque
@@ -27,6 +32,10 @@ class Refusal(Exception):
 
 def _utc_day(t):
     return int(t // 86400)
+
+
+def _day_name(day):
+    return time.strftime('%Y-%m-%d', time.gmtime(day * 86400))
 
 
 class Reservation:
@@ -51,7 +60,7 @@ class Admission:
 class Limits:
     def __init__(self, day_cap=config.PER_DAY, usd_stop=config.USD_STOP, clock=time.time,
                  in_flight=config.IN_FLIGHT, per_hour=config.PER_HOUR, clients=True,
-                 client_hour=config.CLIENT_PER_HOUR, client_day=config.CLIENT_PER_DAY):
+                 client_hour=config.CLIENT_PER_HOUR, client_day=config.CLIENT_PER_DAY, store=None):
         self.lock = threading.Lock()
         self.clock = clock
         self.day_cap = min(day_cap, config.PER_DAY)
@@ -71,6 +80,39 @@ class Limits:
         self.clients = {} if clients else None
         self.client_hour = min(client_hour, config.CLIENT_PER_HOUR)
         self.client_day = min(client_day, config.CLIENT_PER_DAY)
+        # the day's spend and photos, kept in this file (None: memory only)
+        self.store = str(store) if store else None
+        self._load()
+
+    def _load(self):
+        """The day's spend and photos as the file kept them, when it is
+        today's file; otherwise (none, another day, unreadable) from zero."""
+        if not self.store:
+            return
+        try:
+            with open(self.store, encoding='utf-8') as f:
+                rec = json.load(f)
+            if rec.get('utc_day') == _day_name(self.day):
+                self.spent = max(0.0, float(rec.get('estimated_usd') or 0.0))
+                self.photos_today = max(0, int(rec.get('photos_today') or 0))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
+    def _save(self):
+        """Under the lock: today's spend (open reservations included, as
+        they may be billed) and photos, written whole or not at all."""
+        if not self.store:
+            return
+        rec = {'utc_day': _day_name(self.day), 'estimated_usd': round(self.spent + self.reserved, 6),
+               'photos_today': self.photos_today}
+        tmp = self.store + '.tmp'
+        try:
+            os.makedirs(os.path.dirname(self.store) or '.', exist_ok=True)
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(rec, f)
+            os.replace(tmp, self.store)
+        except OSError:
+            pass  # the count holds in memory
 
     def _roll(self, now):
         d = _utc_day(now)
@@ -127,6 +169,7 @@ class Limits:
                 mine = self.clients.setdefault(client, [deque(), 0])
                 mine[0].append(now)
                 mine[1] += 1
+            self._save()
             return Admission(now, self.day)
 
     def uncount(self, adm):
@@ -143,6 +186,7 @@ class Limits:
                 pass  # already out of the hour
             if adm.day == self.day:
                 self.photos_today = max(0, self.photos_today - 1)
+            self._save()
 
     def cancel(self, adm):
         """A photo let in that never reached a reader (its upload did not
@@ -165,6 +209,7 @@ class Limits:
                 raise Refusal('spend_stop', f'This server has reached its spending stop for today (${self.usd_stop:.2f} estimated).', self._to_midnight(self.clock()))
             self.reserved += usd
             self.calls += 1
+            self._save()
             return Reservation(usd)
 
     def settle(self, res, actual_usd, sends=1):
@@ -180,6 +225,7 @@ class Limits:
             self.reserved = max(0.0, self.reserved - res.usd)
             self.spent += (res.usd if actual_usd is None else max(0.0, actual_usd)) * sends
             self.calls += sends - 1
+            self._save()
 
     def failed(self, res, billed, sends=1):
         """A call that ended in an error after `sends` sends: each earlier
@@ -203,6 +249,7 @@ class Limits:
             res.open = False
             self.reserved = max(0.0, self.reserved - res.usd)
             self.calls = max(0, self.calls - 1)
+            self._save()
 
     def counters(self):
         with self.lock:

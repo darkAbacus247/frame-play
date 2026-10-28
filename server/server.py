@@ -422,6 +422,9 @@ class FramePlayServer(ThreadingHTTPServer):
         h.update(self.live_state())
         if self.limits is not None:
             h['counters'] = self.limits.counters()
+            # where the day's spend is kept: a file survives a restart of
+            # this server, never a fresh container
+            h['spend_kept'] = 'file' if getattr(self.limits, 'store', None) else 'memory'
         if s.mode == 'rehearsal':
             h['rehearsal'] = {'stand_in_base': s.base, 'room': s.rehearsal_room}
         # the sample kitchen photo's recorded answers, replayed in any mode
@@ -449,7 +452,8 @@ def build_server(settings, host='127.0.0.1', port=8191, log=None, public=False):
     limits = pipeline = None
     try:
         from server.limits import Limits
-        limits = Limits(day_cap=settings.day_cap, usd_stop=settings.usd_stop, clients=settings.mode == 'live')
+        store = os.path.join(settings.data_dir, 'spend.json') if settings.data_dir else None
+        limits = Limits(day_cap=settings.day_cap, usd_stop=settings.usd_stop, clients=settings.mode == 'live', store=store)
     except ImportError:
         limits = None
     if settings.mode != 'mock':

@@ -1,5 +1,9 @@
+import json
+import shutil
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 from server import config
 from server.limits import SAM_COST, SPARK_WORST, Limits, Refusal
@@ -172,6 +176,34 @@ class Ceilings(unittest.TestCase):
         self.assertAlmostEqual(lim.spent, 6 * SAM_COST)
         self.assertAlmostEqual(lim.reserved, 0.0)
         self.assertEqual(lim.calls, 6, 'a last send refused before any work is not counted')
+
+    def test_the_day_s_spend_is_kept_in_a_file_keyed_by_the_utc_day(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        store = folder / 'spend.json'
+        clock = Clock(1_800_000_000.0 - (1_800_000_000.0 % 86400) + 3600)  # 01:00 UTC
+        lim = Limits(clock=clock, store=store)
+        lim.admit('a')
+        lim.settle(lim.reserve(SAM_COST), SAM_COST)
+        open_one = lim.reserve(SPARK_WORST)  # still open when the server stops
+        rec = json.loads(store.read_text(encoding='utf-8'))
+        self.assertEqual(rec, {'utc_day': '2027-01-15', 'estimated_usd': round(SAM_COST + SPARK_WORST, 6), 'photos_today': 1})
+        self.assertTrue(open_one.open)
+        # a restart of the same server reads it: what was open may be billed, so it counts
+        again = Limits(clock=clock, store=store)
+        self.assertAlmostEqual(again.spent, SAM_COST + SPARK_WORST)
+        self.assertEqual(again.counters()['photos_today'], 1)
+        again.settle(again.reserve(SAM_COST), SAM_COST)
+        self.assertAlmostEqual(json.loads(store.read_text(encoding='utf-8'))['estimated_usd'], round(2 * SAM_COST + SPARK_WORST, 6))
+        # a new UTC day starts from zero
+        clock.t += 86400
+        self.assertEqual((Limits(clock=clock, store=store).spent, Limits(clock=clock, store=store).photos_today), (0.0, 0))
+        # an unreadable file starts from zero; a folder that cannot be written keeps the count in memory
+        store.write_text('not json', encoding='utf-8')
+        self.assertEqual(Limits(clock=clock, store=store).spent, 0.0)
+        bad = Limits(clock=clock, store=folder / 'spend.json' / 'inside-a-file.json')
+        bad.settle(bad.reserve(SAM_COST), SAM_COST)
+        self.assertAlmostEqual(bad.spent, SAM_COST)
 
     def test_counters(self):
         lim = Limits(clock=Clock())
