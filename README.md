@@ -9,8 +9,11 @@ exit you reach.
 
 Built during the Meta Global AI Developer Hackathon (Indie track). This
 repository was created on 2026-10-26 after 16:00 UTC, during the event.
-Pre-existing: Meta's Muse Spark and SAM 3.1 models, and SAM's mask format
-(ported under its license; see NOTICE). Everything else was built this week.
+Pre-existing: Meta's Muse Spark and SAM 3.1 models, SAM's mask format
+(ported under its license), and the written notes of my pre-event prototype
+(Oct 21 to 25), read as a spec, with none of its code; built during the
+event, from the first commit: all the code, art, music and tests. The port's
+license is in the NOTICE under License, below.
 
 **Who it is for.** Any room you can photograph becomes a game: kids learning
 the names of things (the riddles), people in rehab or memory care playing in
@@ -460,7 +463,7 @@ picture through them.
   of guessing.
 - SAM's mask payloads ('!' one_bit, which this app asks for, or '~'
   lossless, the API's default) are read by a strict decoder
-  (`server/sam_mask.py`, see NOTICE), each mask once per photo and only
+  (`server/sam_mask.py`, see NOTICE below), each mask once per photo and only
   for the matches kept, while the photo has time left; the reply says of
   each mask whether it decoded, and a call whose mask did not decode
   carries the diagnostic `mask_undecodable` (`mask_time` when the photo
@@ -509,12 +512,14 @@ picture through them.
 
 ## Disclosure
 
-FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October 26
-to Nov. 4, 2026). An earlier prototype informed the design; no prototype
-code is included. Built with AI assistance: Claude Code (Anthropic) wrote the
-code under my direction. Live rooms are read by Meta's muse-spark-1.3 and
-sam-3.1 through the Meta Model API; sample rooms are drawn by code and labeled
-MOCK.
+FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October
+26 to Nov. 4, 2026). Pre-existing: Meta's Muse Spark and SAM 3.1 models,
+SAM's mask format (ported under its license), and the written notes of my
+pre-event prototype (Oct 21 to 25), read as a spec, with none of its code;
+built during the event, from the first commit: all the code, art, music and
+tests. Built with AI assistance: Claude Code (Anthropic) wrote the code
+under my direction. Live rooms are read by Meta's muse-spark-1.3 and sam-3.1
+through the Meta Model API; sample rooms are drawn by code and labeled MOCK.
 
 ## License
 

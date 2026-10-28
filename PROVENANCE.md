@@ -3,8 +3,12 @@
 - This repository was created on 2026-10-26 after 16:00 UTC, the start of the
   Meta Global AI Developer Hackathon. Every file in it was written during the
   event. The git history carries the true time of every commit.
-- An earlier prototype informed the design. None of its code is included, and
-  none of its source was opened while this code was written.
+- Pre-existing: Meta's Muse Spark and SAM 3.1 models, SAM's mask format
+  (ported under its license), and the written notes of my pre-event
+  prototype (Oct 21 to 25), read as a spec, with none of its code; built
+  during the event, from the first commit: all the code, art, music and
+  tests. None of the prototype's source was opened while this code was
+  written.
 - Built with AI assistance: Claude Code (Anthropic) wrote the code under the
   author's direction.
 - Model outputs (from Meta's muse-spark-1.3 and sam-3.1, in live mode) are data
@@ -21,9 +25,11 @@
 
 ## Disclosure
 
-FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October 26
-to Nov. 4, 2026). An earlier prototype informed the design; no prototype
-code is included. Built with AI assistance: Claude Code (Anthropic) wrote the
-code under my direction. Live rooms are read by Meta's muse-spark-1.3 and
-sam-3.1 through the Meta Model API; sample rooms are drawn by code and labeled
-MOCK.
+FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October
+26 to Nov. 4, 2026). Pre-existing: Meta's Muse Spark and SAM 3.1 models,
+SAM's mask format (ported under its license), and the written notes of my
+pre-event prototype (Oct 21 to 25), read as a spec, with none of its code;
+built during the event, from the first commit: all the code, art, music and
+tests. Built with AI assistance: Claude Code (Anthropic) wrote the code
+under my direction. Live rooms are read by Meta's muse-spark-1.3 and sam-3.1
+through the Meta Model API; sample rooms are drawn by code and labeled MOCK.
