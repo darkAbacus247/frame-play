@@ -51,6 +51,14 @@ test('the page’s LIVE words count the calls the server makes', () => {
   assert.match(WHERE.live, /At most 14 calls/);
 });
 
+// claims-9: the transport sends a failed call again once and a busy one
+// (429) twice more (server/meta_api.py), and the consent says so.
+test('the LIVE notice counts the times a call may be sent again', () => {
+  const [busy, other] = /attempt >= \((\d+) if e\.status == 429 else (\d+)\)/.exec(read('../server/meta_api.py')).slice(1).map(Number);
+  assert.deepEqual([busy - 1, other - 1], [2, 1], 'resends: two for a busy answer, one for another failure');
+  assert.match(WHERE.live, /\(a failed call may be sent one more time, a busy one two more times\)/);
+});
+
 test('no privacy or welcome line in any mode says "once"', () => {
   for (const mode of ['mock', 'live', 'rehearsal']) {
     for (const t of [WHERE[mode], OWN_NOTICE[mode], ...points(mode)]) assert.doesNotMatch(t, /\bonce\b/i, `${mode}: ${t}`);
