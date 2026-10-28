@@ -254,8 +254,11 @@ class Rehearsal(unittest.TestCase):
         self.assertNotIn('found none', r['error']['message'])
         # the riddle drills are walked in test_riddles.StandInRiddles
         riddle_drills = {d for d in DRILLS if d.startswith('riddle_')}
+        # the voice drills are walked in test_voice; the photo path never drills them
+        voice_drills = {d for d in DRILLS if d.startswith('voice_')}
+        self.assertEqual(voice_drills, {'voice_400', 'voice_429', 'voice_503'})
         self.assertEqual(riddle_drills, {'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter'})
-        self.assertEqual(set(expect) | {'429', 'malformed_record', 'sam_busy'} | riddle_drills, set(DRILLS))
+        self.assertEqual(set(expect) | {'429', 'malformed_record', 'sam_busy'} | riddle_drills | voice_drills, set(DRILLS))
 
     def test_the_stand_in_wants_the_contract(self):
         status, _, obj = self.standin.answer('/v1/responses', {'Authorization': 'Bearer ' + config.REHEARSAL_CREDENTIAL},

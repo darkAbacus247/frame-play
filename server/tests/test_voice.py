@@ -56,7 +56,7 @@ class WavCheck(unittest.TestCase):
                         clip(bits=8, pcm=b'\x00' * 16000), clip(rate=8000, pcm=b'\x00\x01' * 8000),
                         clip(seconds=7, pcm=b'\x00\x01' * 16000 * 7)):
                 self.assertIsNotNone(voice.check_wav(bad))
-            self.assertEqual(fake.count('/v1/asr/transcribe'), 0)
+            self.assertEqual(fake.count('/asr/transcribe'), 0)
         finally:
             fake.stop()
 
@@ -158,26 +158,26 @@ class Route(unittest.TestCase):
         self.assertEqual(j['transcript'], 'the fridge')
         self.assertEqual(j['match'], 'o1', 'fridge names the refrigerator')
         self.assertTrue(j['words'])
-        self.assertEqual(self.fake.count('/v1/asr/transcribe'), 1)
+        self.assertEqual(self.fake.count('/asr/transcribe'), 1)
 
     def test_switch_off_sends_nothing(self):
         self.start({'FRAMEPLAY_VOICE': 'no'})
         status, _, data = self.post(base64.b64encode(GOOD).decode('ascii'))
         self.assertEqual(status, 409)
         self.assertIn('voice_off', data.decode())
-        self.assertEqual(self.fake.count('/v1/asr/transcribe'), 0)
+        self.assertEqual(self.fake.count('/asr/transcribe'), 0)
 
     def test_not_live_sends_nothing(self):
         self.start({'FRAMEPLAY_LIVE': 'no'})
         status, _, _ = self.post(base64.b64encode(GOOD).decode('ascii'))
         self.assertEqual(status, 409)
-        self.assertEqual(self.fake.count('/v1/asr/transcribe'), 0)
+        self.assertEqual(self.fake.count('/asr/transcribe'), 0)
 
     def test_bad_wav_sends_nothing(self):
         self.start()
         status, _, _ = self.post(base64.b64encode(clip(channels=2, pcm=b'\x00\x01' * 16000)).decode('ascii'))
         self.assertEqual(status, 400)
-        self.assertEqual(self.fake.count('/v1/asr/transcribe'), 0)
+        self.assertEqual(self.fake.count('/asr/transcribe'), 0)
 
     def test_drills(self):
         self.start()
@@ -202,11 +202,11 @@ class Route(unittest.TestCase):
     def test_caps(self):
         lim = Limits(clock=lambda: 1_800_000_000.0)
         self.start(limits=lim)
-        for _ in range(config.VOICE_DAY_CAP):
-            lim.admit_voice('c')
+        for i in range(config.VOICE_DAY_CAP):
+            lim.admit_voice(f'c{i}')
         status, h, _ = self.post(base64.b64encode(GOOD).decode('ascii'))
         self.assertEqual(status, 429)
-        self.assertEqual(self.fake.count('/v1/asr/transcribe'), 0)
+        self.assertEqual(self.fake.count('/asr/transcribe'), 0)
         # per-client hour cap
         lim2 = Limits(clock=lambda: 1_800_000_000.0)
         self.run_.stop()
