@@ -47,6 +47,10 @@ USD_STOP = 5.0
 # X-Forwarded-For hop (the visitor's address as the Space's proxy gives it).
 CLIENT_PER_HOUR = 3
 CLIENT_PER_DAY = 10
+# Our kitchen's replay (server/replay.py) has its own places, never LIVE's,
+# and each client at most this many replays a minute.
+REPLAY_IN_FLIGHT = 4
+REPLAY_PER_MINUTE = 10
 # The first real desk read used 1,691 output tokens (1,151 reasoning); a
 # cluttered room needs room to finish its JSON.
 SPARK_MAX_COMPLETION_TOKENS = 4000

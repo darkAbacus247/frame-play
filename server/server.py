@@ -411,6 +411,9 @@ class FramePlayServer(ThreadingHTTPServer):
                 # Ask the room: one more Muse Spark call a photo, after its reply
                 'riddle_spark_calls_per_photo': config.RIDDLE_SPARK_CALLS if s.riddles else 0,
                 'seconds_for_riddles': config.RIDDLE_TIMEOUT_S,
+                # our kitchen's replay: its own places, and per client a minute
+                'replays_in_flight': config.REPLAY_IN_FLIGHT,
+                'replays_per_client_per_minute': config.REPLAY_PER_MINUTE,
             },
             'riddles': 'on' if s.riddles else 'off',
             'riddles_reason': ('After each photo, one more Muse Spark call writes up to 3 riddles about it.'

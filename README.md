@@ -424,6 +424,8 @@ The page is at `http://127.0.0.1:8191/`. Without `MODEL_API_KEY` and
 MOCK mode: sample rooms drawn by code, labeled MOCK, and no model is called;
 our kitchen photo's recorded answer is replayed there (`POST
 /api/replay/kitchen`, served in every mode, costs nothing and sends nothing).
+The replay has its own 4 places at once, never LIVE's, so it never waits
+behind a live read, and each client may replay it 10 times a minute.
 
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
 day, and stops for the day at an estimated $5. Within those, each client

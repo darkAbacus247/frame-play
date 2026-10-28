@@ -21,6 +21,8 @@ way.
 import hashlib
 import json
 import threading
+import time
+from collections import deque
 from pathlib import Path
 
 from server import config
@@ -114,19 +116,36 @@ class ReplayTransport:
 
 
 class ReplayLimits:
-    """A replay costs nothing and sends nothing: only the photos in flight
-    are held to the server's ceiling; no spend, hour or day is counted."""
+    """A replay costs nothing and sends nothing: no spend, hour or day is
+    counted. It has its own places in flight (never LIVE's, so it never
+    waits behind a live read) and each client at most
+    config.REPLAY_PER_MINUTE replays a minute."""
 
-    def __init__(self, in_flight=config.IN_FLIGHT):
+    def __init__(self, in_flight=config.REPLAY_IN_FLIGHT, per_minute=config.REPLAY_PER_MINUTE, clock=time.monotonic):
         self.lock = threading.Lock()
-        self.max_in_flight = min(in_flight, config.IN_FLIGHT)
+        self.max_in_flight = min(in_flight, config.REPLAY_IN_FLIGHT)
+        self.per_minute = min(per_minute, config.REPLAY_PER_MINUTE)
+        self.clock = clock
         self.in_flight = 0
+        self.recent = {}  # client -> the times of its replays in the last minute
 
     def admit(self, client=None):
         with self.lock:
+            now = self.clock()
+            mine = self.recent.get(client) if client is not None else None
+            while mine and now - mine[0] >= 60:
+                mine.popleft()
+            if mine and len(mine) >= self.per_minute:
+                wait = int(60 - (now - mine[0])) + 1
+                raise Refusal('replay_rate', f'This server has replayed our kitchen for you {self.per_minute} times in the last minute. Please try again in a minute.', wait)
             if self.in_flight >= self.max_in_flight:
                 raise Refusal('busy', 'Every reader on this server is busy with other photos. Please try again in a few seconds.', 5)
             self.in_flight += 1
+            if client is not None:
+                if len(self.recent) > 1024:
+                    # forget clients with no replay in the last minute
+                    self.recent = {k: v for k, v in self.recent.items() if v and now - v[-1] < 60}
+                self.recent.setdefault(client, deque()).append(now)
             return True
 
     def finish(self):
@@ -209,13 +228,19 @@ class ReplayPipeline(Pipeline):
         return line
 
     def handle_kitchen(self, handler, stream):
-        """POST /api/replay/kitchen: the kitchen photo through the pipeline."""
+        """POST /api/replay/kitchen: the kitchen photo through the pipeline,
+        its place taken (or refused) before the photo is read."""
+        try:
+            adm = self.limits.admit(getattr(handler, 'client', None))
+        except Refusal as e:
+            return self.refuse(handler, e)
         try:
             photo = kitchen_photo()
         except (OSError, ValueError) as e:
+            self.limits.finish()
             words = str(e) if isinstance(e, ValueError) and str(e) == MISMATCH_WORDS else 'The sample photo is not on this server.'
             return handler.send_json(503, {'status': 'error', 'error': {'code': 'replay_unavailable', 'message': words}})
-        return self.handle(handler, photo, stream)
+        return self.handle(handler, photo, stream, adm)
 
 
 def main():

@@ -13,6 +13,7 @@ from unittest import mock
 from server import config
 from server.config import settings_from
 from server.imageinfo import check_photo
+from server.limits import Refusal
 from server.meta_api import Transport
 from server.replay import (ANSWERS, PHOTO, PHOTO_SHA256, RIDDLES, RIDDLES_LABEL, RIDDLES_WORDS, WORDS, ReplayLimits,
                            ReplayPipeline, ReplayTransport, kitchen_photo, load_answers, recorded_riddles)
@@ -207,6 +208,41 @@ class Route(unittest.TestCase):
         self.assertEqual(self.run_.request('PUT', '/api/replay/kitchen')[0], 405)
         self.assertEqual(self.run_.request('POST', '/api/replay/kitchen', b'x' * 65, {'X-FramePlay-Request': '1'})[0], 413, 'a replay carries no photo')
         self.assertEqual(self.run_.request('POST', '/api/replay/desk', b'', {'X-FramePlay-Request': '1'})[0], 404)
+
+
+class Rate(unittest.TestCase):
+    """The replay has its own places, never LIVE's, and its own rate per client."""
+
+    def test_each_client_at_most_its_replays_a_minute(self):
+        clock = [100.0]
+        lim = ReplayLimits(clock=lambda: clock[0])
+        self.assertEqual((config.REPLAY_IN_FLIGHT, config.REPLAY_PER_MINUTE), (4, 10))
+        for _ in range(10):
+            lim.admit('a')
+            lim.finish()
+        with self.assertRaises(Refusal) as c:
+            lim.admit('a')
+        self.assertEqual(c.exception.code, 'replay_rate')
+        self.assertTrue(c.exception.message.endswith('.'))
+        self.assertTrue(0 < c.exception.retry_after <= 61)
+        lim.admit('b')  # another client is not held by the first one's replays
+        lim.finish()
+        clock[0] += 60
+        lim.admit('a')
+        self.assertEqual(ReplayLimits(per_minute=99, in_flight=99).per_minute, 10, 'a setting never raises a ceiling')
+
+    def test_the_route_never_waits_behind_live_and_is_held_to_its_rate(self):
+        run_ = Running(settings_from({}), use_build=True)
+        self.addCleanup(run_.stop)
+        run_.srv.replay_pipeline().limits.per_minute = 2
+        run_.srv.limits.in_flight = run_.srv.limits.max_in_flight  # every LIVE place taken
+        h = {'X-FramePlay-Request': '1'}
+        for _ in range(2):
+            self.assertEqual(run_.request('POST', '/api/replay/kitchen', b'', h)[0], 200)
+        status, headers, body = run_.request('POST', '/api/replay/kitchen', b'', h)
+        self.assertEqual((status, json.loads(body)['error']['code']), (429, 'replay_rate'))
+        self.assertIn('Retry-After', headers)
+        self.assertEqual(run_.srv.replay_pipeline().limits.in_flight, 0)
 
 
 if __name__ == '__main__':
