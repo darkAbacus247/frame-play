@@ -39,6 +39,9 @@ export function photoInput(onFile, camera = false) {
 // ---- welcome ----
 // The consent as key points, the full notice one press away, and the
 // button in its bar, in view without scrolling.
+// Meta's Billing page for the demo's key: "While using free credits your
+// content may be used for product improvement."
+export const META_USE = 'While this demo runs on Meta’s free hackathon credits, Meta may use the photos it receives to improve its products.';
 export const WHERE = {
   mock: 'This page is in MOCK mode: no photo is sent anywhere, and you play sample rooms drawn by code.',
   // what server/pipeline.py does: one Muse Spark call, then one SAM call
@@ -46,19 +49,20 @@ export const WHERE = {
   // then Ask the room's one more Muse Spark call (server/riddles.py):
   // 1 + 12 + 1 = 14 (server/config.py, SPARK_CALLS_PER_PHOTO,
   // SAM_CALLS_PER_PHOTO and RIDDLE_SPARK_CALLS)
-  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it; then, while you play, one more Muse Spark call writes up to 3 riddles about it. At most 14 calls in all, each carrying the photo (a failed call may be sent one more time, a busy one two more times). This app does not store it.',
+  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it; then, while you play, one more Muse Spark call writes up to 3 riddles about it. At most 14 calls in all, each carrying the photo (a failed call may be sent one more time, a busy one two more times). This app does not store it. ' + META_USE,
   rehearsal: 'This page is in REHEARSAL mode: a local stand-in answers, not Meta, and no photo leaves this machine.',
 };
 // The key points: each one short line, none weaker than the full notice.
 const WHERE_SHORT = {
   mock: 'MOCK mode: no photo is sent anywhere; sample rooms are drawn by code.',
-  live: 'LIVE mode: your photo goes to Meta’s Model API to be read; this app keeps none.',
+  live: 'LIVE mode: Meta reads your photo and may use it; this app keeps none.',
   rehearsal: 'REHEARSAL mode: a local stand-in answers; no photo leaves this machine.',
 };
 export const PEOPLE = 'Keep people and anything private out of the photo.';
 export const AGE = 'You must be 18 or over to send a photo (Meta’s terms).';
-export const KEPT_SHORT = 'Kept: no photo, anywhere. Levels and choices stay on this device.';
-export const KEPT = 'Kept: no photo, anywhere. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.';
+// what this app keeps; in LIVE, Meta's own use is said beside it (META_USE)
+export const KEPT_SHORT = 'Kept by this app: no photo. Levels and choices stay on this device.';
+export const KEPT = 'Kept by this app: no photo, on this device or on its server. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.';
 
 export function welcomeView({ mode, primaryLabel, onConsent }) {
   const m = WHERE[mode] ? mode : 'mock';
@@ -72,7 +76,7 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
     el('div', { class: 'bar-body' }, [
       el('h1', { text: 'Photograph your room. Play it.' }),
       el('p', { class: 'lede', text: 'One photo of a room or a desk top becomes a small game: its objects become walls, things to collect, a hazard and the exit.' }),
-      // the quickest look at Meta's models (his 10-28 pick): true in every mode,
+      // the quickest look at Meta's models (the author's choice on 10-28): true in every mode,
       // since our kitchen is read fresh in LIVE and Meta's recorded answer is replayed elsewhere
       el('p', { class: 'ours-hint', text: OURS_HINT }),
       el('ul', { class: 'consent', 'aria-label': 'Before you start' }, [
@@ -431,7 +435,7 @@ export function freeView() {
 // What each mode does with a photo: the plain line in view; in REHEARSAL
 // the details one press away.
 export const OWN_NOTICE = {
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none.',
+  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. ' + META_USE,
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };

@@ -222,7 +222,7 @@ test('a return visit: the replayed room is replayed again in place, never by mov
   assert.equal(textOf(none.mainPrimary()), 'Continue to the end');
 });
 
-// Our kitchen is the first card on every pick step (his 10-28 pick: judges see Meta's work first), so a
+// Our kitchen is the first card on every pick step (the author's choice on 10-28: judges see Meta's work first), so a
 // newcomer's first click plays it first, then two sample rooms; Step 12 then goes on to the end.
 test('the naive walker, in MOCK with a server, plays our kitchen first, then two sample rooms, to the end: zero wrong turns', async () => {
   const app = await bootApp({ mode: 'mock', server: true, replay: replayReply });

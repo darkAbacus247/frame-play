@@ -48,13 +48,15 @@ class Reservation:
 
 class Admission:
     """A photo taken in: when it was counted in the hour and the day, so a
-    photo that sends nothing can give its place back (uncount)."""
-    __slots__ = ('t', 'day', 'counted')
+    photo that sends nothing can give its place back (uncount), and the
+    client whose upload it is until its body has been read (uploaded)."""
+    __slots__ = ('t', 'day', 'counted', 'uploader')
 
-    def __init__(self, t, day):
+    def __init__(self, t, day, uploader=None):
         self.t = t
         self.day = day
         self.counted = True
+        self.uploader = uploader
 
 
 class Limits:
@@ -83,6 +85,9 @@ class Limits:
         # per client: [the times of its photos this hour, its photos today];
         # None when clients are not counted (MOCK, REHEARSAL)
         self.clients = {} if clients else None
+        # the clients whose photo is still being uploaded: one at a time
+        # each, so slow uploads from one client hold one place at most
+        self.uploading = set()
         self.client_hour = min(client_hour, config.CLIENT_PER_HOUR)
         self.client_day = min(client_day, config.CLIENT_PER_DAY)
         # the day's spend and photos, kept in this file (None: memory only)
@@ -159,6 +164,9 @@ class Limits:
             self._roll(now)
             if self.spent + self.reserved + SPARK_WORST > self.usd_stop + 1e-12:
                 raise Refusal('spend_stop', f'This server has reached its spending stop for today (${self.usd_stop:.2f} estimated). Please try again tomorrow, or play the sample rooms.', self._to_midnight(now))
+            counted = self.clients is not None and client is not None
+            if counted and client in self.uploading:
+                raise Refusal('busy', 'This server is still receiving another photo from you. Please try again in a few seconds.', 5)
             if self.in_flight >= self.max_in_flight:
                 raise Refusal('busy', 'Every reader on this server is busy with other photos. Please try again in a few seconds.', 5)
             mine = self.clients.get(client) if self.clients is not None and client is not None else None
@@ -177,12 +185,21 @@ class Limits:
             self.in_flight += 1
             self.hour.append(now)
             self.photos_today += 1
-            if self.clients is not None and client is not None:
+            if counted:
                 mine = self.clients.setdefault(client, [deque(), 0])
                 mine[0].append(now)
                 mine[1] += 1
+                self.uploading.add(client)
             self._save()
-            return Admission(now, self.day)
+            return Admission(now, self.day, client if counted else None)
+
+    def uploaded(self, adm):
+        """The photo's body has been read, whole or not: its client may
+        upload another."""
+        with self.lock:
+            if adm is not None and adm.uploader is not None:
+                self.uploading.discard(adm.uploader)
+                adm.uploader = None
 
     def uncount(self, adm):
         """A photo that sent nothing (refused at the spending stop by a call
@@ -205,6 +222,7 @@ class Limits:
         arrive whole, or it was no photo): its place is free again and it
         uses none of the server's hour or day."""
         self.uncount(adm)
+        self.uploaded(adm)
         with self.lock:
             self.in_flight = max(0, self.in_flight - 1)
 
