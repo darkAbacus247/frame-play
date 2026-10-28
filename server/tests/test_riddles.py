@@ -85,6 +85,15 @@ class Cleaning(unittest.TestCase):
         self.assertEqual(kept[0]['n'], 1)
         self.assertEqual(kept[0]['points'], [[614.4, 430.1, 'o4']])
 
+    def test_kept_riddles_read_as_sentences_within_their_limits(self):
+        # as the 10-28 live read wrote them: lower case, no full stop
+        kept, _ = clean(riddle(text='touch the tall white chilly keeper that keeps snacks cold', why='it keeps food cold'))
+        self.assertEqual(kept[0]['text'], 'Touch the tall white chilly keeper that keeps snacks cold.')
+        self.assertEqual(kept[0]['why'], 'It keeps food cold.')
+        full = 'touch ' + 'x' * 84
+        kept, _ = clean(riddle(text=full))
+        self.assertEqual(len(kept[0]['text']), 90, 'no stop added past the limit')
+
     def test_rule_1_the_shape(self):
         kept, warnings = clean({'text': 'x'}, riddle(rule=3))
         self.assertEqual(kept, [])

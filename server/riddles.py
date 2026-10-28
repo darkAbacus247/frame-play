@@ -167,6 +167,18 @@ def _box_distance(x, y, box):
     return math.hypot(dx, dy)
 
 
+def sentence_case(text, limit):
+    """A riddle or reason as a sentence: a capital first letter, and an end
+    stop when it has none and there is room for one (the 10-28 live read wrote
+    its riddles in lower case, with no full stop)."""
+    if not text:
+        return text
+    text = text[0].upper() + text[1:]
+    if text[-1] not in '.!?"”' and len(text) < limit:
+        text += '.'
+    return text
+
+
 def text_problem(text, rule, names):
     """Why a riddle's text cannot be used, or None (rules 2 and 4)."""
     if not TEXT_MIN <= len(text) <= TEXT_MAX:
@@ -273,8 +285,8 @@ def clean_riddles(raw, objects, W, H, warnings):
             drop(f'a room keeps at most {MAX_RIDDLES}')
             continue
         sets.add(key)
-        kept.append({'id': f'q{len(kept) + 1}', 'text': text, 'rule': rule, 'answers': ids, 'n': len(ids),
-                     'why': why_text, 'points': pts})
+        kept.append({'id': f'q{len(kept) + 1}', 'text': sentence_case(text, TEXT_MAX), 'rule': rule, 'answers': ids, 'n': len(ids),
+                     'why': sentence_case(why_text, WHY_MAX), 'points': pts})
     return kept
 
 
