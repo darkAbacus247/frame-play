@@ -2,15 +2,19 @@ import contextlib
 import http.client
 import io
 import json
+import select
+import socket
 import threading
+import time
 import unittest
+from unittest import mock
 
 from server import config
 from server.config import KeyHolder, Settings, settings_from
 from server.limits import Limits
 from server.meta_api import Transport
 from server.pipeline import Pipeline
-from server.server import CSP, FramePlayServer, Log, build_server, error_body, is_loopback, main, sentence, static_file
+from server.server import CSP, FramePlayServer, Handler, Log, build_server, error_body, is_loopback, main, sentence, static_file
 from server.tests import images
 from server.tests.fakemeta import FakeMeta, ok_json
 from server.tests.test_config import TEST_VALUE
@@ -97,6 +101,7 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(j['ceilings']['usd_stop_per_day'], 5.0)
         self.assertEqual(j['ceilings']['sam_calls_per_photo'], 12)
         self.assertEqual((j['ceilings']['photos_in_flight'], j['ceilings']['photos_per_hour']), (4, 120))
+        self.assertEqual((j['ceilings']['seconds_per_socket_wait'], j['ceilings']['seconds_per_upload']), (15.0, 40.0))
         self.assertEqual(j['live_state'], 'off')
 
     def test_room_in_mock_mode_is_409_in_words(self):
@@ -307,6 +312,92 @@ class PerClient(unittest.TestCase):
                 srv.server_close()
 
 
+class Uploads(unittest.TestCase):
+    """A stalled request is dropped, and a photo's place is taken before its
+    body is read: no more photos than the readers in flight are held."""
+
+    def setUp(self):
+        patches = (mock.patch.object(Handler, 'timeout', 0.5), mock.patch.object(config, 'BODY_TIMEOUT_S', 1.5))
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        s = settings_from({}, 'http://127.0.0.1:9/v1', 'desk')
+        self.limits = Limits(clients=False, in_flight=1)
+        self.pipe = Pipeline(s, self.limits, log=Log(stream=[]), sleep=lambda x: None)
+        self.pipe.run = lambda photo, progress=None: {'status': 'ok', 'provenance': {'calls': []}}
+        self.run_ = Running(s, pipeline=self.pipe, limits=self.limits)
+        self.addCleanup(self.run_.stop)
+
+    def connect(self):
+        c = socket.create_connection(('127.0.0.1', self.run_.port), timeout=10)
+        self.addCleanup(c.close)
+        return c
+
+    def until(self, test, what):
+        for _ in range(200):
+            if test():
+                return
+            time.sleep(0.02)
+        self.fail(what)
+
+    def read_all(self, c):
+        raw = b''
+        while True:
+            part = c.recv(65536)
+            if not part:
+                return raw
+            raw += part
+
+    def head(self, length):
+        return (b'POST /api/room HTTP/1.1\r\nHost: 127.0.0.1\r\nX-FramePlay-Request: 1\r\n'
+                b'Content-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n' % length)
+
+    def test_a_stalled_request_line_is_dropped(self):
+        c = self.connect()
+        c.sendall(b'GET /api/hea')
+        t0 = time.monotonic()
+        self.assertEqual(self.read_all(c), b'', 'closed without an answer')
+        self.assertLess(time.monotonic() - t0, 5)
+
+    def test_the_place_is_taken_before_the_body_and_a_stalled_body_gives_it_back(self):
+        photo = images.jpeg()
+        slow = self.connect()
+        slow.sendall(self.head(len(photo)) + photo[:100])
+        self.until(lambda: self.limits.counters()['photos_in_flight'] == 1, 'the place is taken before the body arrives')
+        # the one reader's place is held: another upload is refused, in words, without being kept
+        status, h, body = self.run_.request('POST', '/api/room', photo, {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'})
+        self.assertEqual((status, json.loads(body)['error']['code']), (429, 'busy'))
+        self.assertIn('Retry-After', h)
+        # the stalled body is given up within its time, and its place is free again
+        self.assertIn(b' 400 ', self.read_all(slow).split(b'\r\n', 1)[0])
+        c = self.limits.counters()
+        self.assertEqual((c['photos_in_flight'], c['photos_this_hour'], c['photos_today']), (0, 0, 0))
+        status, _, _ = self.run_.request('POST', '/api/room', photo, {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.limits.counters()['photos_today'], 1)
+
+    def test_a_trickled_body_is_given_up_at_its_deadline(self):
+        photo = images.jpeg()
+        c = self.connect()
+        c.sendall(self.head(len(photo)))
+        t0 = time.monotonic()
+        sent = 0
+        gave_up = None
+        try:
+            while time.monotonic() - t0 < 6 and sent < len(photo) - 1:
+                c.sendall(photo[sent:sent + 1])  # each piece in under the socket's timeout
+                sent += 1
+                if select.select([c], [], [], 0.2)[0]:  # an answer, or the connection closed
+                    gave_up = time.monotonic() - t0
+                    break
+        except OSError:
+            gave_up = time.monotonic() - t0  # closed while bytes were still on their way
+        self.assertIsNotNone(gave_up, 'the server gave up on the upload')
+        self.assertLess(gave_up, 4, 'at its deadline, though each piece came in time')
+        self.until(lambda: self.limits.counters()['photos_in_flight'] == 0, 'its place is free again')
+        self.assertEqual(self.limits.counters()['photos_this_hour'], 0)
+
+
 class RehearsalStaysHome(unittest.TestCase):
     def test_rehearsal_refuses_any_host_but_loopback(self):
         for host in ('0.0.0.0', '::', '192.168.1.20', 'example'):
@@ -317,6 +408,12 @@ class RehearsalStaysHome(unittest.TestCase):
             self.assertIn('this machine only', err.getvalue())
         for host in ('127.0.0.1', '127.0.0.2', '::1', 'localhost'):
             self.assertTrue(is_loopback(host), host)
+
+
+class SocketTimeout(unittest.TestCase):
+    def test_every_request_has_a_socket_timeout(self):
+        self.assertEqual(Handler.timeout, config.SOCKET_TIMEOUT_S)
+        self.assertEqual(config.SOCKET_TIMEOUT_S, 15.0)
 
 
 class Statics(unittest.TestCase):

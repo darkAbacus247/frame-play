@@ -32,6 +32,7 @@ if __package__ in (None, ''):
 
 from server import config  # noqa: E402
 from server.imageinfo import ImageError, check_photo  # noqa: E402
+from server.limits import Refusal  # noqa: E402
 from server.meta_api import LIVE_UNAVAILABLE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -120,6 +121,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = 'FRAMEPLAY'
     sys_version = ''
     protocol_version = 'HTTP/1.1'
+    # the socket's own timeout: a request that stalls is dropped, never held
+    timeout = config.SOCKET_TIMEOUT_S
 
     # BaseHTTPRequestHandler logs the client's address; this server never does
     def log_message(self, fmt, *args):
@@ -224,6 +227,28 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
+    def read_body(self, length, keep=True):
+        """The body, read in pieces as it comes: each wait at most the
+        socket's timeout, the whole at most config.BODY_TIMEOUT_S, and never
+        more held than has arrived. keep=False drops each piece (a refusal
+        sent before the photo was read reaches the page, not a reset).
+        None when it did not arrive whole in time."""
+        parts, got = [], 0
+        end = time.monotonic() + config.BODY_TIMEOUT_S
+        try:
+            while got < length:
+                if time.monotonic() > end:
+                    return None
+                piece = self.rfile.read1(min(65536, length - got))
+                if not piece:
+                    return None
+                got += len(piece)
+                if keep:
+                    parts.append(piece)
+        except OSError:
+            return None
+        return b''.join(parts)
+
     def page_only(self):
         """The page's own requests only: True, or the refusal is sent."""
         if self.headers.get('X-FramePlay-Request') != '1':
@@ -293,19 +318,35 @@ class Handler(BaseHTTPRequestHandler):
         if length > config.MAX_BODY:
             self.close_connection = True
             return self.send_json(413, error_body('too_large', 'The photo is larger than 4 MiB. The page shrinks it first; please try again from the page.'))
-        data = self.rfile.read(length)
-        if len(data) != length:
-            self.close_connection = True
-            return self.send_json(400, error_body('short', 'The photo arrived incomplete. Please try the same photo again.'))
-        try:
-            photo = check_photo(data, config.MAX_SIDE)
-        except ImageError as e:
-            return self.send_json(415, error_body('bad_image', str(e)))
+        # the photo's place is taken before its body is read, so no more
+        # photos than the readers in flight are ever held in memory
         pipeline = self.server.pipeline
-        if pipeline is None:
-            return self.send_json(503, error_body('not_ready', 'The live path is not available on this server. The sample rooms still work.'))
-        stream = 'application/x-ndjson' in (self.headers.get('Accept') or '')
-        pipeline.handle(self, photo, stream)
+        adm = None
+        if pipeline is not None:
+            try:
+                adm = pipeline.limits.admit(self.client)
+            except Refusal as e:
+                self.close_connection = True
+                self.read_body(length, keep=False)
+                return pipeline.refuse(self, e)
+        handed = False
+        try:
+            data = self.read_body(length)
+            if data is None:
+                self.close_connection = True
+                return self.send_json(400, error_body('short', 'The photo arrived incomplete. Please try the same photo again.'))
+            try:
+                photo = check_photo(data, config.MAX_SIDE)
+            except ImageError as e:
+                return self.send_json(415, error_body('bad_image', str(e)))
+            if pipeline is None:
+                return self.send_json(503, error_body('not_ready', 'The live path is not available on this server. The sample rooms still work.'))
+            stream = 'application/x-ndjson' in (self.headers.get('Accept') or '')
+            handed = True
+            pipeline.handle(self, photo, stream, adm)
+        finally:
+            if adm is not None and not handed:
+                pipeline.limits.cancel(adm)
 
 
 class FramePlayServer(ThreadingHTTPServer):
@@ -365,6 +406,8 @@ class FramePlayServer(ThreadingHTTPServer):
                 'seconds_per_call': config.CALL_TIMEOUT_S,
                 'seconds_per_read': config.SPARK_TIMEOUT_S,
                 'seconds_per_photo': config.PHOTO_TIMEOUT_S,
+                'seconds_per_socket_wait': config.SOCKET_TIMEOUT_S,
+                'seconds_per_upload': config.BODY_TIMEOUT_S,
                 # Ask the room: one more Muse Spark call a photo, after its reply
                 'riddle_spark_calls_per_photo': config.RIDDLE_SPARK_CALLS if s.riddles else 0,
                 'seconds_for_riddles': config.RIDDLE_TIMEOUT_S,

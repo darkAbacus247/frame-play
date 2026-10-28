@@ -144,6 +144,14 @@ class Limits:
             if adm.day == self.day:
                 self.photos_today = max(0, self.photos_today - 1)
 
+    def cancel(self, adm):
+        """A photo let in that never reached a reader (its upload did not
+        arrive whole, or it was no photo): its place is free again and it
+        uses none of the server's hour or day."""
+        self.uncount(adm)
+        with self.lock:
+            self.in_flight = max(0, self.in_flight - 1)
+
     def finish(self):
         with self.lock:
             self.in_flight = max(0, self.in_flight - 1)

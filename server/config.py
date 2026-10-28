@@ -26,6 +26,10 @@ MAX_SIDE = 4096
 MAX_ANSWER_BYTES = 8 * 1024 * 1024
 MAX_ERROR_BYTES = 64 * 1024
 CALL_TIMEOUT_S = 20.0
+# A request's socket waits at most this long for each piece it reads or
+# writes; a photo's whole upload takes at most BODY_TIMEOUT_S.
+SOCKET_TIMEOUT_S = 15.0
+BODY_TIMEOUT_S = 40.0
 SPARK_TIMEOUT_S = 30.0  # the room read, sent once; a timeout is not sent again
 PHOTO_TIMEOUT_S = 60.0
 SPARK_CALLS_PER_PHOTO = 1

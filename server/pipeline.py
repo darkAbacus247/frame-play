@@ -666,13 +666,20 @@ class Pipeline:
         self.sleep = sleep
 
     # ---- the HTTP side ----
-    def handle(self, handler, photo, stream):
-        try:
-            adm = self.limits.admit(getattr(handler, 'client', None))
-        except Refusal as e:
-            extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
-            return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused',
-                                           'error': reply_error({'code': e.code, 'message': e.message})}, extra)
+    def refuse(self, handler, e):
+        """A photo past a ceiling: 429, the refusal in words, and how long to wait."""
+        extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
+        return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused',
+                                       'error': reply_error({'code': e.code, 'message': e.message})}, extra)
+
+    def handle(self, handler, photo, stream, adm=None):
+        """adm: the photo's admission, when the server took its place before
+        reading it (server/server.py); otherwise it is taken here."""
+        if adm is None:
+            try:
+                adm = self.limits.admit(getattr(handler, 'client', None))
+            except Refusal as e:
+                return self.refuse(handler, e)
         done = []
 
         def finish():
