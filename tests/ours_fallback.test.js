@@ -46,6 +46,10 @@ const STOPS = [
     'Not read live now: this server has read its photos for today.'],
   ['the hourly cap', () => json(429, { status: 'refused', error: { code: 'hour_cap', message: 'This server has read 120 photos in the last hour. Please try again later.' } }, { 'Retry-After': '900' }),
     'Not read live now: this server has read its photos for this hour.'],
+  ['your own daily cap', () => json(429, { status: 'refused', error: { code: 'client_day_cap', message: 'This server has read 10 photos from you today. Please try again tomorrow, or play the sample rooms.' } }),
+    'Not read live now: this server has read its photos from you for today.'],
+  ['your own hourly cap', () => json(429, { status: 'refused', error: { code: 'client_hour_cap', message: 'This server has read 3 photos from you in the last hour. Please try again later, or play the sample rooms.' } }, { 'Retry-After': '900' }),
+    'Not read live now: this server has read its photos from you for this hour.'],
   ['the live AI unavailable', () => json(503, { status: 'error', error: { code: 'live_unavailable', message: 'The live AI is unavailable on this server right now (an account or model problem the owner must fix). The sample rooms still work.' } }, { 'Retry-After': '600' }),
     'Not read live now: the live AI is unavailable on this server right now.'],
   // in the reply itself: the stop reached mid-photo, and a credit or billing refusal from the Model API

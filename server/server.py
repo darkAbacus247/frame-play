@@ -16,6 +16,7 @@ Live mode needs MODEL_API_KEY and FRAMEPLAY_LIVE=yes in the operator's own
 environment; without both the server runs in mock mode and calls no model.
 """
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
@@ -130,6 +131,19 @@ class Handler(BaseHTTPRequestHandler):
     @property
     def route(self):
         return self.path.split('?', 1)[0].split('#', 1)[0]
+
+    @property
+    def client(self):
+        """Who sent this request, for the per-client ceilings: the socket's
+        address, or under --public the first X-Forwarded-For hop (the
+        visitor's address as the Space's proxy gives it; trusted only
+        there). Only a digest salted for this run is kept, never the
+        address, and it is never logged."""
+        addr = str(self.client_address[0]) if self.client_address else ''
+        if self.server.public:
+            hop = (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+            addr = hop or addr
+        return hashlib.sha256(self.server.salt + addr.encode('utf-8', 'replace')).hexdigest()[:32]
 
     def common_headers(self):
         self.send_header('Content-Security-Policy', CSP)
@@ -298,9 +312,11 @@ class FramePlayServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, addr, settings, log=None, pipeline=None, limits=None):
+    def __init__(self, addr, settings, log=None, pipeline=None, limits=None, public=False):
         super().__init__(addr, Handler)
         self.settings = settings
+        self.public = public  # behind the Space's proxy: its X-Forwarded-For names the client
+        self.salt = os.urandom(16)
         self.log = log or Log(holder=settings.key)
         self.pipeline = pipeline
         self.limits = limits
@@ -343,6 +359,8 @@ class FramePlayServer(ThreadingHTTPServer):
                 'photos_in_flight': config.IN_FLIGHT,
                 'photos_per_hour': config.PER_HOUR,
                 'photos_per_day': s.day_cap,
+                'photos_per_client_per_hour': config.CLIENT_PER_HOUR,
+                'photos_per_client_per_day': config.CLIENT_PER_DAY,
                 'usd_stop_per_day': s.usd_stop,
                 'seconds_per_call': config.CALL_TIMEOUT_S,
                 'seconds_per_read': config.SPARK_TIMEOUT_S,
@@ -379,12 +397,13 @@ class FramePlayServer(ThreadingHTTPServer):
         return {'live_state': 'unavailable', 'live_reason': reason, 'live_check_again_s': wait}
 
 
-def build_server(settings, host='127.0.0.1', port=8191, log=None):
-    """The server with the pipeline and ceilings for its mode."""
+def build_server(settings, host='127.0.0.1', port=8191, log=None, public=False):
+    """The server with the pipeline and ceilings for its mode. In LIVE each
+    client is held to its own ceilings too."""
     limits = pipeline = None
     try:
         from server.limits import Limits
-        limits = Limits(day_cap=settings.day_cap, usd_stop=settings.usd_stop)
+        limits = Limits(day_cap=settings.day_cap, usd_stop=settings.usd_stop, clients=settings.mode == 'live')
     except ImportError:
         limits = None
     if settings.mode != 'mock':
@@ -393,7 +412,7 @@ def build_server(settings, host='127.0.0.1', port=8191, log=None):
             pipeline = Pipeline(settings, limits, log=None)
         except ImportError:
             pipeline = None
-    srv = FramePlayServer((host, port), settings, log=log, pipeline=pipeline, limits=limits)
+    srv = FramePlayServer((host, port), settings, log=log, pipeline=pipeline, limits=limits, public=public)
     if pipeline is not None:
         pipeline.log = srv.log
     return srv
@@ -429,7 +448,7 @@ def main(argv=None):
     host, port = args.host, args.port
     if args.public:
         host, port = '0.0.0.0', int(os.environ.get('PORT') or 8080)
-    srv = build_server(settings, host, port)
+    srv = build_server(settings, host, port, public=args.public)
     srv.log.write(event='start', mode=settings.mode, reason=settings.reason, host=host, port=port)
     print(f'FRAME//PLAY on http://{host}:{port}/ in {settings.mode.upper()} mode. {settings.reason}', file=sys.stderr)
     try:

@@ -6,25 +6,26 @@ import threading
 import unittest
 
 from server import config
-from server.config import settings_from
+from server.config import KeyHolder, Settings, settings_from
 from server.limits import Limits
 from server.meta_api import Transport
 from server.pipeline import Pipeline
 from server.server import CSP, FramePlayServer, Log, build_server, error_body, is_loopback, main, sentence, static_file
 from server.tests import images
 from server.tests.fakemeta import FakeMeta, ok_json
+from server.tests.test_config import TEST_VALUE
 
 
 class Running:
     """A FRAME//PLAY server on a free loopback port, for one test class."""
 
-    def __init__(self, settings, pipeline=None, limits=None, use_build=False):
+    def __init__(self, settings, pipeline=None, limits=None, use_build=False, public=False):
         self.lines = []
         log = Log(stream=self.lines, holder=settings.key)
         if use_build:
-            self.srv = build_server(settings, '127.0.0.1', 0, log=log)
+            self.srv = build_server(settings, '127.0.0.1', 0, log=log, public=public)
         else:
-            self.srv = FramePlayServer(('127.0.0.1', 0), settings, log=log, pipeline=pipeline, limits=limits)
+            self.srv = FramePlayServer(('127.0.0.1', 0), settings, log=log, pipeline=pipeline, limits=limits, public=public)
         self.port = self.srv.server_address[1]
         self.thread = threading.Thread(target=self.srv.serve_forever, daemon=True)
         self.thread.start()
@@ -189,7 +190,8 @@ class LiveUnavailable(unittest.TestCase):
         self.clock = [5000.0]
         self.transport.now = lambda: self.clock[0]
         self.transport.latching = True  # as with the owner's key
-        self.pipe = Pipeline(s, Limits(), log=Log(stream=[]), transport=self.transport, sleep=lambda x: None)
+        # as build_server makes them in rehearsal: no client is held to its own ceilings
+        self.pipe = Pipeline(s, Limits(clients=False), log=Log(stream=[]), transport=self.transport, sleep=lambda x: None)
         self.run_ = Running(s, pipeline=self.pipe, limits=self.pipe.limits)
         self.pipe.log = self.run_.srv.log
 
@@ -254,6 +256,55 @@ class LiveUnavailable(unittest.TestCase):
             self.assertEqual(srv.health()['live_state'], 'ok')
         finally:
             srv.server_close()
+
+
+class PerClient(unittest.TestCase):
+    """Each client is held to its own photos an hour, on top of the server's."""
+
+    def serve(self, public):
+        s = settings_from({}, 'http://127.0.0.1:9/v1', 'desk')
+        pipe = Pipeline(s, Limits(), log=Log(stream=[]), sleep=lambda x: None)
+        # a read stood in for: this test is about who is let in
+        pipe.run = lambda photo, progress=None: {'status': 'ok', 'provenance': {'calls': []}}
+        run_ = Running(s, pipeline=pipe, limits=pipe.limits, public=public)
+        self.addCleanup(run_.stop)
+        return run_
+
+    def post(self, run_, hop=None):
+        h = {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'}
+        if hop:
+            h['X-Forwarded-For'] = hop
+        status, _, body = run_.request('POST', '/api/room', images.jpeg(), h)
+        return status, json.loads(body)
+
+    def test_behind_the_proxy_the_first_forwarded_hop_is_the_client(self):
+        run_ = self.serve(public=True)
+        for _ in range(config.CLIENT_PER_HOUR):
+            self.assertEqual(self.post(run_, '203.0.113.7, 10.0.0.1')[0], 200)
+        status, j = self.post(run_, '203.0.113.7, 10.0.0.2')
+        self.assertEqual((status, j['error']['code']), (429, 'client_hour_cap'))
+        self.assertTrue(j['error']['message'].endswith('.'))
+        self.assertEqual(self.post(run_, '198.51.100.4, 10.0.0.1')[0], 200, 'another visitor is still read')
+        self.assertNotIn('203.0.113.7', '\n'.join(run_.lines), 'the address is never logged')
+
+    def test_without_public_the_header_is_not_trusted(self):
+        run_ = self.serve(public=False)
+        for n in range(config.CLIENT_PER_HOUR):
+            self.assertEqual(self.post(run_, f'203.0.113.{n}')[0], 200)
+        status, j = self.post(run_, '198.51.100.4')
+        self.assertEqual((status, j['error']['code']), (429, 'client_hour_cap'), 'the socket address is the client')
+
+    def test_only_live_counts_clients(self):
+        holder = KeyHolder(TEST_VALUE)
+        live = Settings('live', 'test', holder, config.API_BASE, 200, 5.0, '', True)
+        for s, counted in ((live, True), (settings_from({}, 'http://127.0.0.1:9/v1'), False), (settings_from({}), False)):
+            srv = build_server(s, '127.0.0.1', 0, log=Log(stream=[]))
+            try:
+                self.assertEqual(srv.limits.clients is not None, counted, s.mode)
+                ceilings = srv.health()['ceilings']
+                self.assertEqual((ceilings['photos_per_client_per_hour'], ceilings['photos_per_client_per_day']), (3, 10))
+            finally:
+                srv.server_close()
 
 
 class RehearsalStaysHome(unittest.TestCase):

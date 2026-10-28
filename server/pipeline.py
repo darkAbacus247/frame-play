@@ -668,7 +668,7 @@ class Pipeline:
     # ---- the HTTP side ----
     def handle(self, handler, photo, stream):
         try:
-            adm = self.limits.admit()
+            adm = self.limits.admit(getattr(handler, 'client', None))
         except Refusal as e:
             extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
             return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused',

@@ -122,7 +122,7 @@ class ReplayLimits:
         self.max_in_flight = min(in_flight, config.IN_FLIGHT)
         self.in_flight = 0
 
-    def admit(self):
+    def admit(self, client=None):
         with self.lock:
             if self.in_flight >= self.max_in_flight:
                 raise Refusal('busy', 'Every reader on this server is busy with other photos. Please try again in a few seconds.', 5)

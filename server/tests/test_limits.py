@@ -51,6 +51,50 @@ class Ceilings(unittest.TestCase):
         clock.t += 86400
         small.admit()
 
+    def test_each_client_has_its_own_hour_and_day(self):
+        clock = Clock(1_800_000_000.0 - (1_800_000_000.0 % 86400) + 3600)  # 01:00 UTC
+        lim = Limits(clock=clock)
+        self.assertEqual((config.CLIENT_PER_HOUR, config.CLIENT_PER_DAY), (3, 10))
+        for _ in range(3):
+            lim.admit('a')
+            lim.finish()
+        with self.assertRaises(Refusal) as c:
+            lim.admit('a')
+        self.assertEqual(c.exception.code, 'client_hour_cap')
+        self.assertIn('from you', c.exception.message)
+        self.assertGreater(c.exception.retry_after, 3500)
+        lim.admit('b')  # another client is not held by the first one's photos
+        lim.finish()
+        for _ in range(2):
+            clock.t += 3601
+            for _ in range(3):
+                lim.admit('a')
+                lim.finish()
+        clock.t += 3601
+        lim.admit('a')
+        lim.finish()
+        with self.assertRaises(Refusal) as c:
+            lim.admit('a')
+        self.assertEqual(c.exception.code, 'client_day_cap')
+        self.assertEqual(lim.counters()['photos_today'], 11, 'the server counts every client')
+        clock.t += 86400  # a new UTC day
+        lim.admit('a')
+        # the server's own ceilings stay behind: they hold every client together
+        small = Limits(day_cap=2, clock=clock)
+        small.admit('a')
+        small.finish()
+        small.admit('b')
+        small.finish()
+        with self.assertRaises(Refusal) as c:
+            small.admit('c')
+        self.assertEqual(c.exception.code, 'day_cap')
+        # not counted (MOCK, REHEARSAL), or no client given: only the server's ceilings
+        off = Limits(clock=clock, clients=False)
+        for _ in range(5):
+            off.admit('a')
+            off.finish()
+        self.assertEqual(Limits(client_hour=50, client_day=50).client_hour, 3, 'a setting never raises a ceiling')
+
     def test_settings_never_raise_a_ceiling(self):
         lim = Limits(day_cap=10_000, usd_stop=999)
         self.assertEqual((lim.day_cap, lim.usd_stop), (200, 5.0))

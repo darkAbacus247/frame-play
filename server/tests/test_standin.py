@@ -174,7 +174,7 @@ class Rehearsal(unittest.TestCase):
         threading.Thread(target=self.ssrv.serve_forever, daemon=True).start()
         base = f'http://127.0.0.1:{self.ssrv.server_address[1]}/v1'
         self.settings = settings_from({}, base, 'desk')
-        self.limits = Limits()
+        self.limits = Limits(clients=False)  # as build_server makes them in rehearsal
         self.pipe = Pipeline(self.settings, self.limits, sleep=lambda s: None)
         self.run_ = Running(self.settings, pipeline=self.pipe, limits=self.limits)
         self.pipe.log = self.run_.srv.log

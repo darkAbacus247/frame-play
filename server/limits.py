@@ -1,6 +1,9 @@
 """Ceilings: photos in flight at once and photos an hour (config.IN_FLIGHT and
 config.PER_HOUR), the day's cap (200 by default),
 and a hard stop at the day's estimated spend ($5 by default, never more).
+In LIVE each client also has its own photos an hour and a day
+(config.CLIENT_PER_HOUR and config.CLIENT_PER_DAY), on top of the server's:
+one visitor cannot use up the day for everyone.
 Each call reserves its worst-case cost under one lock before it is sent, so
 calls racing each other cannot pass the stop together. The counters live in
 memory: a restart clears them, so the account's own spend notification is
@@ -47,7 +50,8 @@ class Admission:
 
 class Limits:
     def __init__(self, day_cap=config.PER_DAY, usd_stop=config.USD_STOP, clock=time.time,
-                 in_flight=config.IN_FLIGHT, per_hour=config.PER_HOUR):
+                 in_flight=config.IN_FLIGHT, per_hour=config.PER_HOUR, clients=True,
+                 client_hour=config.CLIENT_PER_HOUR, client_day=config.CLIENT_PER_DAY):
         self.lock = threading.Lock()
         self.clock = clock
         self.day_cap = min(day_cap, config.PER_DAY)
@@ -62,6 +66,11 @@ class Limits:
         self.reserved = 0.0   # reservations still open
         self.calls = 0
         self.answered = 0
+        # per client: [the times of its photos this hour, its photos today];
+        # None when clients are not counted (MOCK, REHEARSAL)
+        self.clients = {} if clients else None
+        self.client_hour = min(client_hour, config.CLIENT_PER_HOUR)
+        self.client_day = min(client_day, config.CLIENT_PER_DAY)
 
     def _roll(self, now):
         d = _utc_day(now)
@@ -69,16 +78,28 @@ class Limits:
             self.day = d
             self.photos_today = 0
             self.spent = 0.0
-        while self.hour and now - self.hour[0] >= 3600:
-            self.hour.popleft()
+            if self.clients:
+                for key, c in list(self.clients.items()):
+                    self._trim(c[0], now)
+                    if c[0]:
+                        c[1] = 0
+                    else:
+                        del self.clients[key]
+        self._trim(self.hour, now)
+
+    @staticmethod
+    def _trim(times, now):
+        while times and now - times[0] >= 3600:
+            times.popleft()
 
     def _to_midnight(self, now):
         return int((self.day + 1) * 86400 - now) + 1
 
-    def admit(self):
+    def admit(self, client=None):
         """Take a photo in, or raise a Refusal. Pair with finish(). A photo
         whose first call could not be reserved is refused here, before it
-        counts in the hour or the day."""
+        counts in the hour or the day. client: who sent it (an opaque key),
+        held to its own hour and day when clients are counted."""
         with self.lock:
             now = self.clock()
             self._roll(now)
@@ -86,6 +107,14 @@ class Limits:
                 raise Refusal('spend_stop', f'This server has reached its spending stop for today (${self.usd_stop:.2f} estimated). Please try again tomorrow, or play the sample rooms.', self._to_midnight(now))
             if self.in_flight >= self.max_in_flight:
                 raise Refusal('busy', 'Every reader on this server is busy with other photos. Please try again in a few seconds.', 5)
+            mine = self.clients.get(client) if self.clients is not None and client is not None else None
+            if mine is not None:
+                self._trim(mine[0], now)
+                if len(mine[0]) >= self.client_hour:
+                    wait = int(3600 - (now - mine[0][0])) + 1
+                    raise Refusal('client_hour_cap', f'This server has read {self.client_hour} photos from you in the last hour. Please try again later, or play the sample rooms.', wait)
+                if mine[1] >= self.client_day:
+                    raise Refusal('client_day_cap', f'This server has read {self.client_day} photos from you today. Please try again tomorrow, or play the sample rooms.', self._to_midnight(now))
             if len(self.hour) >= self.per_hour:
                 wait = int(3600 - (now - self.hour[0])) + 1
                 raise Refusal('hour_cap', f'This server has read {self.per_hour} photos in the last hour. Please try again later.', wait)
@@ -94,11 +123,16 @@ class Limits:
             self.in_flight += 1
             self.hour.append(now)
             self.photos_today += 1
+            if self.clients is not None and client is not None:
+                mine = self.clients.setdefault(client, [deque(), 0])
+                mine[0].append(now)
+                mine[1] += 1
             return Admission(now, self.day)
 
     def uncount(self, adm):
         """A photo that sent nothing (refused at the spending stop by a call
-        racing it): it uses none of the hour's or the day's room."""
+        racing it): it uses none of the server's hour or day. Its client's
+        own count stays: each photo a client sends counts for it."""
         with self.lock:
             if adm is None or not adm.counted:
                 return

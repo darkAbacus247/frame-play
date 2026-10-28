@@ -426,7 +426,12 @@ our kitchen photo's recorded answer is replayed there (`POST
 /api/replay/kitchen`, served in every mode, costs nothing and sends nothing).
 
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
-day, and stops for the day at an estimated $5. A photo is one Muse Spark
+day, and stops for the day at an estimated $5. Within those, each client
+gets at most 3 photos an hour and 10 a day, so one visitor cannot use up the
+day for everyone. The client is the connection's address, or with
+`--public` the first `X-Forwarded-For` hop (the visitor's address as the
+Space's proxy gives it); if a proxy passed on a hop the visitor wrote, one
+visitor could pose as several, and the server's own ceilings still hold. A photo is one Muse Spark
 call, at most 12 SAM 3.1 calls and one more Muse Spark call for its riddles
 (at most 14 calls in all): at the published prices about four to five
 cents, and about nine cents at worst (every call answered once; a call sent
