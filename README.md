@@ -454,9 +454,13 @@ caps still bound what it can spend. Health says where the count is kept
 (spend_kept: file or memory).
 
 If the Model API refuses the
-key, the account has no credit or quota, or a model is gone, the server
-stops sending photos, says so in health (live_state: unavailable), and lets
-one photo check again every 10 minutes. When LIVE cannot read a photo for
+key or a model is gone, the server stops sending photos, says so in health
+(live_state: unavailable), and lets one photo check again every 10 minutes.
+If it refuses for billing or credit (a 402, a used-up quota, or a refusal
+whose code names billing, credit or payment), LIVE is stopped for the rest
+of the UTC day: no photo is sent until midnight UTC, when one photo may
+check again. Health lists both (ceilings: live_hold_seconds,
+billing_stop_until). When LIVE cannot read a photo for
 any of these reasons, our kitchen photo falls back to its recorded answer,
 replayed and labeled REPLAY, and the page says why it was not read live.
 

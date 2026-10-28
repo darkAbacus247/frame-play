@@ -291,13 +291,39 @@ class Latch(unittest.TestCase):
         self.assertEqual(self.t.claim(), 'open')
 
     def test_a_failed_check_holds_again(self):
-        self.fail('/responses', 402)
+        self.fail('/responses', 403)
         self.clock[0] += config.LIVE_HOLD_S + 1
         self.assertEqual(self.t.claim(), 'probe')
-        self.fail('/responses', 402)
+        self.fail('/responses', 403)
         self.t.release()
         self.assertIsNone(self.t.claim())
         self.assertEqual(self.t.live_state()[2], 600)
+
+    def test_a_billing_or_credit_refusal_stops_live_for_the_utc_day(self):
+        day = 1_800_000_000 - 1_800_000_000 % 86400
+        wall = [day + 3600.0]  # 01:00 UTC
+        self.t.wall = lambda: wall[0]
+        for status, code in ((402, 'payment_required'), (429, 'insufficient_quota'), (403, 'insufficient_credits'),
+                             (401, 'billing_not_active')):
+            self.t.broken = None
+            e = self.fail('/responses', status, code)
+            self.assertTrue(e.latched, (status, code))
+            state, words, wait = self.t.live_state()
+            self.assertEqual((state, words, wait), ('unavailable', meta_api.DAY_STOP_WORDS, 23 * 3600), (status, code))
+            self.assertEqual(self.t.refusal_words(), meta_api.DAY_STOP_WORDS)
+        self.clock[0] += config.LIVE_HOLD_S + 1  # the ten minutes pass: still stopped for the day
+        self.assertIsNone(self.t.claim())
+        self.assertEqual(self.t.live_state()[0], 'unavailable')
+        wall[0] = day + 86400  # midnight UTC: one photo may check again
+        self.assertEqual(self.t.live_state()[0], 'ok')
+        self.assertEqual(self.t.claim(), 'probe')
+        self.t.release()
+        # a refused key or a lost model is not a billing stop: the ten-minute hold
+        self.t.broken = None
+        self.fail('/responses', 401, 'invalid_api_key')
+        self.assertEqual(self.t.live_state()[2], 600)
+        self.assertEqual(self.t.refusal_words(), meta_api.LIVE_UNAVAILABLE)
+        self.assertIn('sample rooms still work', meta_api.DAY_STOP_WORDS)
 
     def test_rehearsal_drills_do_not_latch(self):
         t = Transport(self.fake.base, config.REHEARSAL_CREDENTIAL)

@@ -13,12 +13,16 @@
 - With the owner's key, an account or model problem (401, 402, 403, a 404
   for a model route, a quota 429) marks the transport broken. While it is broken, the server sends
   no photo for LIVE_HOLD_S; after that one photo may check again, and any
-  answer that is not an error clears the mark.
+  answer that is not an error clears the mark. A billing or credit refusal
+  (a 402, a quota 429, or a refusal whose code names billing, credit or
+  payment) holds for the rest of the UTC day instead: LIVE is stopped for
+  the day, and after midnight UTC one photo may check again.
 """
 import email.utils
 import http.client
 import json
 import math
+import re
 import socket
 import threading
 import time
@@ -59,6 +63,14 @@ MODEL_ROUTES = {'/chat/completions', '/responses'}
 QUOTA_WORDS = f'The Model API account behind this server has used up its quota. {OWNER}'
 LIVE_UNAVAILABLE = ('The live AI is unavailable on this server right now (an account or model problem '
                     'the owner must fix). The sample rooms still work.')
+# A billing or credit refusal: LIVE is stopped for the rest of the UTC day.
+BILLING = re.compile(r'billing|credit|payment|funds|quota', re.I)
+DAY_STOP_WORDS = ('The live AI is stopped on this server for the rest of the day (UTC): the Model API refused it '
+                  'for billing or credit. The sample rooms still work.')
+
+
+def next_utc_midnight(t):
+    return (int(t // 86400) + 1) * 86400
 
 
 def other_status_words(status):
@@ -144,6 +156,7 @@ class Transport:
         self.credential = credential
         self.connect = connect  # tests may swap the connection maker
         self.now = time.monotonic  # tests may swap the latch's clock
+        self.wall = time.time  # and the day's: a billing stop holds until midnight UTC
         # The latch guards the owner's key. Rehearsal drills each failure one
         # photo at a time, so it latches only when asked to.
         self.latching = self.holder is not None
@@ -152,9 +165,17 @@ class Transport:
         self._latch = threading.Lock()
 
     # ---- the live-unavailable latch ----
-    def _trip(self, code, words):
+    def _trip(self, code, words, until=None):
+        """until: the wall-clock time (midnight UTC) a billing stop holds to;
+        None: the hold is LIVE_HOLD_S."""
         with self._latch:
-            self.broken = {'code': code, 'words': words, 'since': self.now()}
+            self.broken = {'code': code, 'words': words, 'since': self.now(), 'until': until}
+
+    def _left(self, b):
+        """Seconds until a photo may check again."""
+        if b.get('until') is not None:
+            return b['until'] - self.wall()
+        return config.LIVE_HOLD_S - (self.now() - b['since'])
 
     def _clear(self):
         if self.broken is not None:
@@ -167,7 +188,7 @@ class Transport:
             b = self.broken
             if b is None:
                 return 'ok', None, 0
-            left = config.LIVE_HOLD_S - (self.now() - b['since'])
+            left = self._left(b)
             if left <= 0 and not self.probing:
                 return 'ok', None, 0
             return 'unavailable', b['words'], max(1, math.ceil(left))
@@ -179,10 +200,16 @@ class Transport:
             b = self.broken
             if b is None:
                 return 'open'
-            if self.probing or self.now() - b['since'] < config.LIVE_HOLD_S:
+            if self.probing or self._left(b) > 0:
                 return None
             self.probing = True
             return 'probe'
+
+    def refusal_words(self):
+        """The words for a photo refused while the transport is broken."""
+        with self._latch:
+            b = self.broken
+        return DAY_STOP_WORDS if b is not None and b.get('until') is not None else LIVE_UNAVAILABLE
 
     def release(self):
         with self._latch:
@@ -259,7 +286,10 @@ class Transport:
                           excerpt=excerpt(data, self.holder) if data else None, transient=is_transient(status, quota))
             if self.latching and (status in BROKEN_STATUSES or quota
                                   or (status == 404 and (route in MODEL_ROUTES or code == 'model_not_found'))):
-                self._trip(code, words)
+                if status == 402 or quota or BILLING.search(code):
+                    self._trip(code, DAY_STOP_WORDS, next_utc_midnight(self.wall()))
+                else:
+                    self._trip(code, words)
                 e.latched = True
             raise e
         self._clear()

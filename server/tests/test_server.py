@@ -102,6 +102,8 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(j['ceilings']['sam_calls_per_photo'], 12)
         self.assertEqual((j['ceilings']['photos_in_flight'], j['ceilings']['photos_per_hour']), (4, 120))
         self.assertEqual((j['ceilings']['seconds_per_socket_wait'], j['ceilings']['seconds_per_upload']), (15.0, 40.0))
+        self.assertEqual((j['ceilings']['live_hold_seconds'], j['ceilings']['billing_stop_until']),
+                         (600.0, 'midnight UTC'))
         self.assertEqual(j['live_state'], 'off')
 
     def test_room_in_mock_mode_is_409_in_words(self):
@@ -232,7 +234,7 @@ class LiveUnavailable(unittest.TestCase):
         self.assertEqual(self.pipe.limits.counters()['photos_this_hour'], 1, 'a held photo is not counted')
 
     def test_after_the_hold_one_photo_checks_again_and_a_good_answer_clears_it(self):
-        self.fake.always('/chat/completions', ok_json({'error': {'code': 'payment_required'}}, 402))
+        self.fake.always('/chat/completions', ok_json({'error': {'code': 'permission_denied'}}, 403))
         self.post()
         self.clock[0] += config.LIVE_HOLD_S
         self.assertEqual(self.health()['live_state'], 'ok')
@@ -249,6 +251,22 @@ class LiveUnavailable(unittest.TestCase):
         self.assertFalse(self.transport.probing, 'the check is released after its photo')
         self.post()
         self.assertEqual(self.fake.count('/chat/completions'), 4, 'photos flow again')
+
+    def test_a_billing_refusal_stops_live_until_midnight_utc(self):
+        day = 1_800_000_000 - 1_800_000_000 % 86400
+        self.transport.wall = lambda: day + 20 * 3600.0  # 20:00 UTC
+        self.fake.always('/chat/completions', ok_json({'error': {'code': 'payment_required'}}, 402))
+        status, _, first = self.post()
+        self.assertEqual((first['error']['code'], first['error']['status']), ('live_unavailable', 402))
+        self.clock[0] += config.LIVE_HOLD_S + 1
+        status, h, j = self.post()
+        self.assertEqual((status, j['error']['code']), (503, 'live_unavailable'))
+        self.assertIn('for the rest of the day (UTC)', j['error']['message'])
+        self.assertEqual(h['Retry-After'], str(4 * 3600))
+        hl = self.health()
+        self.assertEqual((hl['live_state'], hl['live_check_again_s']), ('unavailable', 4 * 3600))
+        self.assertIn('billing or credit', hl['live_reason'])
+        self.assertEqual(self.fake.count('/chat/completions'), 1, 'nothing more is sent that day')
 
     def test_mock_says_off_and_a_server_without_a_pipeline_says_ok(self):
         srv = FramePlayServer(('127.0.0.1', 0), settings_from({}), log=Log(stream=[]))

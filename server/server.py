@@ -297,9 +297,11 @@ class Handler(BaseHTTPRequestHandler):
         held = claim() if claim is not None else 'open'
         if held is None:
             # an account or model problem: nothing is sent to the Model API
+            # (a billing or credit refusal: not until midnight UTC)
             self.close_connection = True
             _, _, wait = transport.live_state()
-            return self.send_json(503, error_body('live_unavailable', LIVE_UNAVAILABLE), {'Retry-After': str(max(1, wait))})
+            words = transport.refusal_words() if hasattr(transport, 'refusal_words') else LIVE_UNAVAILABLE
+            return self.send_json(503, error_body('live_unavailable', words), {'Retry-After': str(max(1, wait))})
         try:
             self.read_and_run()
         finally:
@@ -411,6 +413,10 @@ class FramePlayServer(ThreadingHTTPServer):
                 # Ask the room: one more Muse Spark call a photo, after its reply
                 'riddle_spark_calls_per_photo': config.RIDDLE_SPARK_CALLS if s.riddles else 0,
                 'seconds_for_riddles': config.RIDDLE_TIMEOUT_S,
+                # after an account or model problem, LIVE is held this long;
+                # after a billing or credit refusal, until midnight UTC
+                'live_hold_seconds': config.LIVE_HOLD_S,
+                'billing_stop_until': 'midnight UTC',
                 # our kitchen's replay: its own places, and per client a minute
                 'replays_in_flight': config.REPLAY_IN_FLIGHT,
                 'replays_per_client_per_minute': config.REPLAY_PER_MINUTE,
