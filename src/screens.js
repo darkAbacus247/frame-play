@@ -76,7 +76,7 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
     el('div', { class: 'bar-body' }, [
       el('h1', { text: 'Photograph your room. Play it.' }),
       el('p', { class: 'lede', text: 'One photo of a room or a desk top becomes a small game: its objects become walls, things to collect, a hazard and the exit.' }),
-      // the quickest look at Meta's models (his 10-28 pick): true in every mode,
+      // the quickest look at Meta's models (the author's choice on 10-28): true in every mode,
       // since our kitchen is read fresh in LIVE and Meta's recorded answer is replayed elsewhere
       el('p', { class: 'ours-hint', text: OURS_HINT }),
       el('ul', { class: 'consent', 'aria-label': 'Before you start' }, [

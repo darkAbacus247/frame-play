@@ -67,6 +67,19 @@ class WhatWasPreExisting(unittest.TestCase):
             self.assertTrue(after.startswith((' below', ' under License')), after)
 
 
+class Voice(unittest.TestCase):
+    def test_no_aside_names_the_author_as_his(self):
+        # the repository is read by judges: a choice is the author's, said
+        # in a neutral voice (this file, which holds the pattern, aside)
+        files = ['README.md', 'PROVENANCE.md', 'app.js', 'index.html']
+        for folder, pattern in (('src', '*.js'), ('tests', '*.js'), ('server', '*.py'), ('server/tests', '*.py')):
+            files += sorted(str(p.relative_to(ROOT)) for p in (ROOT / folder).glob(pattern))
+        for rel in files:
+            if Path(rel).name == Path(__file__).name:
+                continue
+            self.assertIsNone(re.search(r'\bhis \d\d-\d\d\b|\(his ', text(rel)), rel)
+
+
 class Claims(unittest.TestCase):
     def test_the_people_refusal_is_said_for_reads_only(self):
         # claims-5: Muse Spark's flag stops a LIVE read; in MOCK nothing
