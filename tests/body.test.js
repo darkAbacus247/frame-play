@@ -4,8 +4,8 @@
 // explorer is swept along every wall of every room (The Apartment, the desk,
 // the living room, the rehearsed apartment and our kitchen's replay): its
 // drawn body is always on the floor, and wherever a straight path of floor
-// wider than its body goes on, the arrow keys (the pad and a stick steer
-// the same way) and taps take it there.
+// wider than its body goes on, the arrow keys (the pad steers the same
+// way) and taps take it there.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

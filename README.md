@@ -176,7 +176,7 @@ no people), and it is released with this repository under its license.
   masks gave 5 exact outlines plus the floor, code made 2 changes, and the
   room can be won. The floor behind the kitchen island, which the camera
   never saw, is walked on: a path runs all the way around the island, and
-  the explorer walks it by the keys, the pad, a stick and taps (a tap on
+  the explorer walks it by the keys, the pad and taps (a tap on
   the island's far part walks behind it).
 
 In MOCK, where a server answers, our kitchen's card is the one primary on

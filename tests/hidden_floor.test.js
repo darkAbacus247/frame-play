@@ -121,7 +121,8 @@ test('the kitchen: the floor behind the island is walkable, and a loop of it run
 });
 
 // Steering as a player does: along the planned path, by the arrow keys (8
-// directions), the on-screen pad (4 directions) or a stick (any direction).
+// directions) or the on-screen pad (4 directions); and, for the floor's
+// sake, a steering vector in any direction (no control steers so today).
 function steerTo(state, target, quantize, maxSteps = 3000) {
   let steps = 0, stall = 0, best = Infinity, alt = false;
   while (steps++ < maxSteps) {
@@ -145,9 +146,9 @@ const keys = ([x, y], alt) => {
   return [Math.round(Math.cos(k * Math.PI / 4)), Math.round(Math.sin(k * Math.PI / 4))];
 };
 const pad = ([x, y], alt) => ((Math.abs(x) >= Math.abs(y)) !== alt ? [Math.sign(x) || 1, 0] : [0, Math.sign(y) || 1]);
-const stick = ([x, y]) => [x, y];
+const free = ([x, y]) => [x, y];
 
-for (const [name, quantize] of [['the arrow keys', keys], ['the on-screen pad', pad], ['a stick', stick]]) {
+for (const [name, quantize] of [['the arrow keys', keys], ['the on-screen pad', pad], ['steering in any direction', free]]) {
   test(`the kitchen: the explorer walks all the way around the island by ${name}`, () => {
     const state = createRound(level, rt);
     state.pos = [...AROUND.front];

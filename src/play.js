@@ -147,8 +147,8 @@ function checkTouches(state, level, rt, events) {
   state.lockedNear = nearExit;
 }
 
-// Advance one fixed step. input.dir is the steering vector (keys, pad,
-// stick); any steering cancels an auto-walk. Returns the events.
+// Advance one fixed step. input.dir is the steering vector (the keys or
+// the pad); any steering cancels an auto-walk. Returns the events.
 export function stepRound(state, level, rt, input = {}) {
   const events = [];
   if (state.status !== 'playing') return events;
