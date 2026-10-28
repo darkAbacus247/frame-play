@@ -162,6 +162,6 @@
   "riddles": [
     {"id": "a1", "text": "Touch the place where you would sleep at night.", "rule": "one", "answers": ["bed"], "why": "Pillows at the top, blankets below."},
     {"id": "a2", "text": "Find the {n} seats pulled up for a meal.", "rule": "all", "answers": ["chair1", "chair2"], "why": "They wait at the dining table for dinner."},
-    {"id": "a3", "text": "Touch the plant that would prick your fingers.", "rule": "one", "answers": ["cactus"], "why": "Its spines say: look, do not touch!"}
+    {"id": "a3", "text": "Touch the plant that is covered in prickly spines.", "rule": "one", "answers": ["cactus"], "why": "Look, but please do not touch!"}
   ]
 }

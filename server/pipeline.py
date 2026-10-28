@@ -716,9 +716,23 @@ class Pipeline:
                 reply = self.failed_reply()
             finish()
             line({'type': 'reply', 'reply': reply})
+            # Ask the room: the reply is on the page and the round can start;
+            # the riddles are written after it, with the photo still here
+            if self.settings.riddles and self.settings.mode in ('live', 'rehearsal'):
+                line({'type': 'riddles', 'riddles': self.riddles(photo, reply)})
             chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:
             finish()
+
+    def riddles(self, photo, reply):
+        """The riddles line for a reply already sent (server/riddles.py)."""
+        from server import riddles  # riddles.py reads this module's own words
+        try:
+            return riddles.run_riddles(self, photo, reply)
+        except Exception as e:  # noqa: BLE001 - the room is already on the page
+            if self.log is not None:
+                self.log.write(event='riddles_failed', error=type(e).__name__)
+            return riddles.riddles_error_line(self, reply)
 
     def failed_reply(self):
         """A read that broke after the stream began: an error reply in this

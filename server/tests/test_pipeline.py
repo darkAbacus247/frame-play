@@ -923,7 +923,8 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(h['Content-Type'].startswith('application/x-ndjson'))
         lines = [json.loads(x) for x in body.decode().splitlines()]
-        self.assertEqual([x['type'] for x in lines], ['progress', 'progress', 'reply'])
+        # Ask the room: the riddles line comes after the reply (server/riddles.py)
+        self.assertEqual([x['type'] for x in lines], ['progress', 'progress', 'reply', 'riddles'])
         self.assertEqual([x.get('words') for x in lines[:2]], ['Reading your room', 'Finding every object'])
         self.assertEqual(lines[2]['reply']['status'], 'ok')
         self.assertEqual(self.limits.counters()['photos_in_flight'], 0)
@@ -956,8 +957,9 @@ class OverHttp(unittest.TestCase):
         status, h, body = self.post('application/x-ndjson')
         self.assertEqual(status, 200)
         lines = [json.loads(x) for x in body.decode().splitlines()]
-        self.assertEqual([x['type'] for x in lines], ['progress', 'reply'])
-        reply = lines[-1]['reply']
+        self.assertEqual([x['type'] for x in lines], ['progress', 'reply', 'riddles'])
+        self.assertEqual(lines[-1]['riddles']['status'], 'none', 'no room, no riddle call')
+        reply = lines[-2]['reply']
         self.assertEqual(reply['status'], 'error')
         self.assertEqual(reply['provenance']['mode'], 'rehearsal')
         self.assertEqual(reply['error']['message'], 'The server could not finish reading this photo. Please try again.')

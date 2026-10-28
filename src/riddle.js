@@ -19,6 +19,11 @@ const BOXY = new Set(['box', 'points_box']);
 
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 const COUNT_WORDS = new Set([...NUMBER_WORDS.slice(2), 'dozen', 'both']);
+// Persons and bodies (server/pipeline.py PEOPLE, less the pronouns a riddle
+// speaks with: you, me, him, her, them, someone): never in a riddle or its reason
+const PEOPLE = new Set(['person', 'people', 'man', 'men', 'woman', 'women', 'child', 'children', 'kid', 'kids', 'boy', 'girl', 'baby',
+  'human', 'face', 'head', 'hand', 'hands', 'arm', 'arms', 'leg', 'legs', 'foot', 'feet', 'finger', 'fingers',
+  'body', 'hair', 'eye', 'eyes', 'mouth', 'selfie']);
 
 const words = (s) => String(s).toLowerCase().match(/[a-z]+/g) || [];
 const stem = (w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
@@ -76,6 +81,8 @@ export function checkRiddles(level, riddles) {
     const names = answers.map((id) => level.objects[byId.get(id)].name);
     const why = textProblem(raw.text, rule, names);
     if (why) { drop(why); continue; }
+    const person = words(`${raw.text} ${raw.why || ''}`).find((w) => PEOPLE.has(w));
+    if (person) { drop(`it is about people ("${person}")`); continue; }
     const key = [...answers].sort().join('|');
     if (sets.has(key)) { drop('another riddle has the same answer'); continue; }
     if (kept.length >= MAX_RIDDLES) { drop(`a room keeps at most ${MAX_RIDDLES}`); continue; }

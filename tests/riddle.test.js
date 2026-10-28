@@ -57,6 +57,7 @@ test('checkRiddles drops what does not fit the level, in words, and keeps at mos
     [{ ...ok, rule: 'all', text: 'Find the {n} things you would fill with tea.' }, /asks for all but has one answer/],
     [{ ...ok, answers: level.objects.map((o) => o.id), rule: 'any' }, /every thing answers it/],
     [{ ...ok, text: 'Touch the mug you would fill with hot tea.' }, /names its answer/],
+    [{ ...ok, why: 'Hold it in one hand.' }, /about people \("hand"\)/],
   ];
   for (const [r, why] of cases) {
     const { kept, warnings } = checkRiddles(level, [r]);

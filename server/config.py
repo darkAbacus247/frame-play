@@ -41,6 +41,11 @@ USD_STOP = 5.0
 # The first real desk read used 1,691 output tokens (1,151 reasoning); a
 # cluttered room needs room to finish its JSON.
 SPARK_MAX_COMPLETION_TOKENS = 4000
+# Ask the room (server/riddles.py): one more Muse Spark call a photo, after
+# its reply, in its own 30 s; FRAMEPLAY_RIDDLES=no turns it off.
+RIDDLE_SPARK_CALLS = 1
+RIDDLE_MAX_COMPLETION_TOKENS = 2000
+RIDDLE_TIMEOUT_S = 30.0
 # After an account or model problem, no photo is sent for this long; then one
 # photo may check again.
 LIVE_HOLD_S = 600.0
@@ -202,6 +207,7 @@ class Settings:
     usd_stop: float = USD_STOP
     rehearsal_room: str = ''
     key_present: bool = False
+    riddles: bool = True
 
     @property
     def label(self):
@@ -222,16 +228,18 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
     usd_stop = float(_lowered(environ, 'FRAMEPLAY_USD_STOP', USD_STOP, float))
     has_key = bool((environ.get('MODEL_API_KEY') or '').strip())
     live_on = environ.get('FRAMEPLAY_LIVE') == 'yes'
+    # Ask the room: on unless switched off; a setting may only lower a ceiling
+    riddles = (environ.get('FRAMEPLAY_RIDDLES') or '').strip().lower() != 'no'
     if rehearse is not None:
         if 'MODEL_API_KEY' in environ or 'FRAMEPLAY_LIVE' in environ:
             raise ConfigError('Refusing to rehearse: MODEL_API_KEY or FRAMEPLAY_LIVE is set. Rehearsal never holds a key.')
         if not re.fullmatch(r'[a-z0-9_-]{1,32}', rehearsal_room or ''):
             raise ConfigError('The rehearsal room must be a sample room id')
         return Settings('rehearsal', 'Rehearsing against a local stand-in, not Meta. No key is held.',
-                        None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room)
+                        None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles)
     if has_key and live_on:
         return Settings('live', 'The key is present and FRAMEPLAY_LIVE is yes.',
-                        KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True)
+                        KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True, riddles=riddles)
     if has_key:
         why = 'The key is present but FRAMEPLAY_LIVE is not yes, so no model is called.'
     elif live_on:

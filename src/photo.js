@@ -198,7 +198,7 @@ export async function sendPhoto(blob, onProgress, url = 'api/room', opts = {}) {
   const onCancel = () => stop('canceled');
   if (outer) outer.addEventListener('abort', onCancel, { once: true });
   const timer = setTimeout(() => stop('too_long'), opts.timeoutMs ?? READ_LIMIT_MS);
-  const run = readThrough(blob, onProgress, url, opts.sleep || pause, ctl.signal);
+  const run = readThrough(blob, onProgress, url, opts.sleep || pause, ctl.signal, opts.onRiddles);
   run.catch(() => {}); // once stopped, what the read throws later is not news
   try {
     return await Promise.race([run, failed]);
@@ -208,7 +208,7 @@ export async function sendPhoto(blob, onProgress, url = 'api/room', opts = {}) {
   }
 }
 
-async function readThrough(blob, onProgress, url, sleep, signal) {
+async function readThrough(blob, onProgress, url, sleep, signal, onRiddles) {
   let waited = 0;
   let res;
   for (let send = 1; ; send++) {
@@ -267,22 +267,49 @@ async function readThrough(blob, onProgress, url, sleep, signal) {
   // a stream cut mid-way says so in the page's own words, never the
   // browser's ('network error')
   const STOPPED = 'The server stopped before it answered. Please try again.';
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (value) buf += dec.decode(value, { stream: true });
-      const nl = buf.lastIndexOf('\n');
-      if (nl >= 0) {
-        each(buf.slice(0, nl), (msg) => { if (msg.type === 'progress' && onProgress) onProgress(msg); });
-        buf = buf.slice(nl + 1);
+  // Ask the room: the reply is handed on the moment its line arrives, and
+  // the stream is read on behind the room for the riddles line, which
+  // comes after one more Muse Spark call. A stream cut after the reply
+  // keeps the room; its riddles are then an error, said to onRiddles.
+  let reply = null, riddles = null, cut = false, got;
+  const gotReply = new Promise((r) => { got = r; });
+  const take = (msg) => {
+    if (msg.type === 'progress' && onProgress) onProgress(msg);
+    else if (msg.type === 'reply' && !reply) { reply = msg.reply; got(reply); }
+    else if (msg.type === 'riddles' && !riddles) riddles = msg.riddles;
+  };
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (value) buf += dec.decode(value, { stream: true });
+        const nl = buf.lastIndexOf('\n');
+        if (nl >= 0) {
+          each(buf.slice(0, nl), take);
+          buf = buf.slice(nl + 1);
+        }
+        if (done) break;
       }
-      if (done) break;
+    } catch {
+      cut = true;
     }
-  } catch {
-    throw new Error(STOPPED);
+  })();
+  const early = await Promise.race([gotReply, pump.then(() => null)]);
+  const riddlesAfter = () => {
+    if (!onRiddles) return;
+    Promise.all([pump, whole]).then(([, text]) => {
+      if (!riddles && text) each(text, (msg) => { if (msg.type === 'riddles' && !riddles) riddles = msg.riddles; });
+      onRiddles(riddles || { status: 'error', error: { code: 'cut_off', message: 'The riddles did not arrive.' } });
+    });
+  };
+  if (early) {
+    riddlesAfter();
+    return early;
   }
-  let reply = null;
-  each((await whole) || '', (msg) => { if (msg.type === 'reply') reply = msg.reply; });
+  if (cut) throw new Error(STOPPED);
+  // the reader ended with no reply line: the reply is taken from the whole body
+  each((await whole) || '', (msg) => { if (msg.type === 'reply' && !reply) reply = msg.reply; });
   if (!reply) throw new Error(STOPPED);
+  riddlesAfter();
   return reply;
 }

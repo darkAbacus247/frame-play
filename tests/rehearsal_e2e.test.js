@@ -129,6 +129,14 @@ test('REHEARSAL through the merged pipeline and page: a winnable desk, an honest
     assert.match(textOf(app.$('main').querySelector('.summary')), /The stand-in for SAM 3\.1’s masks gave 9 exact outlines; code traced 0\./);
     assert.doesNotMatch(app.main(), /left out/, 'no box was bad');
 
+    // ---- Ask the room: the stand-in's riddles come after the reply, on the same stream, and are kept with the level ----
+    await until(app, () => (((app.levels()[0] || {}).level || {}).riddles || []).length === 3, 'the riddles, kept with the level', 60000);
+    const riddles = app.levels()[0].level.riddles;
+    assert.deepEqual(riddles.map((r) => r.origin), ['rehearsal', 'rehearsal', 'rehearsal'], 'from the stand-in, never Meta');
+    assert.ok(riddles.every((r) => r.answers.length && r.answers.every((id) => /^o\d+$/.test(id))), 'under the reply’s own ids');
+    assert.deepEqual(riddles.map((r) => r.n), [1, 3, 1], 'the count from SAM’s records: three coins');
+    assert.equal(s.posts.length, 1, 'no second request: the riddles rode the same stream');
+
     // ---- SAM busy on every call: the busy words and Try this photo again ----
     assert.deepEqual(await drill(standin, 'sam_busy'), { drill: 'sam_busy' });
     app = await pageAt9();

@@ -8,11 +8,11 @@ import { mountPlay, mountReveal } from './src/game.js';
 import { Synth } from './src/audio.js';
 import { readPref, writePref, soundOn, setSound } from './src/store.js';
 import * as S from './src/store.js';
-import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight, ceilH, floorW, spaceH } from './src/ui.js';
+import { el, showCard, closeCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight, ceilH, floorW, spaceH } from './src/ui.js';
 import * as R from './src/road.js';
 import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, RIDDLE_WORDS } from './src/words.js';
-import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix } from './src/riddle.js';
+import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix, acceptRiddles, riddlesFromLine, checkRiddles } from './src/riddle.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
 import { mountFxSettings, effectsOn } from './src/settings_fx.js';
@@ -45,6 +45,7 @@ const A = {
   road: R.newRoad(),
   samples: new Map(),
   live: new Map(), // levels made through the live path (or from marks) this visit, by refKey
+  riddleWait: new Set(), // Ask the room: request ids whose riddles are still being written
   marking: new Map(), // photos being marked this visit, by sha256: { picture, marks }
   remark: null, // the sha256 of a made room whose marks are open again
   busy: false,
@@ -169,7 +170,73 @@ function storedEntry(photo) {
   const v = validateLevel(level);
   if (!v.ok) return null;
   level.proof = v.proof;
+  // its riddles came back with it, checked again like everything kept here
+  if (Array.isArray(level.riddles)) level.riddles = checkRiddles(level, level.riddles).kept;
   return { picture: photo.picture, built: { level, rt: v.rt }, summary: kept.summary || null, fromDevice: true };
+}
+
+// ---- Ask the room: a live or rehearsal room's riddles ----
+// They arrive after the room's reply (one more Muse Spark call, written
+// while the round is played). A catcher holds whichever comes second, the
+// riddles line or the built room; the riddles are taken only for that
+// room's own request and only as honest as this server's mode, kept with
+// its level, and offered on its end card, even one already open.
+function riddleCatcher() {
+  const c = { line: null, reply: null, entry: null, save: null, done: false };
+  c.onRiddles = (line) => { c.line = line; landRiddles(c); };
+  return c;
+}
+
+function catcherReply(c, reply) {
+  if (!c) return;
+  c.reply = reply;
+  if (reply && reply.status === 'ok' && reply.request_id && !c.line) A.riddleWait.add(reply.request_id);
+}
+
+function catcherEntry(c, entry, save = null) {
+  if (!c) return;
+  c.entry = entry;
+  c.save = save;
+  landRiddles(c);
+}
+
+function landRiddles(c) {
+  if (c.done || !c.line || !c.reply || !c.entry) return;
+  c.done = true;
+  A.riddleWait.delete(c.reply.request_id);
+  const level = c.entry.built && !c.entry.built.error ? c.entry.built.level : null;
+  if (!level) return;
+  if (acceptRiddles(c.line, { mode: A.mode, requestId: c.reply.request_id }).ok) {
+    level.riddles = riddlesFromLine(c.line, level, A.mode === 'live' ? 'live' : 'rehearsal').kept;
+    if (level.riddles.length && c.save) c.save();
+  }
+  riddlesArrived(level);
+}
+
+// The end card of this very room, open while its riddles were written: the
+// line says they are ready and Ask the room joins its secondaries (focus is
+// never moved); with none kept, the line goes and nothing else changes.
+function riddlesArrived(level) {
+  const e = A.endCard;
+  const card = $('card');
+  if (!e || e.level !== level || !card || !card.open) return;
+  const wait = [...card.querySelectorAll('p')].find((p) => p.textContent === RIDDLE_WORDS.onItsWay);
+  if (!level.riddles || !level.riddles.length) {
+    if (wait) wait.remove();
+    return;
+  }
+  if (wait) wait.textContent = RIDDLE_WORDS.isReady;
+  const bar = card.querySelector('.actions');
+  if (bar && ![...bar.querySelectorAll('button')].some((b) => b.textContent === RIDDLE_WORDS.button)) {
+    const ask = el('button', {
+      type: 'button', class: 'btn', text: RIDDLE_WORDS.button, tip: RIDDLE_WORDS.tip,
+      onclick: () => { closeCard(card); askTheRoom(e.slot, e.r, level, 0); },
+    });
+    const primary = bar.querySelector('[data-primary]');
+    if (primary && primary.nextSibling) bar.insertBefore(ask, primary.nextSibling);
+    else bar.append(ask);
+  }
+  say(RIDDLE_WORDS.ready);
 }
 
 // While busy every button waits; the one that had the focus gets it back
@@ -341,8 +408,9 @@ async function runLivePath(slot, panel, make, { inPlace = false, again = null } 
 // standInRoom: in REHEARSAL, the room the answer must be for. A refused
 // reply rides on the error (e.reply), so its code and retry_same can be read.
 // signal: Cancel's, for sendPhoto.
-async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null, signal = null) {
-  const reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal });
+async function readThroughServer(blob, copy, picture, pictureRef, onWords, standInRoom = null, signal = null, catcher = null) {
+  const reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal, onRiddles: catcher && catcher.onRiddles });
+  catcherReply(catcher, reply);
   const ok = acceptReply(A.mode, reply, copy);
   if (!ok.ok) throw Object.assign(new Error(ok.why), { reply });
   const other = standInRoom ? standInReplyRefusal(reply, standInRoom) : null;
@@ -370,12 +438,17 @@ function choosePhoto(slot, file, panel, opts) {
       say('This photo’s level was on this device: no model was called.');
       return { ref, entry: kept };
     }
-    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal);
+    const catcher = riddleCatcher();
+    const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal, catcher);
     // our kitchen, read fresh: its words say it is ours, not the player's
     if (opts && opts.ours && entry.summary) entry.summary.ours = true;
     // a cancelled read is not used, so not kept either; nor one made while
     // calls were failing
-    if (!entry.built.error && !entry.degraded && !signal.aborted) S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
+    const keep = !entry.built.error && !entry.degraded && !signal.aborted;
+    const save = () => S.saveLevel(photo.sha256, entry.built.level, { summary: entry.summary });
+    if (keep) save();
+    // its riddles, when they come, are kept with it
+    catcherEntry(catcher, entry, keep ? save : null);
     return { ref, entry };
   }, { ...opts, again: () => choosePhoto(slot, file, panel, opts) });
 }
@@ -393,7 +466,9 @@ function rehearseRoom(slot, id, panel, opts) {
     const s = await sample(id);
     const blob = await canvasJpeg(s.picture);
     const picture = await decodeToCanvas(blob, s.room.width, s.room.height);
-    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room, signal);
+    const catcher = riddleCatcher();
+    const entry = await readThroughServer(blob, { width: s.room.width, height: s.room.height }, picture, { kind: 'sample', id }, onWords, room, signal, catcher);
+    catcherEntry(catcher, entry);
     return { ref: { kind: 'rehearsal', id }, entry };
   }, { ...opts, again: () => rehearseRoom(slot, id, panel, opts) });
 }
@@ -1146,7 +1221,8 @@ function ownDeps(signal = null, seen = {}) {
     preview: previewPhoto,
     readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
     send: async (blob, onWords) => {
-      seen.reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal });
+      seen.reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal, onRiddles: seen.catcher && seen.catcher.onRiddles });
+      catcherReply(seen.catcher, seen.reply);
       return seen.reply;
     },
     samples: [...A.samples].map(([id, s]) => ({ id, title: s.room.title, sig: s.sig, fine: s.fine, boxes: s.boxes })),
@@ -1404,7 +1480,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
   const again = { retry: () => ownPhoto(file, panel, shown, { inPlace, ours }), tip: 'Sends the same photo again; no need to pick it' };
-  const seen = { reply: null };
+  const seen = { reply: null, catcher: riddleCatcher() };
   try {
     // the samples' fingerprints, for a rehearsal's check (a return visit
     // may reach this without any sample room drawn yet)
@@ -1421,7 +1497,11 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
       else if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
       else {
         if (ours && r.entry.summary) r.entry.summary.ours = true;
-        if (!degradedReply(seen.reply)) S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
+        const save = () => S.saveLevel(r.ref.sha256, r.entry.built.level, { summary: r.entry.summary });
+        const keep = !degradedReply(seen.reply);
+        if (keep) save();
+        // its riddles, when they come, are kept with it
+        catcherEntry(seen.catcher, r.entry, keep && r.ref.sha256 ? save : null);
       }
       A.live.set(refKey(r.ref), r.entry);
       if (inPlace) render();

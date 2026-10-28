@@ -47,7 +47,10 @@ from server import config, sam_mask, samtext  # noqa: E402
 from server.imageinfo import ImageError, size, sniff  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-DRILLS = ('401', '404', '429', '503', 'content_filter', 'zero_matches', 'malformed_record', 'people', 'sam_busy')
+DRILLS = ('401', '404', '429', '503', 'content_filter', 'zero_matches', 'malformed_record', 'people', 'sam_busy',
+          # Ask the room: the riddles call answered wrong in one way each
+          'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter')
+LISTED = re.compile(r'^(o\d+) \| (.+?) \| x (\d+)-(\d+), y (\d+)-(\d+)$')
 
 
 # ---- the room's shapes, read the same way the page reads them ----
@@ -297,6 +300,47 @@ class StandIn:
             return self.responses(body, drill)
         return 404, {}, {'error': {'code': 'not_found', 'message': 'No such route'}}
 
+    def riddles(self, body, drill):
+        """Ask the room: the room file's own riddles, in Muse Spark's shape,
+        under the request's ids. Each answer's name is matched to every
+        listed id with that name, and given one point at the centre of that
+        id's box on the grid."""
+        text = next((c.get('text', '') for c in body['messages'][0]['content'] if c.get('type') == 'text'), '')
+        listed = []
+        for ln in text.splitlines():
+            m = LISTED.match(ln.strip())
+            if m:
+                listed.append((m.group(1), m.group(2), [int(v) for v in m.groups()[2:]]))
+        name_of = {o['id']: o['name'] for o in self.room['objects']}
+        out = []
+        for r in self.room.get('riddles') or []:
+            names = {name_of.get(a) for a in r['answers']}
+            ids = [i for i, name, _ in listed if name in names]
+            pts = [{'id': i, 'x': (b[0] + b[1]) // 2, 'y': (b[2] + b[3]) // 2} for i, name, b in listed if i in ids]
+            out.append({'text': r['text'], 'rule': r['rule'], 'answer_ids': ids, 'points': pts, 'why': r.get('why', '')})
+        if out and drill == 'riddle_bad_id':
+            out[0]['answer_ids'] = out[0]['answer_ids'] + ['o99']
+        if out and drill == 'riddle_point_outside' and out[0]['points']:
+            # 40 px to the right of its box
+            p = out[0]['points'][0]
+            box = next(b for i, _, b in listed if i == p['id'])
+            p['x'] = min(1000, box[1] + round(40 * 1000 / self.room['width']))
+        if out and drill == 'riddle_leak':
+            first = next((name for i, name, _ in listed if i in out[0]['answer_ids']), 'thing')
+            out[0]['text'] = f'Touch the {first} in this room.'
+        if drill == 'riddle_none':
+            out = []
+        finish = 'content_filter' if drill == 'riddle_filter' else 'stop'
+        content = '' if finish == 'content_filter' else ('not json {' if drill == 'riddle_malformed' else json.dumps({'riddles': out}))
+        return 200, {}, {
+            'id': 'chatcmpl-standin-riddles',
+            'object': 'chat.completion',
+            'model': config.SPARK_MODEL,
+            'choices': [{'index': 0, 'finish_reason': finish, 'message': {'role': 'assistant', 'content': content}}],
+            'usage': {'prompt_tokens': 1450, 'completion_tokens': 900, 'total_tokens': 2350,
+                      'completion_tokens_details': {'reasoning_tokens': 500}},
+        }
+
     def chat(self, body, drill):
         if body.get('model') != config.SPARK_MODEL or drill == '404':
             return 404, {}, {'error': {'code': 'model_not_found', 'type': 'invalid_request_error', 'message': 'The model does not exist'}}
@@ -312,6 +356,8 @@ class StandIn:
             image = ''
         if not ok or not str(image).startswith('data:image/'):
             return 400, {}, {'error': {'code': 'invalid_request', 'message': 'The request does not follow the contract'}}
+        if (rf.get('json_schema') or {}).get('name') == 'room_riddles':
+            return self.riddles(body, drill)
         finish = 'content_filter' if drill == 'content_filter' else 'stop'
         content = '' if finish == 'content_filter' else json.dumps(self.read())
         return 200, {}, {

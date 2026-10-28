@@ -343,7 +343,13 @@ class FramePlayServer(ThreadingHTTPServer):
                 'seconds_per_call': config.CALL_TIMEOUT_S,
                 'seconds_per_read': config.SPARK_TIMEOUT_S,
                 'seconds_per_photo': config.PHOTO_TIMEOUT_S,
+                # Ask the room: one more Muse Spark call a photo, after its reply
+                'riddle_spark_calls_per_photo': config.RIDDLE_SPARK_CALLS if s.riddles else 0,
+                'seconds_for_riddles': config.RIDDLE_TIMEOUT_S,
             },
+            'riddles': 'on' if s.riddles else 'off',
+            'riddles_reason': ('After each photo, one more Muse Spark call writes up to 3 riddles about it.'
+                               if s.riddles else 'FRAMEPLAY_RIDDLES is no: no riddles are written.'),
         }
         h.update(self.live_state())
         if self.limits is not None:
