@@ -1149,7 +1149,7 @@ class Pipeline:
             return
         self.log.write(event='photo', request_id=r['request_id'], status=r['status'], bytes=r['received']['bytes'],
                        type=r['received']['type'], width=r['received']['width'], height=r['received']['height'],
-                       sha256=r['provenance']['image_sha256'], stages=stages, calls=r['usage']['calls'],
+                       stages=stages, calls=r['usage']['calls'],
                        tokens_in=r['usage']['tokens_in'], tokens_out=r['usage']['tokens_out'],
                        estimated_usd=r['usage']['estimated_usd'], mode=r['provenance']['mode'],
                        found=found_counts(r))
@@ -1158,9 +1158,10 @@ class Pipeline:
 def found_counts(r):
     """For the log, per name sent to SAM: how many matches SAM gave, how
     many were kept, how many were placed by Muse Spark's points instead, and
-    the codes of what was dropped or surprised the reader. Names, counts and
-    codes only: never the photo, a box, a point, a reason, an answer text or
-    the key."""
+    the codes of what was dropped or surprised the reader. Counts and codes
+    only, in the order of the names: never the names themselves (what is in
+    the photo), the photo or its fingerprint, a box, a point, a reason, an
+    answer text or the key."""
     points = {}
     for o in r['objects']:
         if o.get('found_by') == 'points':
@@ -1181,5 +1182,7 @@ def found_counts(r):
         if c.get('error'):
             row['error'] = c['error']
         out.append(row)
-    # the calls finish in any order: the surface first, then by name
-    return sorted(out, key=lambda row: (not row.get('surface'), row['name']))
+    # the calls finish in any order: the surface first, then by name, and
+    # the name is left out
+    out.sort(key=lambda row: (not row.get('surface'), row['name']))
+    return [{k: v for k, v in row.items() if k != 'name'} for row in out]
