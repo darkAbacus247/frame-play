@@ -233,8 +233,10 @@ export function summaryLine(level, summary) {
   const who = level.origin === 'rehearsal' ? ['The local stand-in for Muse Spark (not Meta)', 'The stand-in for SAM 3.1'] : ['Muse Spark', 'SAM 3.1'];
   const masks = maskWords(level, who[1]);
   const outlines = masks ? `${masks}. Code then proved the room can be won.` : `Code ${tracedWords(level)}, then proved the room can be won.`;
-  // ours (the sample kitchen photo): replayed, or read fresh in LIVE
-  const lead = level.origin === 'replay' ? `${REPLAY_WORDS} ` : summary && summary.ours ? 'Our kitchen photo, read by Meta’s models now. ' : '';
+  // ours (the sample kitchen photo): replayed (in LIVE, with why it was not
+  // read live now), or read fresh in LIVE
+  const instead = summary && summary.instead ? `${summary.instead} ` : '';
+  const lead = level.origin === 'replay' ? `${instead}${REPLAY_WORDS} ` : summary && summary.ours ? 'Our kitchen photo, read by Meta’s models now. ' : '';
   if (fromPoints(level)) {
     return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
   }

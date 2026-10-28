@@ -381,7 +381,8 @@ function degradedReply(reply) {
 // inPlace: the room is already on the road (its level was not in memory):
 // it is made again on the same step, never by moving the counter back.
 // again: reads the same photo once more, offered when a failure says so.
-async function runLivePath(slot, panel, make, { inPlace = false, again = null } = {}) {
+// instead(why): our kitchen's way on when LIVE cannot read it now (oursInstead)
+async function runLivePath(slot, panel, make, { inPlace = false, again = null, instead = null } = {}) {
   if (A.busy) return;
   setBusy(true);
   let step = 0;
@@ -397,6 +398,11 @@ async function runLivePath(slot, panel, make, { inPlace = false, again = null } 
   } catch (e) {
     setBusy(false);
     const f = failureOf(e, e.reply);
+    const why = instead && !e.cancelled ? oursInstead(f) : null;
+    if (why) {
+      liveFailed(e, f, { quiet: true });
+      return instead(why);
+    }
     const retry = again && f.retrySame;
     const ways = inPlace ? null : retry ? 'You can also pick another photo, or play a sample room below.' : 'You can try another photo, or play a sample room below.';
     lines(sentences(e.message, ways), { again: retry ? { retry: again, tip: 'Sends the same photo again; no need to pick it' } : null });
@@ -1341,7 +1347,21 @@ async function pickOurs(slot, panel) {
     say(e.message);
     return;
   }
-  return choosePhoto(slot, file, panel, { ours: true });
+  return choosePhoto(slot, file, panel, { ours: true, instead: (why) => replayOursHere(panel, { slot, why }) });
+}
+
+// LIVE cannot read a photo now: an account or model problem (a refused key,
+// credit or billing), the server's spending stop, or its hourly or daily
+// photo cap. Our kitchen then falls back to Meta's recorded answer, replayed
+// and labeled REPLAY, with these words, rather than ending on a refusal.
+const LIVE_STOPS = {
+  live_unavailable: 'the live AI is unavailable on this server right now',
+  spend_stop: 'this server reached its spending stop for today',
+  day_cap: 'this server has read its photos for today',
+  hour_cap: 'this server has read its photos for this hour',
+};
+function oursInstead(f) {
+  return LIVE_STOPS[f.code] && canReplay() ? `Not read live now: ${LIVE_STOPS[f.code]}.` : null;
 }
 
 // Our kitchen read fresh again, in place, on its own step (its level was
@@ -1398,12 +1418,22 @@ async function useOursFresh(panel, shown) {
   return ownPhoto(file, panel, shown, { ours: true });
 }
 
+// LIVE could not read our kitchen on your own room: replayed instead
+function oursReplayInstead(panel, shown, e, f) {
+  const why = oursInstead(f);
+  if (!why) return false;
+  liveFailed(e, f, { quiet: true });
+  replayOursHere(panel, { shown, why });
+  return true;
+}
+
 // The replay: the photo fetched and decoded here, the recorded answer
 // replayed by the server's pipeline, the level built from it on this
 // device. inPlace: the room is already on the road (its level was not in
 // memory): made again on the same step. slot: the room's slot (your own
-// room's, or a sample room's when it is picked on Step 2, 5 or 8).
-async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.OWN_SLOT } = {}) {
+// room's, or a sample room's when it is picked on Step 2, 5 or 8). why: in
+// LIVE, the words saying why it was not read live now (oursInstead).
+async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.OWN_SLOT, why = null } = {}) {
   if (A.busy) return;
   setBusy(true);
   if (shown) shown.hidden = true;
@@ -1427,18 +1457,19 @@ async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.O
     }));
     setBusy(false);
     if (r.kind !== 'built') {
-      progressPanel(panel, REPLAY_LINES, step, sentences(r.words, ways));
-      say(r.words);
+      progressPanel(panel, REPLAY_LINES, step, sentences(why, r.words, ways));
+      say(sentences(why, r.words));
       return;
     }
+    if (why) r.entry.summary.instead = why;
     A.live.set(refKey(r.ref), r.entry);
-    say(REPLAY_WORDS);
+    say(sentences(why, REPLAY_WORDS));
     if (inPlace) render();
     else setRoad(R.chooseRoom(A.road, slot, r.ref));
   } catch (e) {
     setBusy(false);
-    progressPanel(panel, REPLAY_LINES, step, sentences(e.message, ways));
-    say(e.message);
+    progressPanel(panel, REPLAY_LINES, step, sentences(why, e.message, ways));
+    say(sentences(why, e.message));
   }
 }
 
@@ -1510,6 +1541,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
       else setRoad(R.chooseRoom(A.road, R.OWN_SLOT, r.ref));
       return;
     }
+    if (ours && !inPlace && r.kind === 'refused' && seen.reply && oursReplayInstead(panel, shown, null, failureOf(null, seen.reply))) return;
     panel.hidden = true;
     const onMark = r.markable ? marking(r.picture, r.sha256 || null) : null;
     const retry = r.kind === 'refused' && failureOf(null, seen.reply).retrySame;
@@ -1520,6 +1552,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
   } catch (e) {
     setBusy(false);
     const f = failureOf(e, e.reply);
+    if (ours && !inPlace && sends && !e.cancelled && oursReplayInstead(panel, shown, e, f)) return;
     // a read that failed after the photo was read here (src/own.js): it
     // can be marked instead
     const onMark = e.photo ? marking(e.photo.picture, e.photo.sha256) : null;
@@ -1878,14 +1911,15 @@ function ownMode() {
 // turns the picker off at once; a send that failed otherwise without a
 // reply (e: no e.reply) asks health again, quietly, in case the server's
 // latch closed. In REHEARSAL a refused key (the stand-in's 401 drill) turns
-// the picker off the same way.
+// the picker off the same way. quiet: the screen is not drawn again (our
+// kitchen's replay, already under way, draws the next one).
 const DRILL_KEY_REASON = 'The local stand-in refused this server’s key, as a rehearsal of a refused key.';
-function liveFailed(e, f) {
+function liveFailed(e, f, { quiet = false } = {}) {
   if (A.mode !== 'live' && A.mode !== 'rehearsal') return;
   const keyDrill = A.mode === 'rehearsal' && f.keyRefused;
   if (f.code === 'live_unavailable' || keyDrill) {
     A.liveDown = { reason: keyDrill ? DRILL_KEY_REASON : '', wait: (!keyDrill && e && e.retryAfter) || 0 };
-    offNow();
+    if (!quiet) offNow();
     return;
   }
   if (A.mode !== 'live' || !e || e.reply) return;
