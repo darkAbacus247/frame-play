@@ -698,6 +698,11 @@ async function screenRoom(main, slot, token) {
   const check = checkAgainButton();
   if (check) view.actions.append(check);
   main.replaceChildren(view.section);
+  // our kitchen, a real photo, first among the cards: the quickest look at
+  // what Meta's models make of a real photo (his 10-28 pick, after a judge-style
+  // review: judges should see Meta's work before the code-drawn samples)
+  const ours = oursHere(slot);
+  view.cards.append(oursCardView({ ours, draw: ours.draw, held: ours.held, chosen: isOurs(here), onPick: () => pickOurs(slot, view.panel) }));
   // a sample room an earlier step holds is not picked again here
   const earlier = A.road.rooms.slice(0, slot);
   for (const s of SAMPLES) {
@@ -710,9 +715,6 @@ async function screenRoom(main, slot, token) {
       onPick: () => setRoad(R.chooseRoom(A.road, slot, { kind: 'sample', id: s.id })),
     }));
   }
-  // our kitchen, a real photo, beside the sample rooms
-  const ours = oursHere(slot);
-  view.cards.append(oursCardView({ ours, draw: ours.draw, held: ours.held, chosen: isOurs(here), onPick: () => pickOurs(slot, view.panel) }));
   if (A.busy) setBusy(true);
 }
 

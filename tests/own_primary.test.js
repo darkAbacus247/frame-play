@@ -77,7 +77,9 @@ test('a photo of your own shown on Step 12: Mark your room is the one filled pri
   assert.equal(textOf(onePrimary(app, 'after a photo')), 'Mark your room');
 });
 
-test('the stranger walk in MOCK with the server passes Step 12 by our kitchen and reaches the closing screen with zero wrong turns', async () => {
+// Our kitchen is the first card on every pick step (his 10-28 pick: judges see Meta's work first), so a
+// stranger's first click plays it first; Step 12 is then passed by its one primary.
+test('the stranger walk in MOCK with the server plays our kitchen first (the first card), passes Step 12 by its one primary and reaches the closing screen with zero wrong turns', async () => {
   const app = await bootApp({ mode: 'mock', server: true, replay: replayReply });
   paintCanvases(app, KITCHEN_PIXELS);
   const seen = [];
@@ -97,10 +99,11 @@ test('the stranger walk in MOCK with the server passes Step 12 by our kitchen an
       await app.settle(3);
     }
   } finally { delete globalThis.createImageBitmap; }
-  assert.equal(textOf(atOwn), OURS_USE, 'Step 12 passed by our kitchen');
-  assert.deepEqual([...seen, app.step()], [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15]);
+  assert.equal(textOf(atOwn), 'Continue to the end', 'Step 12 passed by its one primary: our kitchen is already on the road');
+  assert.deepEqual([...seen, app.step()], [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 15]);
   assert.equal(app.h1(), CLOSING);
-  assert.match(app.main(), /You won all four rooms\./);
+  assert.match(app.main(), /You won all three rooms\./);
+  assert.match(app.main(), /First room: our kitchen Won/);
 });
 
 // ---- the fit ----

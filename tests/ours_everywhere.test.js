@@ -79,16 +79,17 @@ async function at(road, opts) {
 }
 
 for (const [step, slot] of [[2, 0], [5, 1], [8, 2]]) {
-  test(`Step ${step}: four cards, the three sample rooms then our kitchen with its thumbnail`, async () => {
+  // his 10-28 pick: our kitchen first, so judges see Meta's work before the code-drawn samples
+  test(`Step ${step}: four cards, our kitchen with its thumbnail first, then the three sample rooms`, async () => {
     const rooms = [null, null, null, null];
     for (let k = 0; k < slot; k++) rooms[k] = SAMPLE_ROOMS[k];
     const app = await at(roadAt(step, { rooms, finished: [true, true, true, false].map((f, k) => k < slot && f) }), { mode: 'mock', server: true, replay: replayReply });
     assert.equal(app.step(), step);
     const all = cards(app);
     assert.equal(all.length, 4);
-    assert.deepEqual(all.map((c) => textOf(c).replace(/ (MOCK|REPLAY) · .*$/, '')), ['The Desk Top', 'The Living Room', 'The Apartment', OURS_TITLE]);
-    assert.ok(all[3].classList.contains('ours-card') && all[3].querySelector('canvas.thumb'));
-    assert.equal(all[3].disabled, false, 'a server that can replay it');
+    assert.deepEqual(all.map((c) => textOf(c).replace(/ (MOCK|REPLAY) · .*$/, '')), [OURS_TITLE, 'The Desk Top', 'The Living Room', 'The Apartment']);
+    assert.ok(all[0].classList.contains('ours-card') && all[0].querySelector('canvas.thumb'));
+    assert.equal(all[0].disabled, false, 'a server that can replay it');
     assert.ok(app.requests.some(([m, u]) => m === 'GET' && u === OURS.photo), 'its thumbnail is the photo, from this page’s own server');
     assert.deepEqual(posted(app), [], 'nothing is sent for a thumbnail');
   });
@@ -180,7 +181,7 @@ test('MOCK with no server: our kitchen’s card is off, in a few words, and the 
   assert.equal(c.disabled, true);
   assert.match(textOf(c), /Off here: no server answered/);
   assert.match(c.dataset.tip, /the server did not answer, so Meta’s recorded answer for our kitchen photo cannot be replayed/);
-  assert.equal(app.$('main').querySelector('.room-card:not([disabled])'), cards(app)[0], 'the first card a walker reaches is still The Desk Top');
+  assert.equal(app.$('main').querySelector('.room-card:not([disabled])'), cards(app)[1], 'with our kitchen off, the first card a walker reaches is The Desk Top');
 });
 
 test('never on the road twice: your own room holding it keeps it from Steps 2, 5 and 8; a sample room holding it keeps it from Step 12', async () => {

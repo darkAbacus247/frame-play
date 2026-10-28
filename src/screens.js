@@ -72,6 +72,9 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
     el('div', { class: 'bar-body' }, [
       el('h1', { text: 'Photograph your room. Play it.' }),
       el('p', { class: 'lede', text: 'One photo of a room or a desk top becomes a small game: its objects become walls, things to collect, a hazard and the exit.' }),
+      // the quickest look at Meta's models (his 10-28 pick): true in every mode,
+      // since our kitchen is read fresh in LIVE and Meta's recorded answer is replayed elsewhere
+      el('p', { class: 'ours-hint', text: OURS_HINT }),
       el('ul', { class: 'consent', 'aria-label': 'Before you start' }, [
         el('li', { text: PEOPLE }),
         el('li', { text: AGE }),
@@ -92,6 +95,8 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
   ]);
   return { section, bar };
 }
+
+export const OURS_HINT = 'Quickest look at what Meta’s models make of a real photo: Our kitchen, the first card on the next step.';
 
 // ---- picking a sample room (steps 2, 5 and 8) ----
 // ours: our kitchen read fresh in LIVE (it is not the player's photo)

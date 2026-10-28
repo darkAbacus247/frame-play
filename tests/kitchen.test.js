@@ -222,7 +222,9 @@ test('a return visit: the replayed room is replayed again in place, never by mov
   assert.equal(textOf(none.mainPrimary()), 'Continue to the end');
 });
 
-test('the naive walker, in MOCK with a server, plays the three sample rooms, then our kitchen, to the end: zero wrong turns', async () => {
+// Our kitchen is the first card on every pick step (his 10-28 pick: judges see Meta's work first), so a
+// newcomer's first click plays it first, then two sample rooms; Step 12 then goes on to the end.
+test('the naive walker, in MOCK with a server, plays our kitchen first, then two sample rooms, to the end: zero wrong turns', async () => {
   const app = await bootApp({ mode: 'mock', server: true, replay: replayReply });
   paintCanvases(app, KITCHEN_PIXELS);
   const seen = [];
@@ -237,15 +239,16 @@ test('the naive walker, in MOCK with a server, plays the three sample rooms, the
       await app.settle(app.step() === OWN_STEP ? 40 : 3);
     }
   } finally { delete globalThis.createImageBitmap; }
-  assert.deepEqual([...seen, app.step()], [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15]);
+  assert.deepEqual([...seen, app.step()], [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 15]);
   const rows = app.$('main').querySelectorAll('.closing-rooms li').map(textOf);
   assert.equal(rows.length, 4);
-  assert.match(rows[3], /^Your own room: our kitchen Won/);
+  assert.match(rows[0], /^First room: our kitchen Won .*Meta’s models read this photo on Oct 27, 2026; this copy replays their recorded answer; no model was called now\./);
+  assert.match(rows[3], /^Your own room Not made/);
   assert.deepEqual(posted(app), ['api/replay/kitchen']);
   // Free play lists the three sample rooms and our kitchen, tagged a replay
   app.mainPrimary().click();
   await app.settle();
   const cards = app.$('main').querySelectorAll('.room-card').map(textOf);
-  assert.deepEqual(cards.map((t) => t.replace(/ (MOCK|REPLAY) · .*$/, '')), ['The Desk Top', 'The Living Room', 'The Apartment', 'Your own room: our kitchen']);
+  assert.deepEqual(cards.map((t) => t.replace(/ (MOCK|REPLAY) · .*$/, '')), ['The Desk Top', 'The Living Room', 'The Apartment', 'Our kitchen (a real photo)']);
   assert.match(cards[3], /REPLAY · recorded answer/);
 });
