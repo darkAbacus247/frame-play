@@ -1,6 +1,8 @@
 """The repository's own words about itself (README.md, PROVENANCE.md and the
 page's comments) say only what the code keeps."""
+import importlib.util
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -95,6 +97,40 @@ class Claims(unittest.TestCase):
         readme = flat('README.md')
         self.assertNotIn("walk, read even-odd (a mug's handle stays open)", readme)
         self.assertIn("An object's outline keeps its holes; the floor's holes, where things stand, are filled as hidden floor", readme)
+
+
+def git_history():
+    """True when this copy carries its git history and git can read it."""
+    try:
+        return (ROOT / '.git').exists() and subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+class Provenance(unittest.TestCase):
+    def test_the_first_days_pace_is_explained(self):
+        # rules-2: the design came first, and Claude Code wrote the code
+        words = flat('PROVENANCE.md')
+        self.assertIn('the design was written from 16:11 to 16:18 UTC on 2026-10-26, before the first commit at 16:23:40 UTC', words)
+        self.assertIn('Claude Code (Anthropic) wrote the code from it under the author\'s direction', words)
+
+    def test_the_first_commit_table_is_in_the_repository(self):
+        # rules-6, claims-15: the table PROVENANCE.md promises is here
+        self.assertIn('FIRST_COMMITS.md lists every file\'s first-commit time', flat('PROVENANCE.md'))
+        self.assertNotIn('is generated at the freeze', flat('PROVENANCE.md'))
+        self.assertTrue(text('FIRST_COMMITS.md').startswith('# First commit of every file\n'))
+
+    @unittest.skipUnless(git_history(), 'no git history in this copy')
+    def test_the_table_is_what_git_says(self):
+        # the table, made again from git for the commit it names, is the same
+        # to the byte
+        spec = importlib.util.spec_from_file_location('first_commits', ROOT / 'tools' / 'first_commits.py')
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        table = text('FIRST_COMMITS.md')
+        commit = re.search(r'^Every file tracked at commit ([0-9a-f]{7}) ', table, re.M).group(1)
+        self.assertEqual(table, tool.table(commit))
+        self.assertEqual(tool.first_commits(commit)[0][1:], ('2026-10-26 16:23:40', '3158da3'), 'the first commit')
 
 
 class License(unittest.TestCase):

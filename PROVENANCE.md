@@ -11,6 +11,12 @@
   written.
 - Built with AI assistance: Claude Code (Anthropic) wrote the code under the
   author's direction.
+- The first day's pace: the design was written from 16:11 to 16:18 UTC on
+  2026-10-26, before the first commit at 16:23:40 UTC, and Claude Code
+  (Anthropic) wrote the code from it under the author's direction. So the
+  first playable build was committed at 16:54:29 UTC, and about 11,000
+  lines were added by 17:43:37 UTC (commits S0 to S14). The design is a separate
+  document, kept outside this repository.
 - Model outputs (from Meta's muse-spark-1.3 and sam-3.1, in live mode) are data
   read at run time. They are never code. Two recorded sets are kept as data,
   byte for byte as the models answered: the first live answers for the desk
@@ -20,8 +26,10 @@
   answers), which the server replays where no model may be called and every
   screen says so. They hold no personal data: one kitchen, no people.
 - rooms/kitchen.jpg is the author's own photo of a real kitchen (1024 x 399,
-  camera data removed), released with this repository under its license.
-- A table of every file's first-commit time is generated at the freeze.
+  camera data removed), released with this repository under the MIT license.
+- FIRST_COMMITS.md lists every file's first-commit time, made from the git
+  history by `python -B tools/first_commits.py`, and is made again at the
+  freeze.
 
 ## Disclosure
 
