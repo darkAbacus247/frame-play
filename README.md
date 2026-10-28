@@ -7,8 +7,22 @@ adventure stage. The outlines of the real objects in the picture become the
 walls you walk around, the things you collect, the hazard you avoid and the
 exit you reach.
 
-Status: work in progress. This repository was created on 2026-10-26 after
-16:00 UTC, during the event. The full README is written as the build lands.
+Built during the Meta Global AI Developer Hackathon (Indie track). This
+repository was created on 2026-10-26 after 16:00 UTC, during the event.
+Pre-existing: Meta's Muse Spark and SAM 3.1 models, and SAM's mask format
+(ported under its license; see NOTICE). Everything else was built this week.
+
+**Who it is for.** Any room you can photograph becomes a game: kids learning
+the names of things (the riddles), people in rehab or memory care playing in
+a room they know, and anyone, since every screen works by keyboard and
+screen reader.
+
+**Try it in a minute.** Open the demo (the link is in the submission), or run
+`python server/server.py` and open `http://127.0.0.1:8191/`. On Step 2, pick
+**Our kitchen (a real photo)**: with no key it replays Meta's recorded answer
+for that photo, and says so; on a live server it is read fresh. Play the
+round, then press **Ask the room** on its end card. The demo video is linked
+in the submission too.
 
 ## The road
 
