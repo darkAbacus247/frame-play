@@ -587,7 +587,7 @@ function renderDrawer() {
     // shown, never folded: the disclosure is always in view in Settings
     el('h3', { text: 'About FRAME//PLAY' }),
     el('p', { class: 'about', text: DISCLOSURE }),
-    el('p', { class: 'about', text: 'MIT license. No accounts, cookies, analytics or trackers.' }),
+    el('p', { class: 'about', text: 'MIT license, except two files under the SAM License. No accounts, cookies, analytics or trackers.' }),
     el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', text: 'Close settings', tip: 'Closes this drawer', onclick: toggleDrawer })]),
   );
   // Music, its volume, Effects and Reduce motion (the one motion switch: it saves the same setting the page reads)

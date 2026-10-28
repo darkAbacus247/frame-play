@@ -64,5 +64,23 @@ class WhatWasPreExisting(unittest.TestCase):
             self.assertTrue(after.startswith((' below', ' under License')), after)
 
 
+class License(unittest.TestCase):
+    # the two files the SAM License covers, each saying so in its header
+    SAM_FILES = ('server/sam_mask.py', 'server/tests/lossless_encoder.py')
+
+    def test_mit_is_never_said_without_the_two_sam_files(self):
+        # rules-7, claims-14: wherever the repository names its license, the
+        # two files under the SAM License are named with it
+        for rel in self.SAM_FILES:
+            self.assertIn('distributed under the SAM License (LICENSES/SAM_LICENSE.txt)', ' '.join(text(rel).split()), rel)
+        license = flat('README.md').split('## License', 1)[1].strip()
+        self.assertTrue(license.startswith('MIT, except two files under the SAM License (see NOTICE below).'), license[:80])
+        for rel in self.SAM_FILES:
+            self.assertIn(rel, license)
+        self.assertIn("'MIT license, except two files under the SAM License.", text('app.js'))
+        self.assertNotIn("'MIT license.", text('app.js'))
+        self.assertIn('"license": "MIT AND LicenseRef-SAM-License"', text('package.json'))
+
+
 if __name__ == '__main__':
     unittest.main()

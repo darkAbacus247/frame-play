@@ -523,9 +523,9 @@ through the Meta Model API; sample rooms are drawn by code and labeled MOCK.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The sample kitchen photo, `rooms/kitchen.jpg`,
-is the author's own photo, released with this repository under the same
-license.
+MIT, except two files under the SAM License (see NOTICE below). See
+[LICENSE](LICENSE). The sample kitchen photo, `rooms/kitchen.jpg`, is the
+author's own photo, released with this repository under the MIT license.
 
 **NOTICE.** `server/sam_mask.py` is derived from Meta's meta-sam-parser 0.1.0
 (its mask codec, including the canonical one_bit encoder the stand-in

@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "description": "Photograph your room. Play it.",
-  "license": "MIT",
+  "license": "MIT AND LicenseRef-SAM-License",
   "type": "module",
   "engines": {
     "node": ">=20.6"
