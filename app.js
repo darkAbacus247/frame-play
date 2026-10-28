@@ -33,7 +33,7 @@ const SAMPLES = [
   { id: 'living', file: 'rooms/living.json' },
   { id: 'apartment', file: 'rooms/apartment.json' },
 ];
-export const DISCLOSURE = 'FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October 26 to Nov. 4, 2026). An earlier prototype informed the design; no prototype code is included. Built with AI assistance: Claude Code (Anthropic) wrote the code under my direction. Live rooms are read by Meta’s muse-spark-1.3 and sam-3.1 through the Meta Model API; sample rooms are drawn by code and labeled MOCK.';
+export const DISCLOSURE = 'FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October 26 to Nov. 4, 2026). Pre-existing: Meta’s Muse Spark and SAM 3.1 models, SAM’s mask format (ported under its license), and the written notes of my pre-event prototype (Oct 21 to 25), read as a spec, with none of its code; built during the event, from the first commit: all the code, art, music and tests. Built with AI assistance: Claude Code (Anthropic) wrote the code under my direction. Live rooms are read by Meta’s muse-spark-1.3 and sam-3.1 through the Meta Model API; sample rooms are drawn by code and labeled MOCK.';
 
 const mq = (q) => (globalThis.matchMedia ? globalThis.matchMedia(q) : { matches: false, addEventListener() {} });
 const sysReduced = mq('(prefers-reduced-motion: reduce)');

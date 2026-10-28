@@ -45,6 +45,11 @@ class WhatWasPreExisting(unittest.TestCase):
             self.assertNotIn('An earlier prototype informed the design', words, rel)
         readme = flat('README.md')
         self.assertLess(readme.index(PRE_EXISTING), readme.index('**Who it is for.**'), 'said before anything else')
+        # the page's own Disclosure (Settings, About), in its typographic
+        # apostrophes
+        page = re.search(r"^export const DISCLOSURE = '(.*)';$", text('app.js'), re.M).group(1)
+        self.assertIn(PRE_EXISTING.replace("'", '’'), page)
+        self.assertNotIn('An earlier prototype informed the design', page)
 
     def test_every_notice_pointer_finds_the_notice(self):
         # rules-6: there is no NOTICE file; the notice is the paragraph under
