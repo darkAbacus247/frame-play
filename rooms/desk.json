@@ -159,5 +159,10 @@
         { "shape": { "ellipse": [300, 452, 10, 4.5] }, "paint": "#e8bd3e" }
       ]
     }
+  ],
+  "riddles": [
+    {"id": "d1", "text": "Touch the thing you would fill with hot tea.", "rule": "one", "answers": ["mug"], "why": "It is made for hot drinks, handle and all."},
+    {"id": "d2", "text": "Find the {n} things you could spend at a shop.", "rule": "all", "answers": ["coin1", "coin2", "coin3"], "why": "Money! They rolled loose across the desk."},
+    {"id": "d3", "text": "Touch whatever you could write your ideas in.", "rule": "one", "answers": ["notebook"], "why": "Its pages are waiting for a pen."}
   ]
 }

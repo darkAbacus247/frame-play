@@ -143,5 +143,10 @@
         { "shape": { "ellipse": [223, 596, 16, 6] }, "paint": "#f6cfdc" }
       ]
     }
+  ],
+  "riddles": [
+    {"id": "l1", "text": "Find the {n} things that only work as a pair.", "rule": "all", "answers": ["slipper1", "slipper2"], "why": "One for the left foot, one for the right."},
+    {"id": "l2", "text": "Touch whatever a dog would love to chase.", "rule": "one", "answers": ["ball"], "why": "Round, red and bouncy."},
+    {"id": "l3", "text": "Touch the thing that was woven from thread.", "rule": "one", "answers": ["rug"], "why": "Thread over thread, flat on the floor."}
   ]
 }

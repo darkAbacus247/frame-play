@@ -60,7 +60,10 @@ export function drawPlan(level, feet, opts = {}) {
   for (const k of nearer) ops.push({ op: 'repaint', k });
   if (nearer.length) ops.push({ op: 'xray', ks: nearer });
   if (opts.outlines !== false) ops.push({ op: 'outlines' });
-  ops.push({ op: 'badges' }, { op: 'marker' });
+  ops.push({ op: 'badges' });
+  // Ask the room: right and wrong picks over everything but the tap marker
+  if (opts.riddle) ops.push({ op: 'riddle' });
+  ops.push({ op: 'marker' });
   if (level.origin === 'mock') ops.push({ op: 'stamp' });
   return ops;
 }
@@ -265,7 +268,7 @@ export class Renderer {
     const bob = state.moving && !reduced ? Math.sin((state.tick || 0) * 0.45) * 0.0035 * L : 0;
     const above = level.view === 'top_down';
     const body = above ? explorerPathAbove(L, feet) : explorerPath(L, feet, bob);
-    const plan = drawPlan(level, feet, { outlines: ui.outlines !== false, walls: !!ui.walls, explorer: !ui.reveal });
+    const plan = drawPlan(level, feet, { outlines: ui.outlines !== false, walls: !!ui.walls, explorer: !ui.reveal, riddle: !!(ui.riddle && ui.riddle.marks.length) });
     for (const step of plan) {
       switch (step.op) {
         case 'picture':
@@ -320,6 +323,7 @@ export class Renderer {
         case 'badges': this.drawBadges(state, ui); break;
         case 'numbers': this.drawNumbers(ui); break;
         case 'route': this.drawRoute(); break;
+        case 'riddle': this.drawRiddle(ui.riddle, ui); break;
         case 'marker': this.drawMarker(ui); break;
         case 'stamp': this.drawStamp(); break;
         default: break;
@@ -579,6 +583,84 @@ export class Renderer {
       }
       ctx.restore();
     });
+  }
+
+  // Ask the room. A right pick: the thing's own picture pixels drawn again
+  // inside its outline (even-odd, so a mug handle's hole stays open),
+  // brighter, pulsing three times over 1.2 s (a steady highlight with
+  // reduced motion), then a gold edge and a check that stay. A wrong pick:
+  // a red dashed edge and a cross for 1.2 s. Shape and line style differ,
+  // so colour is never the only signal.
+  drawRiddle(rd, ui) {
+    const { ctx, level } = this;
+    for (const m of rd.marks) {
+      const path = this.paths[m.k];
+      if (!path) continue;
+      const age = rd.now - m.t;
+      const wide = this.px(ui.highContrast ? 6 : 4.5), thin = this.px(ui.highContrast ? 3.5 : 2.5);
+      if (m.kind === 'wrong') {
+        if (age > 1200) continue;
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([this.px(6), this.px(4)]);
+        ctx.strokeStyle = 'rgba(12,14,16,0.85)';
+        ctx.lineWidth = wide;
+        ctx.stroke(path);
+        ctx.strokeStyle = '#ff5d5d';
+        ctx.lineWidth = thin;
+        ctx.stroke(path);
+        ctx.restore();
+        this.drawPickBadge(m.k, false, ui);
+        continue;
+      }
+      if (age < (rd.reduced ? 1500 : 1200)) {
+        ctx.save();
+        ctx.clip(path, 'evenodd');
+        ctx.globalAlpha = rd.reduced ? 1 : 0.55 + 0.45 * Math.abs(Math.sin((age / 1200) * Math.PI * 3));
+        ctx.filter = 'brightness(1.35)';
+        ctx.drawImage(this.picture, 0, 0, level.picture.width, level.picture.height);
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(12,14,16,0.85)';
+      ctx.lineWidth = wide;
+      ctx.stroke(path);
+      ctx.strokeStyle = '#ffd34d';
+      ctx.lineWidth = thin;
+      ctx.stroke(path);
+      ctx.restore();
+      this.drawPickBadge(m.k, true, ui);
+    }
+  }
+
+  drawPickBadge(k, right, ui) {
+    const { ctx } = this;
+    const [x, y, r] = this.badgePos(k);
+    const u = r * 0.55;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = ui.highContrast ? '#000000' : 'rgba(14,16,18,0.88)';
+    ctx.fill();
+    ctx.lineWidth = this.px(2);
+    ctx.strokeStyle = right ? '#ffd34d' : '#ff5d5d';
+    ctx.stroke();
+    ctx.lineWidth = this.px(2.25);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (right) {
+      ctx.moveTo(x - u * 0.8, y);
+      ctx.lineTo(x - u * 0.2, y + u * 0.6);
+      ctx.lineTo(x + u * 0.85, y - u * 0.6);
+    } else {
+      ctx.moveTo(x - u * 0.6, y - u * 0.6); ctx.lineTo(x + u * 0.6, y + u * 0.6);
+      ctx.moveTo(x + u * 0.6, y - u * 0.6); ctx.lineTo(x - u * 0.6, y + u * 0.6);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   drawMarker(ui) {

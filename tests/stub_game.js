@@ -17,6 +17,12 @@ export function mountPlay(root, opts) {
     el('div', { class: 'side' }, opts.sideExtras || []),
   ]));
   played.last = opts;
-  played.view = { state: null, focused: 0, focusGame() { this.focused++; }, walkTo() {}, restart() {}, destroy() {} };
+  played.view = {
+    state: null, focused: 0, focusGame() { this.focused++; }, walkTo() {}, restart() { this.riddle = null; }, destroy() {},
+    // Ask the room: the riddle asked for, so a test can end it as the board would
+    riddle: null,
+    startRiddle(list, i = 0, handlers = {}) { this.riddle = { list, i, handlers }; return true; },
+    stopRiddle() { this.riddle = null; },
+  };
   return played.view;
 }

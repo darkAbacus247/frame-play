@@ -282,7 +282,7 @@ export const END_ROUND = 'End this round';
 export const END_CARD = { title: 'End this round?', line: 'It counts as played, not won.', end: 'End it', stay: 'Keep playing' };
 export function endRoundButton(onClick) {
   return el('button', {
-    type: 'button', class: 'btn', text: END_ROUND,
+    type: 'button', class: 'btn end-round', text: END_ROUND,
     tip: 'Ends this round as played, not won, so the road goes on', onclick: onClick,
   });
 }

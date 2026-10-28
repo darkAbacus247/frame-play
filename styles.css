@@ -218,6 +218,21 @@ button { font: inherit; color: inherit; }
 .play > .side { grid-area: side; }
 .play > .level-label { grid-area: label; contain: inline-size; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
+/* Ask the room: the riddle in the rule row, and its panel in the side column */
+.rule-row.riddle-row { font-style: italic; color: var(--gold); }
+/* one column that never grows past the side: the select's longest choice may not widen it */
+.riddle-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding: var(--s3); border: 1px solid var(--gold); border-radius: var(--radius); background: var(--panel); min-width: 0; }
+.riddle-status { margin: 0; font-weight: 600; max-width: none; }
+.answer-label { font-size: 0.9rem; color: var(--muted); }
+.answer-row { display: flex; gap: var(--s2); min-width: 0; }
+.answer-row .btn { flex: 0 0 auto; }
+/* the round is over in riddle mode: ending it means nothing there */
+.play.riddle-on .end-round { display: none; }
+.answer-row select {
+  flex: 1 1 0; width: 0; min-width: 0; min-height: var(--target);
+  padding: 0 var(--s2); border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--panel-2); color: inherit; font: inherit;
+}
 .chip {
   min-height: var(--target); padding: 0 var(--s3); border-radius: 999px;
   border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; text-align: left;

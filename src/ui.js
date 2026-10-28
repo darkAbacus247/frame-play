@@ -27,7 +27,7 @@ export function showCard(dialog, { title, lines = [], label, primary, secondary 
     bar.append(el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: primary.label, onclick: () => { closeCard(dialog); primary.onClick(); } }));
   }
   for (const s of secondary) {
-    bar.append(el('button', { type: 'button', class: 'btn', text: s.label, onclick: () => { closeCard(dialog); s.onClick(); } }));
+    bar.append(el('button', { type: 'button', class: 'btn', text: s.label, tip: s.tip, onclick: () => { closeCard(dialog); s.onClick(); } }));
   }
   body.append(bar);
   dialog.append(body);

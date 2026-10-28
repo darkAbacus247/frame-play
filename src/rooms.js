@@ -122,6 +122,9 @@ export function loadRoom(json) {
     foreground: (json.foreground || []).map((b) => ({ rings: shapeToRings(b.shape), paint: b.paint, grain: b.grain ?? 3 })),
     shades,
     objects,
+    // Ask the room: the author's riddles, checked against the built level
+    // (src/riddle.js riddlesFromRoom) before they are offered
+    riddles: Array.isArray(json.riddles) ? json.riddles.map((r) => ({ ...r })) : [],
   };
 }
 

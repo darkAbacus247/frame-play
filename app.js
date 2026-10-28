@@ -11,7 +11,8 @@ import * as S from './src/store.js';
 import { el, showCard, cardOpen, initTooltips, speak, hideTip, holdBar, reserveHeight, ceilH, floorW, spaceH } from './src/ui.js';
 import * as R from './src/road.js';
 import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tour.js';
-import { describeRoom, stepsAway } from './src/words.js';
+import { describeRoom, stepsAway, RIDDLE_WORDS } from './src/words.js';
+import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix } from './src/riddle.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
 import { mountFxSettings, effectsOn } from './src/settings_fx.js';
@@ -110,10 +111,13 @@ async function sample(id) {
   const res = await fetch(meta.file);
   const room = loadRoom(await res.json());
   const painted = paintRoom(room);
+  const built = buildLevel(inputFromRoom(room));
+  // Ask the room: the author's riddles, kept only where they fit the built level
+  if (built.level) built.level.riddles = riddlesFromRoom(room, built.level).kept;
   const entry = {
     room,
     picture: pictureFromRGBA(room.width, room.height, painted.rgba),
-    built: buildLevel(inputFromRoom(room)),
+    built,
     // how its picture looks, so a rehearsal knows the sample's own picture
     sig: signature({ width: room.width, height: room.height, data: painted.rgba }),
     // and where its objects sit, finely, so an edited copy is refused
@@ -919,6 +923,15 @@ function endOfRound(slot, r, level) {
     saveRoad();
     renderHeader();
   }
+  showEndCard(slot, r, level);
+  clearVeil();
+}
+
+// The end of a round's card: shown when the round ends, and again when a
+// riddle is stopped. Ask the room is its first secondary when the room has
+// riddles; a live room whose riddles are still being written says so.
+function showEndCard(slot, r, level) {
+  const free = A.road.step === R.FREE_PLAY;
   const again = {
     label: r.status === 'won' ? 'Play this room again' : 'Try again',
     onClick: () => { if (A.view) { A.view.restart(); A.view.focusGame(); } updateTour(); },
@@ -935,8 +948,53 @@ function endOfRound(slot, r, level) {
     : { label: R.primaryLabel(A.road), onClick: () => setRoad(R.continueAfterRound(A.road)) };
   // a replay's card says plainly that it leaves the road as it was
   const lines = free ? [r.status === 'won' ? r.words.body : null, FREE_WORDS] : [r.words.body];
-  showCard($('card'), { title: r.words.title, lines, label: level.label, primary, secondary: [again, pickOther] });
-  clearVeil();
+  const secondary = [again, pickOther];
+  if (level.riddles && level.riddles.length) {
+    secondary.unshift({ label: RIDDLE_WORDS.button, tip: RIDDLE_WORDS.tip, onClick: () => askTheRoom(slot, r, level, 0) });
+  } else if (riddlesPending(level)) {
+    lines.push(RIDDLE_WORDS.onItsWay);
+  }
+  A.endCard = { slot, r, level };
+  showCard($('card'), { title: r.words.title, lines, label: level.label, primary, secondary });
+}
+
+// Ask the room (src/riddle.js): riddle i on the play screen; its own card
+// when it ends. The card's primary is the road's own, so the road never
+// waits for a riddle; Stop the riddle (or Esc) brings the end card back.
+function askTheRoom(slot, r, level, i) {
+  if (!A.view || !A.view.startRiddle) return;
+  A.endCard = null;
+  A.view.startRiddle(level.riddles, i, {
+    onStop: () => showEndCard(slot, r, level),
+    onEnd: (res) => riddleCard(slot, r, level, res),
+  });
+}
+
+function riddleCard(slot, r, level, res) {
+  const free = A.road.step === R.FREE_PLAY;
+  const rd = res.riddle;
+  const answer = answerWords(level, rd);
+  const solved = res.outcome === 'solved';
+  const title = solved ? RIDDLE_WORDS.solved : res.outcome === 'missed' ? RIDDLE_WORDS.missed : 'Riddle skipped';
+  const lines = [
+    `“${fillCount(rd.text, rd.n)}”`,
+    solved ? RIDDLE_WORDS.answer(answer) : RIDDLE_WORDS.answerWas(answer),
+    rd.why ? `${reasonPrefix(rd.origin)}${rd.why}` : null,
+  ];
+  const primary = free
+    ? { label: 'Back to free play', onClick: () => { A.free = null; render(); } }
+    : { label: R.primaryLabel(A.road), onClick: () => setRoad(R.continueAfterRound(A.road)) };
+  const secondary = [];
+  if (res.i + 1 < res.total) secondary.push({ label: 'Next riddle', onClick: () => askTheRoom(slot, r, level, res.i + 1) });
+  secondary.push({ label: 'Play this room again', onClick: () => { if (A.view) { A.view.restart(); A.view.focusGame(); } updateTour(); } });
+  showCard($('card'), { title, lines, label: riddleLabel(rd), primary, secondary });
+}
+
+// A live room's riddles are written after its reply (one more Muse Spark
+// call while the round is played); until they arrive the end card says so.
+function riddlesPending(level) {
+  const id = level && level.provenance && level.provenance.request_id;
+  return !!(id && A.riddleWait && A.riddleWait.has(id));
 }
 
 async function screenThree(main, token) {

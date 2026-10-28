@@ -94,6 +94,32 @@ export function stepsAway(level, rt, x, y) {
   });
 }
 
+// Ask the room (src/riddle.js): every sentence a riddle says. "thing" is
+// riddle.js thingWords: "the mug", or "coin 2" when there are several.
+export const RIDDLE_WORDS = {
+  button: 'Ask the room',
+  tip: 'A riddle about this room. Answer by tapping a thing in it. The road does not wait for it.',
+  onItsWay: 'A riddle about this room is on its way.',
+  isReady: 'A riddle about this room is ready.',
+  ready: 'A riddle is ready: Ask the room.',
+  start: (i, total, text) => `Riddle ${i} of ${total}: ${text} Tap a thing, or choose it under Answer with.`,
+  right: (thing) => `Right: ${thing}.`,
+  found: (thing, c, n) => `Found ${thing}: ${c} of ${n}.`,
+  already: (thing) => `Already found: ${thing}.`,
+  again: (thing) => `${cap(thing)} was tried already.`,
+  taken: (thing) => `Taken as ${thing}.`,
+  wrong: (thing, left) => `Not ${thing}. ${left} ${left === 1 ? 'miss' : 'misses'} left.`,
+  nothing: 'Nothing found there. Tap a thing in the room.',
+  solved: 'Solved!',
+  missed: 'Two misses',
+  answerWas: (answer) => `The answer was ${answer}.`,
+  answer: (answer) => `Answer: ${answer}`,
+  status: (i, total, rs, misses) => (rs.riddle.rule === 'all'
+    ? `Riddle ${i} of ${total} · Find ${rs.riddle.n} · Found ${rs.found.length} · Misses left ${misses - rs.misses}`
+    : `Riddle ${i} of ${total} · Misses left ${misses - rs.misses}`),
+  gameLabel: 'Riddle mode: tap a thing in the room, or choose it under Answer with and press Pick it. Esc stops the riddle. Tab leaves.',
+};
+
 export function endCardWords(level, state, ratio) {
   if (state.status === 'won') {
     const route = ratio == null ? '' : ratio <= 1.05 ? 'You took the shortest route.' : `Your route: ${ratio.toFixed(1)} times the shortest.`;

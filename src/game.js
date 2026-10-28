@@ -5,8 +5,9 @@ import { createRound, stepRound, walkToObject, walkToPoint, nextGoal, routeRatio
 import { Renderer, fitSize, unlockPulse, ROLE_STYLE } from './render.js';
 import { bounds } from './geom.js';
 import { Fx } from './fx.js';
-import { ruleRow, announce, endCardWords } from './words.js';
+import { ruleRow, announce, endCardWords, RIDDLE_WORDS } from './words.js';
 import { objectWords } from './level.js';
+import { pickForRiddle, gradePick, newRiddleState, fillCount, riddleSlack, thingWords, answerChoices, riddleLabel, MISSES } from './riddle.js';
 import { el, boardRoom, capBoard, ceilH, ceilW, floorW, spaceH } from './ui.js';
 import { emit } from './events.js';
 
@@ -235,10 +236,153 @@ export function mountPlay(root, opts) {
     if (acc > 1) acc = 0;
     if (marker && t - marker.t > 900) marker = null;
     const ui = opts.ui ? opts.ui() : {};
-    renderer.draw(state, { ...ui, marker, pulse: unlockPulse(unlockAt, t, ui.reducedMotion) });
+    renderer.draw(state, { ...ui, marker, pulse: unlockPulse(unlockAt, t, ui.reducedMotion), riddle: riddleView(t) });
+  }
+
+  // ---- Ask the room: riddle mode, on the same screen after a round ----
+  // The round is over and stays over: the explorer stands where it ended, a
+  // tap picks a thing instead of walking, and the Walk to chips and the pad
+  // give way to "Answer with". Graded by code on the things' own outlines
+  // (src/riddle.js); the road is never touched from here.
+  let riddle = null;
+  const RIGHT_MS = 1200, WRONG_MS = 1200;
+  const gameWords = game.getAttribute('aria-label');
+
+  function riddleView(now) {
+    if (!riddle) return null;
+    return { marks: riddle.marks, now, reduced: !!(opts.ui && opts.ui().reducedMotion) };
+  }
+
+  function setStatus() {
+    if (riddle) riddle.status.textContent = RIDDLE_WORDS.status(riddle.i + 1, riddle.list.length, riddle.rs, MISSES);
+  }
+
+  function startRiddle(list, i, handlers = {}) {
+    if (!ended || !list || !list[i]) return false;
+    if (riddle) clearPanel();
+    const r = list[i];
+    const status = el('p', { class: 'riddle-status', id: 'riddle-status' });
+    const select = el('select', { id: 'answer-with' });
+    for (const c of answerChoices(level)) select.append(el('option', { value: c.id, text: c.text }));
+    const panel = el('div', { class: 'riddle-panel', role: 'group', 'aria-label': 'The riddle' }, [
+      status,
+      el('label', { for: 'answer-with', class: 'answer-label', text: 'Answer with' }),
+      el('div', { class: 'answer-row' }, [
+        select,
+        el('button', { type: 'button', class: 'btn', text: 'Pick it', onclick: () => pickId(select.value, false) }),
+      ]),
+      el('button', { type: 'button', class: 'btn', text: 'Skip this riddle', tip: 'Ends this riddle without an answer', onclick: () => finish('skipped') }),
+      el('button', { type: 'button', class: 'btn', text: 'Stop the riddle', tip: 'Back to the end of the round', onclick: () => stopRiddle(true) }),
+    ]);
+    riddle = { list, i, rs: newRiddleState(r), marks: [], text: fillCount(r.text, r.n), handlers, panel, status, select, timer: 0 };
+    chips.hidden = true;
+    pad.hidden = true;
+    wrap.classList.add('riddle-on');
+    side.prepend(panel);
+    rule.textContent = `“${riddle.text}”`;
+    rule.classList.add('riddle-row');
+    label.textContent = riddleLabel(r);
+    game.setAttribute('aria-label', RIDDLE_WORDS.gameLabel);
+    setStatus();
+    say(RIDDLE_WORDS.start(i + 1, list.length, riddle.text));
+    audio && audio.play('tick');
+    game.focus({ preventScroll: true });
+    return true;
+  }
+
+  function clearPanel() {
+    clearTimeout(riddle.timer);
+    riddle.panel.remove();
+  }
+
+  // Back to the round's own screen: chips, pad, rule row and label as they
+  // were. With `toCard`, the end card comes back too (Stop the riddle, Esc).
+  function stopRiddle(toCard = false) {
+    if (!riddle) return;
+    const { handlers } = riddle;
+    clearPanel();
+    riddle = null;
+    chips.hidden = false;
+    pad.hidden = false;
+    wrap.classList.remove('riddle-on');
+    rule.classList.remove('riddle-row');
+    refreshRule();
+    label.textContent = level.label;
+    game.setAttribute('aria-label', gameWords);
+    if (toCard && handlers.onStop) handlers.onStop();
+  }
+
+  function finish(outcome) {
+    if (!riddle || riddle.done) return;
+    riddle.done = outcome;
+    const r = riddle.list[riddle.i];
+    if (outcome === 'missed') {
+      // every answer shows itself once, behind the card
+      const t = performance.now();
+      for (const id of r.answers) {
+        const k = level.objects.findIndex((o) => o.id === id);
+        if (k >= 0) riddle.marks.push({ k, kind: 'right', t });
+      }
+    }
+    const { handlers, i, list, rs } = riddle;
+    const reduced = !!(opts.ui && opts.ui().reducedMotion);
+    riddle.timer = setTimeout(() => {
+      if (handlers.onEnd) handlers.onEnd({ outcome, i, total: list.length, riddle: r, found: [...rs.found] });
+    }, outcome === 'skipped' ? 0 : reduced ? 400 : 1000);
+  }
+
+  function pickId(id, near) {
+    if (!riddle || riddle.done) return;
+    const k = level.objects.findIndex((o) => o.id === id);
+    if (k < 0) return;
+    const thing = thingWords(level, k);
+    const res = gradePick(riddle.rs, id);
+    const t = performance.now();
+    let words = '';
+    switch (res.kind) {
+      case 'solved':
+        riddle.marks.push({ k, kind: 'right', t });
+        words = riddle.rs.riddle.rule === 'all' ? RIDDLE_WORDS.found(thing, riddle.rs.found.length, riddle.rs.riddle.n) : RIDDLE_WORDS.right(thing);
+        audio && audio.play('collect');
+        fx.burst('coin', ...middle(k));
+        break;
+      case 'found':
+        riddle.marks.push({ k, kind: 'right', t });
+        words = RIDDLE_WORDS.found(thing, res.count, riddle.rs.riddle.n);
+        audio && audio.play('collect');
+        fx.burst('coin', ...middle(k));
+        break;
+      case 'already': words = RIDDLE_WORDS.already(thing); break;
+      case 'again': words = RIDDLE_WORDS.again(thing); break;
+      case 'wrong':
+      case 'missed':
+        riddle.marks.push({ k, kind: 'wrong', t });
+        words = res.kind === 'wrong' ? RIDDLE_WORDS.wrong(thing, res.left) : `Not ${thing}.`;
+        audio && audio.play('refuse');
+        break;
+      default: return;
+    }
+    say(near ? `${RIDDLE_WORDS.taken(thing)} ${words}` : words);
+    setStatus();
+    if (riddle.rs.done) finish(riddle.rs.done);
+  }
+
+  function riddleTap(e) {
+    game.focus({ preventScroll: true });
+    if (riddle.done) return;
+    const [x, y] = renderer.toPicture(e.clientX, e.clientY);
+    const p = pickForRiddle(level, riddle.list[riddle.i], x, y, riddleSlack(level, renderer.px(1)));
+    if (!p) {
+      marker = { x, y, refused: true, t: performance.now() };
+      audio && audio.play('refuse');
+      say(RIDDLE_WORDS.nothing);
+      return;
+    }
+    pickId(level.objects[p.k].id, p.near);
   }
 
   game.addEventListener('pointerdown', (e) => {
+    if (riddle && e.button === 0) { riddleTap(e); return; }
     if (ended || e.button > 0) return;
     game.focus({ preventScroll: true });
     const [x, y] = renderer.toPicture(e.clientX, e.clientY);
@@ -255,6 +399,11 @@ export function mountPlay(root, opts) {
   });
   game.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (riddle) {
+      // the round is over: keys do not steer; Esc goes back to the end card
+      if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); stopRiddle(true); }
+      return;
+    }
     if (KEY_DIRS[e.key]) {
       e.preventDefault();
       held.add(e.key);
@@ -308,7 +457,15 @@ export function mountPlay(root, opts) {
     get fx() { return fx; },
     focusGame() { game.focus({ preventScroll: true }); },
     walkTo(k) { walkObject(k); },
+    // Ask the room: riddle i of the list, after the round has ended;
+    // handlers.onEnd({outcome, i, total, riddle, found}) when it is solved,
+    // missed or skipped; handlers.onStop() when the player stops it
+    startRiddle(list, i = 0, handlers = {}) { return startRiddle(list, i, handlers); },
+    stopRiddle() { stopRiddle(false); },
+    get riddleOn() { return !!riddle; },
+    get riddleState() { return riddle ? riddle.rs : null; },
     restart() {
+      stopRiddle(false);
       state = createRound(level, rt);
       ended = false; acc = 0; last = 0; marker = null; unlockAt = 0;
       fx.clear();
@@ -319,6 +476,7 @@ export function mountPlay(root, opts) {
     },
     destroy() {
       destroyed = true;
+      if (riddle) clearTimeout(riddle.timer);
       music('calm');
       cancelAnimationFrame(raf);
       ro.disconnect();
