@@ -84,7 +84,9 @@ test('the thank-you line counts the rooms played and won', () => {
 
 test('the fade is soft and none with Reduce motion; the sting honours Effects', () => {
   const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\.done \{[^}]*animation: done-in 1\.2s ease-out 1;/);
+  assert.match(css, /\.screen\.done \{[^}]*animation: done-in 1\.2s ease-out 1;/);
+  // scoped to the screen: a progress step marked done is never centred or faded in
+  assert.doesNotMatch(css, /^\.done \{/m);
   assert.match(css, /\.rm \*, \.rm \*::before, \.rm \*::after \{ animation: none !important/);
   const audio = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8');
   assert.match(audio, /listen\('closing', \(\) => this\.sting\(\)\)/);

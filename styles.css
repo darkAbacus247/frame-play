@@ -499,10 +499,11 @@ dialog.card .label { color: var(--muted); }
   100% { box-shadow: 0 0 0 14px rgba(54, 211, 192, 0); }
 }
 
-/* "I'm done": the thank-you fades in softly (none with reduced motion) */
-.done { justify-items: center; text-align: center; animation: done-in 1.2s ease-out 1; }
-.done p { margin-inline: auto; }
-.done .actions { justify-content: center; }
+/* "I'm done": the thank-you fades in softly (none with reduced motion); the screen's own
+   class only, never a progress step marked done (those once came out centred and faded in) */
+.screen.done { justify-items: center; text-align: center; animation: done-in 1.2s ease-out 1; }
+.screen.done p { margin-inline: auto; }
+.screen.done .actions { justify-content: center; }
 @keyframes done-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ---- high contrast and reduced motion ---- */

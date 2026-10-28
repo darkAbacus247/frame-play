@@ -341,6 +341,9 @@ def run_riddles(pipeline, photo, reply):
             call['excerpt'] = e.excerpt
         calls.append(call)
         status = 'refused' if e.code == 'content_filter' else 'error'
+        if pipeline.log is not None:
+            pipeline.log.write(event='riddles', request_id=reply.get('request_id'), status=status, error=e.code,
+                               ms=call['ms'], listed=len(objects))
         return line_for(pipeline, reply, status, calls=calls, usage=usage, error={'code': e.code, 'message': e.message})
     cost = spark_cost(tin, tout)
     pipeline.limits.settle(res, cost)
@@ -351,7 +354,8 @@ def run_riddles(pipeline, photo, reply):
     kept = clean_riddles(raw, objects, W, H, warnings)
     if pipeline.log is not None:
         # numbers only: the log never holds a riddle's words
-        pipeline.log.write(event='riddles', kept=len(kept), dropped=len(warnings), ms=ms)
+        pipeline.log.write(event='riddles', request_id=reply.get('request_id'), kept=len(kept), dropped=len(warnings), ms=ms,
+                           tokens_in=tin, tokens_out=tout, estimated_usd=round(cost, 5))
     return line_for(pipeline, reply, 'ok' if kept else 'none', riddles=kept, calls=calls, usage=usage, warnings=warnings,
                     error=None if kept else {'code': 'none_kept', 'message': 'No riddle about this photo passed the checks.'})
 

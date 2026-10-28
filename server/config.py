@@ -42,9 +42,11 @@ USD_STOP = 5.0
 # cluttered room needs room to finish its JSON.
 SPARK_MAX_COMPLETION_TOKENS = 4000
 # Ask the room (server/riddles.py): one more Muse Spark call a photo, after
-# its reply, in its own 30 s; FRAMEPLAY_RIDDLES=no turns it off.
+# its reply, in its own 30 s; FRAMEPLAY_RIDDLES=no turns it off. Its output
+# ceiling is the read's own: on the 10-28 live sweep the two busiest rooms
+# (13 and 14 things) wrote no riddle at 2,000.
 RIDDLE_SPARK_CALLS = 1
-RIDDLE_MAX_COMPLETION_TOKENS = 2000
+RIDDLE_MAX_COMPLETION_TOKENS = 4000
 RIDDLE_TIMEOUT_S = 30.0
 # After an account or model problem, no photo is sent for this long; then one
 # photo may check again.
@@ -59,11 +61,13 @@ PRICE_SAM_IMAGE = 2.50 / 1000
 # input bound for one image and the instruction, plus the output ceiling.
 SPARK_WORST_IN_TOKENS = 12_000
 # A photo's worst estimate, every call answered once: the room read at its
-# worst ($0.032) and every SAM call ($0.030), about six cents; a read takes
-# about four (Muse Spark near one cent, SAM up to three). At the $5 stop that
-# is at least 80 photos a day.
+# worst ($0.032), every SAM call ($0.030) and Ask the room's riddle call at
+# its worst ($0.032), about nine cents; a read takes about four to five
+# (Muse Spark near one cent, SAM up to three, the riddles under one). At the
+# $5 stop that is at least 50 photos a day.
 PHOTO_WORST_USD = (SPARK_WORST_IN_TOKENS * PRICE_SPARK_IN + SPARK_MAX_COMPLETION_TOKENS * PRICE_SPARK_OUT
-                   + SAM_CALLS_PER_PHOTO * PRICE_SAM_IMAGE)
+                   + SAM_CALLS_PER_PHOTO * PRICE_SAM_IMAGE
+                   + RIDDLE_SPARK_CALLS * (SPARK_WORST_IN_TOKENS * PRICE_SPARK_IN + RIDDLE_MAX_COMPLETION_TOKENS * PRICE_SPARK_OUT))
 
 REHEARSAL_CREDENTIAL = 'rehearsal-dummy-credential'
 

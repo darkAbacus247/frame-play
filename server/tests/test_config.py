@@ -71,12 +71,15 @@ class Ceilings(unittest.TestCase):
         # W1c: the floor and up to eleven kinds of things
         self.assertEqual((config.SPARK_CALLS_PER_PHOTO, config.SAM_CALLS_PER_PHOTO), (1, 12))
         from server.limits import SAM_COST, SPARK_WORST
-        self.assertAlmostEqual(config.PHOTO_WORST_USD, SPARK_WORST + 12 * SAM_COST)
-        self.assertAlmostEqual(config.PHOTO_WORST_USD, 0.062, places=3, msg='about six cents, as config.py and the README say')
-        self.assertGreaterEqual(int(config.USD_STOP / config.PHOTO_WORST_USD), 80, 'at least 80 photos a day under the $5 stop')
+        # Ask the room's riddle call is reserved at its own worst, the read's output room
+        riddle_worst = config.SPARK_WORST_IN_TOKENS * config.PRICE_SPARK_IN + config.RIDDLE_MAX_COMPLETION_TOKENS * config.PRICE_SPARK_OUT
+        self.assertAlmostEqual(config.PHOTO_WORST_USD, SPARK_WORST + 12 * SAM_COST + riddle_worst)
+        self.assertAlmostEqual(config.PHOTO_WORST_USD, 0.094, places=3, msg='about nine cents, as config.py and the README say')
+        self.assertGreaterEqual(int(config.USD_STOP / config.PHOTO_WORST_USD), 50, 'at least 50 photos a day under the $5 stop')
         readme = (Path(__file__).resolve().parents[2] / 'README.md').read_text(encoding='utf-8')
-        self.assertIn('at most 13 calls in all', ' '.join(readme.split()))
-        self.assertIn('about six cents', ' '.join(readme.split()))
+        self.assertIn('at most 14 calls in all', ' '.join(readme.split()))
+        self.assertIn('about nine cents at worst', ' '.join(readme.split()))
+        self.assertIn('at least 50 photos a day', ' '.join(readme.split()))
 
     def test_room_for_several_judges_with_the_day_and_dollar_guards_kept(self):
         self.assertEqual((config.IN_FLIGHT, config.PER_HOUR), (4, 120))

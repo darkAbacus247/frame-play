@@ -254,7 +254,8 @@ class InTheStream(unittest.TestCase):
 
         def reserve_once_more(usd):
             seen.append(usd)
-            if usd == riddles.RIDDLE_WORST:
+            # the read's reservation comes first; the riddle call's is the next Spark-sized one
+            if usd == riddles.RIDDLE_WORST and seen.count(usd) == 2:
                 from server.limits import Refusal
                 raise Refusal('spend_stop', 'This server reached its spending stop.')
             return reserve(usd)
