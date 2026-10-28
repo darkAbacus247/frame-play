@@ -66,12 +66,22 @@ class MockRoutes(unittest.TestCase):
     def test_headers(self):
         status, h, _ = self.run_.request('GET', '/')
         self.assertEqual(h['Content-Security-Policy'], CSP)
-        self.assertIn("frame-ancestors 'none'", h['Content-Security-Policy'])
         self.assertEqual(h['X-Content-Type-Options'], 'nosniff')
         self.assertEqual(h['Referrer-Policy'], 'no-referrer')
         self.assertTrue(h['Content-Type'].startswith('text/html'))
         _, h, _ = self.run_.request('GET', '/src/level.js')
         self.assertTrue(h['Content-Type'].startswith('text/javascript'))
+
+    def test_only_a_hugging_face_space_page_may_frame_the_game(self):
+        # the Space page on huggingface.co shows the app's *.hf.space address in a frame
+        for method, path in (('GET', '/'), ('GET', '/app.js'), ('GET', '/rooms/kitchen.jpg'),
+                             ('GET', '/api/health'), ('GET', '/nothing'), ('HEAD', '/')):
+            _, h, _ = self.run_.request(method, path)
+            directives = [d.strip() for d in h['Content-Security-Policy'].split(';')]
+            framing = [d for d in directives if d.startswith('frame-ancestors')]
+            self.assertEqual(framing, ['frame-ancestors https://huggingface.co https://*.hf.space'], path)
+            # X-Frame-Options cannot name a site: sent at all, it would refuse the Space page
+            self.assertNotIn('X-Frame-Options', h, path)
 
     def test_health_in_mock_mode(self):
         status, h, body = self.run_.request('GET', '/api/health')

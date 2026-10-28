@@ -35,8 +35,13 @@ from server.meta_api import LIVE_UNAVAILABLE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Framing: only a Hugging Face Space page may show the game in its frame (the
+# Space page on huggingface.co frames the app's own *.hf.space address); every
+# other site is refused. X-Frame-Options cannot name sites, so it is not sent.
+FRAME_ANCESTORS = 'https://huggingface.co https://*.hf.space'
 CSP = ("default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; "
-       "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+       "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; "
+       f"frame-ancestors {FRAME_ANCESTORS}")
 
 TYPES = {
     '.html': 'text/html; charset=utf-8',
@@ -130,7 +135,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Security-Policy', CSP)
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
 
     def send_bytes(self, status, body, ctype, extra=None, head=False):
