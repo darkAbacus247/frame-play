@@ -16,7 +16,8 @@ const KEY = { code: 'invalid_api_key', message: "The Model API did not accept th
 
 test('Step 12 says what will happen to a photo, in each mode, before one is chosen', async () => {
   const want = {
-    live: /^LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API \(Muse Spark, then SAM 3\.1\)\./,
+    // Muse Spark and SAM 3.1 in no stated order: Ask the room's riddle call comes after SAM's
+    live: /^LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API \(Muse Spark and SAM 3\.1\)\./,
     mock: /^MOCK: no model reads photos in this copy\. Your photo stays on this device, and you mark its objects yourself; code traces their outlines\. Nothing is sent\.$/,
     rehearsal: /^REHEARSAL: a local stand-in answers, not Meta\./,
   };

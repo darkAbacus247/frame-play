@@ -52,8 +52,10 @@ area, every outline a decoded mask, walls and doorways.
 - **LIVE** (a key and the live switch on the server): the photo is shrunk
   and stripped of its camera data on the device, then goes through this
   app's server to Meta's Model API for one read: one Muse Spark call, then
-  one SAM 3.1 call for the surface and one for each kind of object on it,
-  at most 13 calls in all, each carrying the photo (a failed call may be
+  one SAM 3.1 call for the surface and one for each kind of object on it;
+  then, while you play, one more Muse Spark call writes up to 3 riddles
+  about it (Ask the room, below); at most 14 calls in all, each carrying
+  the photo (a failed call may be
   sent one more time, a busy answer twice; the room read is never sent
   again after a timeout). This app does not store the photo. The room is
   built from what the models found in it: Muse Spark names the things and
@@ -137,7 +139,7 @@ no people), and it is released with this repository under its license.
 
 - **LIVE**: it goes through Meta's models fresh, exactly like a photo you
   choose: shrunk and stripped on the device, one read (one Muse Spark call,
-  then SAM 3.1), kept on the device like any photo's level, so pressing it
+  then SAM 3.1, then one more Muse Spark call for its riddles), kept on the device like any photo's level, so pressing it
   again loads that level and sends nothing. Its words say it is our kitchen
   photo, read now, not yours.
 - **MOCK and REHEARSAL** (no model may be called; also LIVE while the live
@@ -313,6 +315,46 @@ down, so it never overshoots by a fraction of a pixel. The small tour offer
 that appears by itself after 45 seconds without progress stays only where
 it fits without making the screen scroll.
 
+### Ask the room
+
+After any round, won or lost, the end card offers **Ask the room**: a
+riddle about the room, answered by touching a thing in it. The road never
+waits for it: the card's primary still goes on, and so does the counter's →.
+
+- **Who writes it.** In LIVE, Muse Spark, in one more call made after the
+  room's reply has gone to the page, so the reveal never waits: it sees the
+  photo and the list of what SAM 3.1 found, under the reply's own ids, and
+  answers with up to three riddles, each with its answers by id and one
+  point on each answer. The sample rooms' riddles are written into the room
+  files and labelled "Riddle written into this sample room · MOCK · no model
+  was asked"; in REHEARSAL the stand-in answers with them. Our kitchen's
+  replay has none: its recorded answers hold no riddle call.
+- **Who decides what is right.** Muse Spark says which things answer a
+  riddle; SAM 3.1 says where they are and how many there are (the number in
+  "find the four ..." is filled in by code from SAM's records, never written
+  by the model); code decides whether the player touched them, on each
+  thing's own outline: SAM 3.1's mask in LIVE, the painted shape in the
+  samples. No model judges an answer.
+- **What is kept.** Code keeps a riddle only if it passes every check
+  (`server/riddles.py`): 12 to 90 characters and no digits, the count only
+  as `{n}`, no word of an answer's name, nothing about people or bodies,
+  answers on the list and fewer than all of it, a rule that fits its
+  answers, each answer's point within 1.5% of the picture's long side of
+  the box SAM found for it, and no two riddles with the same answer. Each
+  riddle dropped is listed in words.
+- **Answering.** Tap or click a thing (a near miss within 1.2% of the long
+  side, or 16 CSS pixels, counts and is said aloud), or choose it under
+  **Answer with** (every thing with its place, in alphabetical order) and
+  press **Pick it**. A right pick lights the thing's own pixels inside its
+  outline and leaves a check; a wrong pick is outlined in red dashes with a
+  cross; two misses end the riddle. Esc or **Stop the riddle** goes back to
+  the end card.
+- **Cost and switch.** One more Muse Spark call a photo, about 0.8 cent;
+  `FRAMEPLAY_RIDDLES=no` on the server turns it off. Checked live on our
+  kitchen photo on 2026-10-28: three riddles 6.4 s after the reveal (the
+  refrigerator, the stove, and the four cabinets, their count from SAM),
+  every answer graded on SAM 3.1's own masks.
+
 ## Sound and motion
 
 Every sound and the music are made in code with the Web Audio API; there
@@ -444,6 +486,9 @@ picture through them.
   a thing much like its background, keeps your box as you drew it, and the
   reveal counts it as kept as a box.
 - One photo, one room; a 2.5D approximation with one baseline per object.
+- Ask the room: a riddle's answer is Muse Spark's judgement of the photo;
+  where its answers are and how many come from SAM 3.1, so a thing SAM did
+  not find is never an answer. English only, at most three riddles a room.
 
 ## Disclosure
 
