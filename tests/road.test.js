@@ -226,6 +226,17 @@ test('choosing a different room clears that room’s finished round', () => {
   assert.equal(other.best[0], null);
 });
 
+test('claims-12: a sample room drawn by code is never headed as what the AI found', () => {
+  const ours = { kind: 'replay', id: 'kitchen' };
+  const road = { ...newRoad(), rooms: [ours, living, apartment, mine] };
+  assert.deepEqual([3, 6, 9, 13].map((step) => counterText({ ...road, step })), [
+    'Step 3 of 15: What the AI found', 'Step 6 of 15: What is in this room', 'Step 9 of 15: What is in this room',
+    'Step 13 of 15: What the AI found',
+  ]);
+  assert.equal(counterText({ ...road, rooms: [desk, living, apartment, null], step: 3 }), 'Step 3 of 15: What is in this room');
+  assert.equal(counterText({ ...road, step: 4 }), 'Step 4 of 15: Play', 'only the reveal steps are named for their room');
+});
+
 test('counter, lap line and primary labels: Step N of 15', () => {
   const r = newRoad();
   assert.equal(primaryLabel(r), 'I am 18 or over and I understand. Continue');

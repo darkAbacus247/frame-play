@@ -186,7 +186,11 @@ test('a room not in memory names its own step, and only what this mode can do', 
   // the opening line counts the rooms on the road, not those in memory
   const photos = { ...endRoad(true), rooms: [mine, { kind: 'photo', sha256: 'cd'.repeat(32) }, apartment, { kind: 'photo', sha256: 'ef'.repeat(32) }] };
   const rows = closingRooms({ road: photos, mode: 'live', levels: [null, null, null, null] });
-  assert.match(texts(closingView({ rooms: rows, mode: 'live', primaryLabel: 'Free play', actions: {} })), /You won (all four rooms|\w+ of your four rooms)\.( \|)? +Here is what the AI did in each\./);
+  // claims-12: the third room is a sample drawn by code, so even in LIVE the
+  // line never says what the AI did in each
+  const liveText = texts(closingView({ rooms: rows, mode: 'live', primaryLabel: 'Free play', actions: {} }));
+  assert.match(liveText, /You won (all four rooms|\w+ of your four rooms)\.( \|)? +Here is how each was made\./);
+  assert.doesNotMatch(liveText, /what the AI did/);
   const mock = closingRooms({ road: endRoad(false), mode: 'mock', levels: [...SAMPLES, null] });
   const mockText = texts(closingView({ rooms: mock, mode: 'mock', primaryLabel: 'Free play', actions: {} }));
   assert.match(mockText, /You won (all three rooms|\w+ of your three rooms)\.( \|)? +Here is how each was made\./, 'MOCK: no AI did anything');

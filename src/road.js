@@ -286,11 +286,17 @@ export function counterText(road) {
   return `Step ${road.step} of ${LAST_STEP}: ${stepName(road, road.step)}`;
 }
 
-// A step's name on this road: a room marked by hand shows its marks where
-// a read room shows what the AI found.
+// A sample room drawn by code is never headed as what the AI found.
+export const SAMPLE_FOUND = 'What is in this room';
+
+// A step's name on this road: a room marked by hand shows its marks, and a
+// sample room what is in it, where a read room shows what the AI found.
 export function stepName(road, step) {
   const r = road.rooms && road.rooms[OWN_SLOT];
   if (step === OWN_STEP + 1 && r && r.kind === 'marked') return 'Your marks';
+  const slot = slotOf(step);
+  const room = road.rooms && slot >= 0 ? road.rooms[slot] : null;
+  if (stepKind(step) === 'found' && room && room.kind === 'sample') return SAMPLE_FOUND;
   return STEP_NAMES[step];
 }
 

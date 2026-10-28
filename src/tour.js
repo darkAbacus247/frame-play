@@ -8,7 +8,7 @@ export const OFFER_AFTER_MS = 45000;
 const LINES = {
   1: { target: 'primary', line: 'Read the words, then press the Continue button to agree.' },
   2: { target: 'room-card', line: 'Pick a room to play: press one of the room cards.' },
-  3: { target: 'primary', line: 'These outlines are what the AI found. Press Play this room.' },
+  3: { target: 'primary', line: 'These outlines show what is in this room. Press Play this room.' },
   4: { target: 'chip', line: 'Press a Walk to button or tap the picture. Collect every star, then reach the exit.' },
   5: { target: 'primary', line: 'The next room is chosen for you. Go on with it, or pick another room.' },
   6: { target: 'primary', line: 'A new room makes new walls. Press Play this room.' },

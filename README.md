@@ -28,13 +28,13 @@ in the submission too.
 
 One road of 15 steps with one step counter: Welcome, then the three sample
 rooms in a row, The Desk Top, The Living Room and The Apartment (each:
-pick, see what the AI found, play), the three side by side (Your three
+pick, see what is in it, play), the three side by side (Your three
 rooms), then **your own room**: a photo from your device, or from the
 camera where the browser offers one. What happens to that photo depends on
 the server's mode, and Step 12 says so before you choose one.
 
 The rooms follow one another: when a round ends, win or lose, the end
-card's primary goes straight on to the next room's What the AI found. The
+card's primary goes straight on to the next room's reveal. The
 pick steps stay on the road with the next room already chosen there, so
 ← (or the browser's Back, or Choose a different room) still reaches them,
 and any room can be picked there instead. Every pick step offers four

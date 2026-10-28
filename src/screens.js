@@ -6,7 +6,7 @@
 // up front, short labelled facts, and the long text in a disclosure that
 // starts closed with its summary in view.
 import { el } from './ui.js';
-import { OWN_STEP, OWN_SLOT, PICK_STEPS } from './road.js';
+import { OWN_STEP, OWN_SLOT, PICK_STEPS, SAMPLE_FOUND } from './road.js';
 import { objectWords } from './level.js';
 import { ROLE_WORDS } from './words.js';
 import { MOCK_WORDS, REPLAY_WORDS } from './own.js';
@@ -137,7 +137,7 @@ export function chosenLine({ title, onContinue }) {
     el('p', { class: 'chosen-line', text: `On your road: ${title}. Pick another below, or go on with it.` }),
     el('button', {
       type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary',
-      tip: `Go on with ${title} to what the AI found`, text: `Continue with ${title}`, onclick: onContinue,
+      tip: `Go on with ${title} to what is in it`, text: `Continue with ${title}`, onclick: onContinue,
     }),
   ]);
 }
@@ -365,7 +365,7 @@ export function foundView({ level, summary, fromDevice, actions, slot = 0 }) {
     el('p', { class: 'level-label', text: level.label }),
   ]);
   const section = el('section', { class: 'screen found' }, [
-    el('h1', { text: marked ? 'Your room, from your marks' : 'What the AI found' }),
+    el('h1', { text: marked ? 'Your room, from your marks' : level.origin === 'mock' ? SAMPLE_FOUND : 'What the AI found' }),
     el('div', { class: 'found-grid' }, [
       pic,
       info,
@@ -730,7 +730,8 @@ export function closingView({ rooms, mode, primaryLabel, actions, canReplay = fa
     // in memory), then what is below, in one line so four rooms still fit
     el('p', { class: 'lede' }, [
       el('strong', { class: 'won-line', text: wonLine(rooms) }),
-      ` Here is ${sends ? 'what the AI did in each' : 'how each was made'}.`,
+      // a sample room on the road was drawn by code, so never "what the AI did"
+      ' Here is how each was made.',
     ]),
     el('ul', { class: 'closing-rooms', 'aria-label': 'The rooms you played' }, rooms.map((r) => el('li', {}, [
       el('div', { class: 'closing-text' }, [

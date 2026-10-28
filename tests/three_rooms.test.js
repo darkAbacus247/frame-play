@@ -40,7 +40,9 @@ test('the end card goes straight on: The Desk Top, The Living Room, The Apartmen
     app.cardPrimary().click();
     await app.settle();
     seen.push(app.step());
-    if (app.h1() === 'What the AI found') {
+    // claims-12: a sample room drawn by code is never headed as what the AI found
+    if (app.h1() === 'What is in this room') {
+      assert.equal(app.counter(), `Step ${app.step()} of 15: What is in this room`);
       titles.push(app.savedRoad().rooms[app.step() === 6 ? 1 : 2].id);
       assert.deepEqual(primaries(app), ['Play this room']);
       app.mainPrimary().click();
