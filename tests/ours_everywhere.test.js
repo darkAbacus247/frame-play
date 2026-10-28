@@ -79,7 +79,7 @@ async function at(road, opts) {
 }
 
 for (const [step, slot] of [[2, 0], [5, 1], [8, 2]]) {
-  // his 10-28 pick: our kitchen first, so judges see Meta's work before the code-drawn samples
+  // the author's choice on 10-28: our kitchen first, so judges see Meta's work before the code-drawn samples
   test(`Step ${step}: four cards, our kitchen with its thumbnail first, then the three sample rooms`, async () => {
     const rooms = [null, null, null, null];
     for (let k = 0; k < slot; k++) rooms[k] = SAMPLE_ROOMS[k];

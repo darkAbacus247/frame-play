@@ -60,7 +60,7 @@ class Ceilings(unittest.TestCase):
         lim = Limits(clock=clock)
         self.assertEqual((config.CLIENT_PER_HOUR, config.CLIENT_PER_DAY), (3, 10))
         for _ in range(3):
-            lim.admit('a')
+            lim.uploaded(lim.admit('a'))  # its body read, as the server does
             lim.finish()
         with self.assertRaises(Refusal) as c:
             lim.admit('a')
@@ -72,10 +72,10 @@ class Ceilings(unittest.TestCase):
         for _ in range(2):
             clock.t += 3601
             for _ in range(3):
-                lim.admit('a')
+                lim.uploaded(lim.admit('a'))
                 lim.finish()
         clock.t += 3601
-        lim.admit('a')
+        lim.uploaded(lim.admit('a'))
         lim.finish()
         with self.assertRaises(Refusal) as c:
             lim.admit('a')
@@ -98,6 +98,25 @@ class Ceilings(unittest.TestCase):
             off.admit('a')
             off.finish()
         self.assertEqual(Limits(client_hour=50, client_day=50).client_hour, 3, 'a setting never raises a ceiling')
+
+    def test_a_client_uploads_one_photo_at_a_time(self):
+        lim = Limits()
+        adm = lim.admit('a')
+        with self.assertRaises(Refusal) as c:
+            lim.admit('a')  # its first photo's body is still coming in
+        self.assertEqual((c.exception.code, c.exception.retry_after), ('busy', 5))
+        self.assertIn('from you', c.exception.message)
+        self.assertEqual(lim.counters()['photos_in_flight'], 1, 'the refused one took no place')
+        other = lim.admit('b')  # another client is not held by it
+        lim.uploaded(adm)
+        lim.uploaded(adm)  # twice is harmless
+        lim.uploaded(lim.admit('a'))  # once read, the client may upload another
+        lim.cancel(other)  # a photo given up frees its client too
+        lim.uploaded(lim.admit('b'))
+        # not counted (MOCK, REHEARSAL): no client is held
+        off = Limits(clients=False)
+        off.admit('a')
+        off.admit('a')
 
     def test_settings_never_raise_a_ceiling(self):
         lim = Limits(day_cap=10_000, usd_stop=999)

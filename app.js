@@ -707,7 +707,7 @@ async function screenRoom(main, slot, token) {
   if (check) view.actions.append(check);
   main.replaceChildren(view.section);
   // our kitchen, a real photo, first among the cards: the quickest look at
-  // what Meta's models make of a real photo (his 10-28 pick, after a judge-style
+  // what Meta's models make of a real photo (the author's choice on 10-28, after a judge-style
   // review: judges should see Meta's work before the code-drawn samples)
   const ours = oursHere(slot);
   view.cards.append(oursCardView({ ours, draw: ours.draw, held: ours.held, chosen: isOurs(here), onPick: () => pickOurs(slot, view.panel) }));

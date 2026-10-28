@@ -1,6 +1,7 @@
 """The repository's own words about itself (README.md, PROVENANCE.md and the
 page's comments) say only what the code keeps."""
 import importlib.util
+import os
 import re
 import subprocess
 import unittest
@@ -66,6 +67,19 @@ class WhatWasPreExisting(unittest.TestCase):
             self.assertTrue(after.startswith((' below', ' under License')), after)
 
 
+class Voice(unittest.TestCase):
+    def test_no_aside_names_the_author_as_his(self):
+        # the repository is read by judges: a choice is the author's, said
+        # in a neutral voice (this file, which holds the pattern, aside)
+        files = ['README.md', 'PROVENANCE.md', 'app.js', 'index.html']
+        for folder, pattern in (('src', '*.js'), ('tests', '*.js'), ('server', '*.py'), ('server/tests', '*.py')):
+            files += sorted(str(p.relative_to(ROOT)) for p in (ROOT / folder).glob(pattern))
+        for rel in files:
+            if Path(rel).name == Path(__file__).name:
+                continue
+            self.assertIsNone(re.search(r'\bhis \d\d-\d\d\b|\(his ', text(rel)), rel)
+
+
 class Claims(unittest.TestCase):
     def test_the_people_refusal_is_said_for_reads_only(self):
         # claims-5: Muse Spark's flag stops a LIVE read; in MOCK nothing
@@ -113,6 +127,23 @@ class Provenance(unittest.TestCase):
         words = flat('PROVENANCE.md')
         self.assertIn('the design was written from 16:11 to 16:18 UTC on 2026-10-26, before the first commit at 16:23:40 UTC', words)
         self.assertIn('Claude Code (Anthropic) wrote the code from it under the author\'s direction', words)
+
+    def test_the_kitchen_photo_is_said_as_far_as_it_is_known(self):
+        # claims-4: the photo was added during the event; when it was taken
+        # is not recorded, so "every file was written during the event" is
+        # not said of it
+        words = flat('PROVENANCE.md')
+        self.assertNotIn('Every file in it was written during the event.', words)
+        self.assertIn('Every file in it was written during the event, except rooms/kitchen.jpg', words)
+        self.assertIn("rooms/kitchen.jpg is the author's own photo of a real kitchen (1024 x 399, camera data removed), "
+                      'added on Oct 27, 2026, during the event, with no recorded capture date', words)
+
+    @unittest.skipUnless(git_history(), 'no git history in this copy')
+    def test_the_kitchen_photo_was_added_on_oct_27(self):
+        out = subprocess.run(['git', 'log', '--diff-filter=A', '--format=%ad', '--date=format-local:%Y-%m-%d',
+                              '--', 'rooms/kitchen.jpg'], cwd=ROOT, capture_output=True, text=True,
+                             env={**os.environ, 'TZ': 'UTC'})
+        self.assertEqual(out.stdout.split(), ['2026-10-27'])
 
     def test_the_first_commit_table_is_in_the_repository(self):
         # rules-6, claims-15: the table PROVENANCE.md promises is here

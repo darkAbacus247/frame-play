@@ -2,7 +2,8 @@
 
 - This repository was created on 2026-10-26 after 16:00 UTC, the start of the
   Meta Global AI Developer Hackathon. Every file in it was written during the
-  event. The git history carries the true time of every commit.
+  event, except rooms/kitchen.jpg, a photo (below). The git history carries
+  the true time of every commit.
 - Pre-existing: Meta's Muse Spark and SAM 3.1 models, SAM's mask format
   (ported under its license), and the written notes of my pre-event
   prototype (Oct 21 to 25), read as a spec, with none of its code; built
@@ -26,7 +27,9 @@
   answers), which the server replays where no model may be called and every
   screen says so. They hold no personal data: one kitchen, no people.
 - rooms/kitchen.jpg is the author's own photo of a real kitchen (1024 x 399,
-  camera data removed), released with this repository under the MIT license.
+  camera data removed), added on Oct 27, 2026, during the event, with no
+  recorded capture date. It is released with this repository under the MIT
+  license.
 - FIRST_COMMITS.md lists every file's first-commit time, made from the git
   history by `python -B tools/first_commits.py`, and is made again at the
   freeze.

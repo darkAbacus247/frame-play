@@ -145,14 +145,15 @@ class Handler(BaseHTTPRequestHandler):
     @property
     def client(self):
         """Who sent this request, for the per-client ceilings: the socket's
-        address, or under --public the first X-Forwarded-For hop (the
-        visitor's address as the Space's proxy gives it; trusted only
-        there). Only a digest salted for this run is kept, never the
-        address, and it is never logged."""
+        address, or under --public the last X-Forwarded-For hop (the
+        address the Space's own proxy saw and appended; any hop before it
+        is whatever the sender wrote, so it is never used). Only a digest
+        salted for this run is kept, never the address, and it is never
+        logged."""
         addr = str(self.client_address[0]) if self.client_address else ''
         if self.server.public:
-            hop = (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-            addr = hop or addr
+            hops = ','.join(self.headers.get_all('X-Forwarded-For') or [])
+            addr = hops.split(',')[-1].strip() or addr
         return hashlib.sha256(self.server.salt + addr.encode('utf-8', 'replace')).hexdigest()[:32]
 
     def common_headers(self):
@@ -349,6 +350,8 @@ class Handler(BaseHTTPRequestHandler):
         handed = False
         try:
             data = self.read_body(length)
+            if adm is not None:
+                pipeline.limits.uploaded(adm)  # this client may upload another
             if data is None:
                 self.close_connection = True
                 return self.send_json(400, error_body('short', 'The photo arrived incomplete. Please try the same photo again.'))
@@ -479,7 +482,7 @@ class FramePlayServer(ThreadingHTTPServer):
     def __init__(self, addr, settings, log=None, pipeline=None, limits=None, public=False):
         super().__init__(addr, Handler)
         self.settings = settings
-        self.public = public  # behind the Space's proxy: its X-Forwarded-For names the client
+        self.public = public  # behind the Space's proxy: the last X-Forwarded-For hop names the client
         self.salt = os.urandom(16)
         self.log = log or Log(holder=settings.key)
         self.pipeline = pipeline

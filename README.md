@@ -76,7 +76,11 @@ area, every outline a decoded mask, walls and doorways.
   about it (Ask the room, below); at most 14 calls in all, each carrying
   the photo (a failed call may be
   sent one more time, a busy answer twice; the room read is never sent
-  again after a timeout). This app does not store the photo. The room is
+  again after a timeout). This app does not store the photo. While this
+  demo runs on Meta's free hackathon credits, Meta may use the photos it
+  receives to improve its products (Meta's Billing page for the demo's
+  key: "While using free credits your content may be used for product
+  improvement."); the page says so before a photo is sent. The room is
   built from what the models found in it: Muse Spark names the things and
   gives each a role and a few points on it; SAM 3.1 answers each name with
   its matches (a box and a mask each), and of several, the ones holding
@@ -440,13 +444,16 @@ In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
 day, and stops for the day at an estimated $5. Within those, each client
 gets at most 3 photos an hour and 10 a day, so one visitor cannot use up the
 day for everyone. The client is the connection's address, or with
-`--public` the first `X-Forwarded-For` hop (the visitor's address as the
-Space's proxy gives it); if a proxy passed on a hop the visitor wrote, one
-visitor could pose as several, and the server's own ceilings still hold.
+`--public` the last `X-Forwarded-For` hop (the address the Space's own
+proxy saw and appended); a hop a visitor writes comes before it and is
+never used, so a visitor cannot pose as several by writing new ones.
+Visitors who share one address (an office, a VPN) share its photos.
 A photo's place is taken before its upload is read, so no more photos than
 the readers at work are held in memory; a request that sends nothing for 15
-seconds is dropped, and an upload that takes longer than 40 seconds is
-given up. A photo is one Muse Spark
+seconds is dropped, and an upload that takes longer than 15 seconds is
+given up (time for a 4 MiB photo on a slow phone link; the page shrinks
+photos first). Each client uploads one photo at a time, so slow uploads
+from one client hold one of the 4 places at most. A photo is one Muse Spark
 call, at most 12 SAM 3.1 calls and one more Muse Spark call for its riddles
 (at most 14 calls in all): at the published prices about four to five
 cents, and about nine cents at worst (every call answered once; a call sent
