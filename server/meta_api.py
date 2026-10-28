@@ -343,3 +343,46 @@ def _error_code(data):
         if isinstance(code, str) and len(code) <= 64:
             return code
     return None
+
+
+# A room postcard (server/postcard.py): one Muse Image edit of the round's photo.
+IMAGE_MODEL = 'muse-image-1.0'
+IMAGE_ROUTE = '/images/edits'
+IMAGE_SIZE = '1536x1024'
+IMAGE_REFUSAL_WORDS = ('Muse Image would not make a postcard of this room. '
+                       'Please try another photo.')
+
+
+def image_body(prompt, data_url, user_id):
+    """The exact JSON for one postcard edit: no mask, no fidelity, no seed."""
+    return {'model': IMAGE_MODEL, 'prompt': prompt, 'images': [{'image_url': data_url}],
+            'n': 1, 'size': IMAGE_SIZE, 'response_format': 'b64_json', 'output_format': 'jpeg',
+            'reasoning_strength': 'low',
+            'tool_enablement': {'enable_image_search': False, 'enable_web_search': False, 'enable_shell': False},
+            'user': user_id}
+
+
+def image_edit(transport, prompt, data_url, user_id, deadline, sleep=time.sleep, clock=time.monotonic):
+    """One postcard edit through the transport. Returns (b64 JPEG, usage, sends).
+
+    A 400 with code content_policy_violation is a plain refusal (never retried);
+    a 503 is sent once more."""
+    body = image_body(prompt, data_url, user_id)
+    try:
+        j, attempt, _ = transport.post(IMAGE_ROUTE, body, deadline, sleep, clock)
+    except CallError as e:
+        if e.status == 503 and getattr(e, 'attempt', 1) == 1:
+            j, retry_attempt, _ = transport.post(IMAGE_ROUTE, body, deadline, sleep, clock)
+            attempt = retry_attempt + 1
+        elif e.status == 400 and e.code == 'content_policy_violation':
+            raise CallError('refused', IMAGE_REFUSAL_WORDS, e.status, billed=False) from None
+        else:
+            raise
+    try:
+        b64 = j['data'][0]['b64_json']
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise CallError('malformed', MALFORMED_WORDS, excerpt=excerpt(json.dumps(j), transport.holder)) from None
+    if not isinstance(b64, str) or not b64:
+        raise CallError('malformed', MALFORMED_WORDS, excerpt=excerpt(json.dumps(j), transport.holder)) from None
+    usage = j.get('usage') if isinstance(j.get('usage'), dict) else {}
+    return b64, usage, attempt

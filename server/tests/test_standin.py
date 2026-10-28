@@ -255,7 +255,10 @@ class Rehearsal(unittest.TestCase):
         # the riddle drills are walked in test_riddles.StandInRiddles
         riddle_drills = {d for d in DRILLS if d.startswith('riddle_')}
         self.assertEqual(riddle_drills, {'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter'})
-        self.assertEqual(set(expect) | {'429', 'malformed_record', 'sam_busy'} | riddle_drills, set(DRILLS))
+        # the postcard drills are walked in test_postcard.StandInPostcard
+        postcard_drills = {d for d in DRILLS if d.startswith('postcard_')}
+        self.assertEqual(postcard_drills, {'postcard_refused', 'postcard_busy'})
+        self.assertEqual(set(expect) | {'429', 'malformed_record', 'sam_busy'} | riddle_drills | postcard_drills, set(DRILLS))
 
     def test_the_stand_in_wants_the_contract(self):
         status, _, obj = self.standin.answer('/v1/responses', {'Authorization': 'Bearer ' + config.REHEARSAL_CREDENTIAL},
