@@ -25,6 +25,18 @@ export function replayReply() {
   return JSON.parse(cached);
 }
 
+// The replay as the server streams it: its reply, then Ask the room's
+// riddles line (server/replay.py ReplayPipeline.riddles: the recorded
+// riddles, no call), for the same request (a fresh copy each call)
+const STREAM = 'import json; from server.replay import ReplayPipeline, kitchen_photo; '
+  + 'p = ReplayPipeline(); photo = kitchen_photo(); r = p.run(photo); '
+  + 'print(json.dumps([{"type": "reply", "reply": r}, {"type": "riddles", "riddles": p.riddles(photo, r)}]))';
+let streamed = null;
+export function replayLines() {
+  if (!streamed) streamed = execFileSync(PYTHON, ['-B', '-c', STREAM], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+  return JSON.parse(streamed);
+}
+
 // The same answers as a LIVE server would send them for a fresh read of the
 // photo: what Meta's models answered on 2026-10-27, in LIVE's dress (its
 // mode, label and models), for the copy the page sent (width x height).

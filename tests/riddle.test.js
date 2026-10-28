@@ -174,7 +174,8 @@ test('honest by origin: labels and reason prefixes', () => {
   assert.equal(riddleLabel({ origin: 'live', regions: { o8: 'traced_in_box' } }), 'Riddle by muse-spark-1.3 · found by sam-3.1 · graded on outlines traced inside SAM’s boxes');
   assert.equal(riddleLabel({ origin: 'live', regions: { o8: 'sam_mask', o9: 'box' } }), 'Riddle by muse-spark-1.3 · found by sam-3.1 · graded on SAM’s boxes');
   assert.match(riddleLabel({ origin: 'rehearsal' }), /^REHEARSAL · .*not Meta$/);
-  assert.equal(riddleLabel({ origin: 'replay', recorded: 'Oct 28, 2026' }), 'REPLAY · Meta’s recorded riddle of Oct 28, 2026 · no model was called now');
+  assert.equal(riddleLabel({ origin: 'replay', recorded: 'Oct 28, 2026' }), 'REPLAY · Riddle by muse-spark-1.3, recorded Oct 28, 2026 · no model was called now');
+  assert.equal(reasonPrefix('replay'), 'Muse Spark said: ');
   assert.equal(reasonPrefix('live'), 'Muse Spark says: ');
   assert.equal(reasonPrefix('sample'), 'Written into the sample: ');
   assert.equal(reasonPrefix('rehearsal'), 'The stand-in says: ');
@@ -194,6 +195,11 @@ test('acceptRiddles: the room’s own request, honest by mode', () => {
   assert.ok(!acceptRiddles(LINE(), { mode: 'rehearsal', requestId: 'r1' }).ok, 'a rehearsal claims no model');
   assert.ok(acceptRiddles(LINE({ provenance: { mode: 'rehearsal', models: [] } }), { mode: 'rehearsal', requestId: 'r1' }).ok);
   assert.ok(!acceptRiddles(LINE(), { mode: 'mock', requestId: 'r1' }).ok, 'MOCK never shows a riddle over a photo');
+  const REPLAY = { provenance: { mode: 'replay', models: [] }, recorded: 'Oct 28, 2026' };
+  assert.ok(acceptRiddles(LINE(REPLAY), { mode: 'replay', requestId: 'r1' }).ok, 'our kitchen’s replay takes the recorded riddles');
+  assert.ok(!acceptRiddles(LINE(), { mode: 'replay', requestId: 'r1' }).ok, 'a replay takes no live riddles');
+  assert.ok(!acceptRiddles(LINE({ ...REPLAY, recorded: undefined }), { mode: 'replay', requestId: 'r1' }).ok, 'a replay says when they were recorded');
+  assert.ok(!acceptRiddles(LINE(REPLAY), { mode: 'live', requestId: 'r1' }).ok, 'a live room never takes a replay’s riddles');
 });
 
 test('riddlesFromLine: an unknown id drops the riddle; a point off its outline grades that answer on its box, and pickForRiddle honours it', () => {

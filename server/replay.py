@@ -14,7 +14,9 @@ answer in place of the network. The same reader, mask decoder, match
 choice, floor and outlines run; nothing is sent anywhere. The reply says
 so: its mode is 'replay', it claims no model called now, its calls are
 marked replayed, its usage is zero, and its words say when the models read
-the photo.
+the photo. Ask the room's riddles line, after it, replays the riddles Muse
+Spark wrote for this photo in a LIVE read on 2026-10-28, labelled the same
+way.
 """
 import hashlib
 import json
@@ -43,6 +45,15 @@ REPLAY_PROGRESS = {
 }
 NOT_RECORDED_WORDS = 'This call has no recorded answer, so it cannot be replayed.'
 MISMATCH_WORDS = 'The sample photo on this server is not the one the recorded answers are for, so they are not replayed.'
+# Ask the room, replayed: the riddles muse-spark-1.3 wrote for this photo in
+# a LIVE read on 2026-10-28, each answer mapped onto the 10-27 answers' own
+# things by the game's pick at its point (tests/kitchen.test.js checks it)
+RIDDLES = Path(__file__).resolve().parent / 'replay' / 'kitchen_riddles.json'
+RIDDLES_RECORDED = '2026-10-28'
+RIDDLES_SHOWN = 'Oct 28, 2026'
+RIDDLES_LABEL = 'REPLAY · Riddles by muse-spark-1.3, recorded Oct 28, 2026 · no model was called now'
+RIDDLES_WORDS = ('Muse Spark wrote these riddles for this photo on Oct 28, 2026; this copy replays them; '
+                 'no model was called now.')
 
 
 def load_answers(folder=ANSWERS):
@@ -57,6 +68,27 @@ def load_answers(folder=ANSWERS):
     if read is None or not sam:
         raise ValueError('the recorded answers are incomplete')
     return read, sam
+
+
+def recorded_riddles(objects, W, H, warnings, path=RIDDLES):
+    """The recorded riddles, put back in Muse Spark's own answer shape under
+    the replay's ids and cleaned by the same rules as a live answer
+    (server/riddles.py clean_riddles). One that maps onto no replay thing is
+    not replayed, and says so."""
+    from server.riddles import clean_riddles
+    rec = json.loads(path.read_text(encoding='utf-8'))
+    if rec['photo_sha256'] != PHOTO_SHA256 or (rec['width'], rec['height']) != (W, H):
+        raise ValueError('the recorded riddles are for another photo')
+    raw = []
+    for n, r in enumerate(rec['riddles'], 1):
+        to = r.get('replay_answers')
+        if not to:
+            warnings.append(f'riddle {n} of {RIDDLES_RECORDED} is not replayed: {r.get("not_replayed") or "it maps onto no thing here"}')
+            continue
+        # the points back on Muse Spark's 0 to 1000 grid, as it wrote them
+        raw.append({'text': r['text'], 'rule': r['rule'], 'why': r['why'], 'answer_ids': [to[a] for a in r['answers']],
+                    'points': [{'id': to[a], 'x': round(x * 1000 / W), 'y': round(y * 1000 / H)} for x, y, a in r['points']]})
+    return clean_riddles(raw, objects, W, H, warnings)
 
 
 class ReplayTransport:
@@ -150,6 +182,28 @@ class ReplayPipeline(Pipeline):
         reply['usage'] = {'calls': 0, 'spark_calls': 0, 'sam_calls': 0, 'tokens_in': 0, 'tokens_out': 0,
                           'reasoning_tokens': 0, 'estimated_usd': 0.0}
         return reply
+
+    def riddles(self, photo, reply):
+        """Ask the room on the replay: the recorded riddles line, with no
+        call. It says it is a replay: its mode, no model called now, and
+        when and by which model the riddles were written."""
+        from server import riddles
+        try:
+            if reply.get('status') != 'ok':
+                return riddles.line_for(self, reply, 'none', error={'code': 'no_room', 'message': 'This photo made no room, so no riddle was replayed.'})
+            warnings = []
+            objects = [o for o in (reply.get('objects') or []) if isinstance(o.get('box'), list)]
+            kept = recorded_riddles(objects, photo['width'], photo['height'], warnings)
+        except Exception as e:  # noqa: BLE001 - the room is already on the page
+            if self.log is not None:
+                self.log.write(event='riddles_failed', error=type(e).__name__)
+            return riddles.riddles_error_line(self, reply)
+        line = riddles.line_for(self, reply, 'ok' if kept else 'none', riddles=kept, warnings=warnings,
+                                error=None if kept else {'code': 'none_kept', 'message': 'No recorded riddle fits this replay.'})
+        line['recorded'] = RIDDLES_SHOWN
+        line['provenance']['label'] = RIDDLES_LABEL
+        line['provenance']['replay'] = {'recorded': RIDDLES_RECORDED, 'models': [config.SPARK_MODEL], 'words': RIDDLES_WORDS}
+        return line
 
     def handle_kitchen(self, handler, stream):
         """POST /api/replay/kitchen: the kitchen photo through the pipeline."""

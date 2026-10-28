@@ -80,7 +80,8 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // prefs: other saved preferences, by name (as src/store.js keeps them).
 // server: in MOCK, a server answers (health says mock) rather than none.
 // replay(): the reply api/replay/kitchen gives (the server's replay of our
-// kitchen photo), or null when the server has no replay (an older one).
+// kitchen photo), or its streamed lines as a list, or null when the server
+// has no replay (an older one).
 export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null } = {}) {
   const doc = installFakeDocument();
   if (answer) {
@@ -125,6 +126,8 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
       }
       if (url === 'api/replay/kitchen' && replay) {
         const reply = replay();
+        // a list: the streamed lines, as the server sends them to the page
+        if (Array.isArray(reply)) return new Response(reply.map((l) => `${JSON.stringify(l)}\n`).join(''), { headers: { 'Content-Type': 'application/x-ndjson' } });
         return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => reply };
       }
       if (url === 'rooms/kitchen.jpg') {

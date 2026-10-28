@@ -1,0 +1,37 @@
+{
+ "recorded": "2026-10-28",
+ "model": "muse-spark-1.3",
+ "photo": "rooms/kitchen.jpg",
+ "photo_sha256": "2de87d6b4789bc08269eaba5f05bb61b391294a5672f334543bccb4063335d7c",
+ "width": 1024,
+ "height": 399,
+ "source": "The riddles line of a LIVE read of rooms/kitchen.jpg on 2026-10-28, as the page received it: muse-spark-1.3's riddles after the server's checks, their answers that read's ids, their points in pixels.",
+ "mapping": "replay_answers maps each answer of that read onto the thing of the 2026-10-27 answers (server/replay/kitchen) the game's own pick (src/riddle.js pickAt) gives at its point. A riddle is replayed only when every point falls inside one thing's outline and its answers map to as many things; otherwise replay_answers is null.",
+ "riddles": [
+  {
+   "text": "touch the tall white chilly keeper that keeps snacks cold",
+   "rule": "one",
+   "answers": ["o4"],
+   "why": "It is big white and keeps food cold",
+   "points": [[639, 147.6, "o4"]],
+   "replay_answers": {"o4": "o4"}
+  },
+  {
+   "text": "touch the black top where pots get hot to make dinner",
+   "rule": "one",
+   "answers": ["o2"],
+   "why": "It cooks food with hot burners and oven",
+   "points": [[391.2, 176.4, "o2"]],
+   "replay_answers": {"o2": "o2"}
+  },
+  {
+   "text": "find the {n} wooden boxes with shelves to hide pots inside",
+   "rule": "all",
+   "answers": ["o5", "o6", "o7", "o8"],
+   "why": "They store pots and snacks behind closed fronts",
+   "points": [[335.9, 203.9, "o5"], [454.7, 174.8, "o6"], [474.1, 151.6, "o7"], [531.5, 148.8, "o8"]],
+   "replay_answers": null,
+   "not_replayed": "none of its four points falls inside a thing the 2026-10-27 answers found"
+  }
+ ]
+}

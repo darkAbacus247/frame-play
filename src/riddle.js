@@ -240,7 +240,7 @@ export function riddleLabel(riddle) {
   switch (riddle.origin) {
     case 'live': return `Riddle by muse-spark-1.3 · found by sam-3.1 · ${gradedOn(riddle)}`;
     case 'rehearsal': return 'REHEARSAL · riddle from the stand-in’s sample data, not Meta';
-    case 'replay': return `REPLAY · Meta’s recorded riddle${riddle.recorded ? ` of ${riddle.recorded}` : ''} · no model was called now`;
+    case 'replay': return `REPLAY · Riddle by muse-spark-1.3, recorded${riddle.recorded ? ` ${riddle.recorded}` : ''} · no model was called now`;
     default: return 'Riddle written into this sample room · MOCK · no model was asked';
   }
 }
@@ -259,7 +259,8 @@ export function reasonPrefix(origin) {
 
 // A riddles line from the server is taken only for the room it belongs to
 // (the reply's request id) and only when it is honest about where it came
-// from: live riddles from a live server, the stand-in's from a rehearsal.
+// from: live riddles from a live server, the stand-in's from a rehearsal,
+// and the recorded ones (no model called now) with our kitchen's replay.
 export function acceptRiddles(line, { mode, requestId }) {
   if (!line || line.schema !== 'frameplay.riddles/1') return { ok: false, why: 'not a riddles line' };
   if (!requestId || line.request_id !== requestId) return { ok: false, why: 'it is for another photo' };
@@ -267,7 +268,8 @@ export function acceptRiddles(line, { mode, requestId }) {
   const p = line.provenance || {};
   if (mode === 'live' && p.mode !== 'live') return { ok: false, why: 'a live room takes live riddles only' };
   if (mode === 'rehearsal' && (p.mode !== 'rehearsal' || (p.models && p.models.length))) return { ok: false, why: 'a rehearsal claims no model' };
-  if (mode !== 'live' && mode !== 'rehearsal') return { ok: false, why: 'riddles come only with a live or rehearsal room' };
+  if (mode === 'replay' && (p.mode !== 'replay' || (p.models && p.models.length) || !line.recorded)) return { ok: false, why: 'a replay calls no model and says when they were recorded' };
+  if (mode !== 'live' && mode !== 'rehearsal' && mode !== 'replay') return { ok: false, why: 'riddles come only with a live, rehearsal or replayed room' };
   return { ok: true };
 }
 

@@ -718,7 +718,8 @@ class Pipeline:
             line({'type': 'reply', 'reply': reply})
             # Ask the room: the reply is on the page and the round can start;
             # the riddles are written after it, with the photo still here
-            if self.settings.riddles and self.settings.mode in ('live', 'rehearsal'):
+            # (a replay's are the recorded ones: server/replay.py)
+            if self.settings.riddles and self.settings.mode in ('live', 'rehearsal', 'replay'):
                 line({'type': 'riddles', 'riddles': self.riddles(photo, reply)})
             chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:

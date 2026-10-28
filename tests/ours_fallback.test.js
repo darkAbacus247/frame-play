@@ -6,9 +6,10 @@
 // refusal. On the real app.js (tests/apphost.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bootApp, paintCanvases, until, photoFile } from './apphost.js';
+import { bootApp, paintCanvases, until, photoFile, textOf } from './apphost.js';
+import { played } from './stub_game.js';
 import { roadAt, AT_OWN } from './roads.js';
-import { replayReply, liveKitchenReply, KITCHEN_PIXELS } from './kitchen.js';
+import { replayReply, replayLines, liveKitchenReply, KITCHEN_PIXELS } from './kitchen.js';
 import { OURS_REF, REPLAY_WORDS } from '../src/own.js';
 import { OWN_SLOT, OWN_STEP } from '../src/road.js';
 
@@ -77,6 +78,27 @@ for (const [name, answer, why] of STOPS) {
     assert.deepEqual(app.savedRoad().rooms[0], OURS_REF);
   });
 }
+
+// Ask the room on the fallback: the replay's stream carries Muse Spark's
+// recorded riddles for our kitchen, taken as a replay's, never as live ones
+test('LIVE, Step 2, the spending stop: the replayed kitchen still offers Ask the room, its riddles labeled REPLAY', async () => {
+  const { app, restore, posted } = await at(roadAt(2), STOPS[0][1], { replay: replayLines });
+  try {
+    paintCanvases(app, KITCHEN_PIXELS);
+    app.$('main').querySelector('.ours-card').click();
+    await until(app, () => app.step() === 3, 'the replayed room', 120000);
+  } finally { restore(); delete globalThis.createImageBitmap; }
+  assert.deepEqual(posted(), ['api/room', 'api/replay/kitchen'], 'no riddle call: the riddles rode the replay');
+  app.mainPrimary().click();
+  await app.settle();
+  played.last.onEnd({ status: 'won', ratio: 1, words: { title: 'Room cleared!', body: 'You took the shortest route.' } });
+  await app.settle(3);
+  const ask = app.$('card').querySelectorAll('button').find((b) => textOf(b) === 'Ask the room');
+  assert.ok(ask, textOf(app.$('card')));
+  ask.click();
+  await app.settle(3);
+  assert.deepEqual(played.view.riddle.list.map((r) => [r.origin, r.recorded]), [['replay', 'Oct 28, 2026'], ['replay', 'Oct 28, 2026']]);
+});
 
 test('LIVE, Your own room, the spending stop: Use ours is replayed, labeled REPLAY, and says why', async () => {
   const [, answer, why] = STOPS[0];

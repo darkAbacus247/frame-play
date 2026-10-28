@@ -350,7 +350,14 @@ waits for it: the card's primary still goes on, and so does the counter's →.
   point on each answer. The sample rooms' riddles are written into the room
   files and labelled "Riddle written into this sample room · MOCK · no model
   was asked"; in REHEARSAL the stand-in answers with them. Our kitchen's
-  replay has none: its recorded answers hold no riddle call.
+  replay replays riddles Muse Spark wrote for that photo in a LIVE read on
+  2026-10-28 (`server/replay/kitchen_riddles.json`), on the same stream and
+  through the same checks, labelled "REPLAY · Riddle by muse-spark-1.3,
+  recorded Oct 28, 2026 · no model was called now". That read's answers
+  were its own ids, so each riddle's points go through the game's own pick
+  on the replay's SAM 3.1 masks: the refrigerator and the stove are
+  replayed; the four cabinets are not, since the replayed answers found no
+  cabinets. No call is made for them.
 - **Who decides what is right.** Muse Spark says which things answer a
   riddle, and every answer must be a thing SAM 3.1 found; SAM 3.1 says
   where they are; code fills in the count of those answers (the number in

@@ -179,10 +179,11 @@ function storedEntry(photo) {
 // They arrive after the room's reply (one more Muse Spark call, written
 // while the round is played). A catcher holds whichever comes second, the
 // riddles line or the built room; the riddles are taken only for that
-// room's own request and only as honest as this server's mode, kept with
-// its level, and offered on its end card, even one already open.
-function riddleCatcher() {
-  const c = { line: null, reply: null, entry: null, save: null, done: false };
+// room's own request and only as honest as this server's mode (or, for our
+// kitchen's replay, as a replay), kept with its level, and offered on its
+// end card, even one already open.
+function riddleCatcher(mode = null) {
+  const c = { mode, line: null, reply: null, entry: null, save: null, done: false };
   c.onRiddles = (line) => { c.line = line; landRiddles(c); };
   return c;
 }
@@ -206,8 +207,9 @@ function landRiddles(c) {
   A.riddleWait.delete(c.reply.request_id);
   const level = c.entry.built && !c.entry.built.error ? c.entry.built.level : null;
   if (!level) return;
-  if (acceptRiddles(c.line, { mode: A.mode, requestId: c.reply.request_id }).ok) {
-    level.riddles = riddlesFromLine(c.line, level, A.mode === 'live' ? 'live' : 'rehearsal').kept;
+  const mode = c.mode || A.mode;
+  if (acceptRiddles(c.line, { mode, requestId: c.reply.request_id }).ok) {
+    level.riddles = riddlesFromLine(c.line, level, mode).kept;
     if (level.riddles.length && c.save) c.save();
   }
   riddlesArrived(level);
@@ -1439,6 +1441,8 @@ async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.O
   if (shown) shown.hidden = true;
   let step = 0;
   progressPanel(panel, REPLAY_LINES, step, null, { cancel: cancelRead });
+  // Ask the room: the recorded riddles ride the same stream, after the reply
+  const catcher = riddleCatcher('replay');
   const ways = slot !== R.OWN_SLOT ? (inPlace ? 'You can replay it again, or use ← to pick another room.' : 'You can try again, or play a sample room below.')
     : inPlace ? 'You can replay it again, or continue to the end.' : 'You can choose a photo of your own, try again, or continue to the end.';
   try {
@@ -1451,7 +1455,11 @@ async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.O
           return { bytes, picture, pixels: pixelsOf(picture) };
         },
         sha256: sha256Hex,
-        send: (onWords) => sendPhoto(new Blob([], { type: 'application/octet-stream' }), (m) => onWords(m.words, m.stage), OURS.route, { signal }),
+        send: async (onWords) => {
+          const reply = await sendPhoto(new Blob([], { type: 'application/octet-stream' }), (m) => onWords(m.words, m.stage), OURS.route, { signal, onRiddles: catcher.onRiddles });
+          catcherReply(catcher, reply);
+          return reply;
+        },
       },
       onWords: readWords(panel, signal, (i) => { step = i; }, REPLAY_LINES),
     }));
@@ -1462,6 +1470,8 @@ async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.O
       return;
     }
     if (why) r.entry.summary.instead = why;
+    // a replay is made again on each visit, so its riddles are not saved
+    catcherEntry(catcher, r.entry);
     A.live.set(refKey(r.ref), r.entry);
     say(sentences(why, REPLAY_WORDS));
     if (inPlace) render();

@@ -14,8 +14,8 @@ from server import config
 from server.config import settings_from
 from server.imageinfo import check_photo
 from server.meta_api import Transport
-from server.replay import (ANSWERS, PHOTO, PHOTO_SHA256, WORDS, ReplayLimits, ReplayPipeline, ReplayTransport,
-                           kitchen_photo, load_answers)
+from server.replay import (ANSWERS, PHOTO, PHOTO_SHA256, RIDDLES, RIDDLES_LABEL, RIDDLES_WORDS, WORDS, ReplayLimits,
+                           ReplayPipeline, ReplayTransport, kitchen_photo, load_answers, recorded_riddles)
 from server.tests.test_server import Running
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -108,6 +108,39 @@ class Replay(unittest.TestCase):
             t.post('/responses', body, 0)
         self.assertEqual(e.exception.code, 'not_recorded')
 
+    def test_ask_the_room_replays_muse_spark_s_recorded_riddles_with_no_call(self):
+        asked = len(self.pipe.transport.asked)
+        line = self.pipe.riddles(kitchen_photo(), self.reply)
+        self.assertEqual(len(self.pipe.transport.asked), asked, 'no call, not even a replayed one')
+        self.assertEqual(line['schema'], 'frameplay.riddles/1')
+        self.assertEqual(line['request_id'], self.reply['request_id'])
+        self.assertEqual(line['status'], 'ok')
+        p = line['provenance']
+        self.assertEqual((p['mode'], p['models'], p['calls'], p['label']), ('replay', [], [], RIDDLES_LABEL))
+        self.assertEqual(p['replay'], {'recorded': '2026-10-28', 'models': [config.SPARK_MODEL], 'words': RIDDLES_WORDS})
+        self.assertEqual(line['recorded'], 'Oct 28, 2026')
+        self.assertEqual(line['usage']['spark_calls'], 0)
+        self.assertEqual(line['usage']['estimated_usd'], 0.0)
+        rec = json.loads(RIDDLES.read_text(encoding='utf-8'))
+        self.assertEqual(rec['photo_sha256'], PHOTO_SHA256)
+        by_id = {o['id']: o['name'] for o in self.reply['objects']}
+        self.assertEqual([[by_id[a] for a in r['answers']] for r in line['riddles']], [['refrigerator'], ['stove']])
+        # Muse Spark's words, through the clean and sentence-case rules only
+        self.assertEqual([r['text'] for r in line['riddles']], [rec['riddles'][0]['text'][0].upper() + rec['riddles'][0]['text'][1:] + '.',
+                                                               rec['riddles'][1]['text'][0].upper() + rec['riddles'][1]['text'][1:] + '.'])
+        # its points back where the 10-28 read put them, to the tenth of a pixel
+        self.assertEqual([r['points'] for r in line['riddles']],
+                         [[[x, y, rec['riddles'][i]['replay_answers'][a]] for x, y, a in rec['riddles'][i]['points']] for i in (0, 1)])
+        self.assertEqual(line['warnings'], ['riddle 3 of 2026-10-28 is not replayed: none of its four points falls inside a thing the 2026-10-27 answers found'])
+
+    def test_recorded_riddles_are_never_put_on_another_photo(self):
+        with self.assertRaises(ValueError):
+            recorded_riddles(self.reply['objects'], 1024, 400, [])
+        with mock.patch('server.replay.PHOTO_SHA256', 'ab' * 32):
+            line = self.pipe.riddles({'width': 1024, 'height': 399}, self.reply)
+        self.assertEqual(line['status'], 'error', 'the room stays; its riddles are not replayed')
+        self.assertEqual(line['riddles'], [])
+
     def test_another_photo_is_never_replayed(self):
         with mock.patch('server.replay.PHOTO_SHA256', 'ab' * 32):
             with self.assertRaises(ValueError):
@@ -153,12 +186,19 @@ class Route(unittest.TestCase):
         self.assertEqual(status, 409)
 
     def test_streamed_with_its_own_words(self):
-        status, h, body = self.run_.request('POST', '/api/replay/kitchen', b'', {'X-FramePlay-Request': '1', 'Accept': 'application/x-ndjson'})
+        with mock.patch('server.meta_api.Transport.post_once', side_effect=AssertionError('nothing is sent')):
+            status, h, body = self.run_.request('POST', '/api/replay/kitchen', b'', {'X-FramePlay-Request': '1', 'Accept': 'application/x-ndjson'})
         self.assertEqual(status, 200)
         text = re.sub(rb'(?m)^[0-9a-f]+\r\n', b'', body).decode('utf-8')
         lines = [json.loads(x) for x in text.splitlines() if x.strip().startswith('{')]
         self.assertEqual([x['words'] for x in lines if x['type'] == 'progress'], ['Replaying Muse Spark’s recorded read', 'Replaying SAM 3.1’s recorded answers'])
-        self.assertEqual(lines[-1]['reply']['provenance']['mode'], 'replay')
+        self.assertEqual([x['type'] for x in lines], ['progress', 'progress', 'reply', 'riddles'])
+        reply, line = lines[2]['reply'], lines[3]['riddles']
+        self.assertEqual(reply['provenance']['mode'], 'replay')
+        # Ask the room: the recorded riddles, for this very request, no model called now
+        self.assertEqual(line['request_id'], reply['request_id'])
+        self.assertEqual((line['status'], line['provenance']['mode'], line['provenance']['models']), ('ok', 'replay', []))
+        self.assertEqual(len(line['riddles']), 2)
 
     def test_only_the_page_and_only_post(self):
         self.assertEqual(self.run_.request('POST', '/api/replay/kitchen', b'')[0], 403)
