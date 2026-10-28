@@ -33,9 +33,11 @@ MAX_ANSWER_BYTES = 8 * 1024 * 1024
 MAX_ERROR_BYTES = 64 * 1024
 CALL_TIMEOUT_S = 20.0
 # A request's socket waits at most this long for each piece it reads or
-# writes; a photo's whole upload takes at most BODY_TIMEOUT_S.
+# writes; a photo's whole upload takes at most BODY_TIMEOUT_S, time for a
+# 4 MiB photo on a slow phone link (about 2.2 Mbit/s); in LIVE each client
+# uploads one photo at a time (server/limits.py).
 SOCKET_TIMEOUT_S = 15.0
-BODY_TIMEOUT_S = 40.0
+BODY_TIMEOUT_S = 15.0
 SPARK_TIMEOUT_S = 30.0  # the room read, sent once; a timeout is not sent again
 PHOTO_TIMEOUT_S = 60.0
 SPARK_CALLS_PER_PHOTO = 1

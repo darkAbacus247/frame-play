@@ -101,7 +101,7 @@ class MockRoutes(unittest.TestCase):
         self.assertEqual(j['ceilings']['usd_stop_per_day'], 5.0)
         self.assertEqual(j['ceilings']['sam_calls_per_photo'], 12)
         self.assertEqual((j['ceilings']['photos_in_flight'], j['ceilings']['photos_per_hour']), (4, 120))
-        self.assertEqual((j['ceilings']['seconds_per_socket_wait'], j['ceilings']['seconds_per_upload']), (15.0, 40.0))
+        self.assertEqual((j['ceilings']['seconds_per_socket_wait'], j['ceilings']['seconds_per_upload']), (15.0, 15.0))
         self.assertEqual((j['ceilings']['live_hold_seconds'], j['ceilings']['billing_stop_until']),
                          (600.0, 'midnight UTC'))
         self.assertEqual(j['live_state'], 'off')
@@ -440,6 +440,74 @@ class Uploads(unittest.TestCase):
         self.assertLess(gave_up, 4, 'at its deadline, though each piece came in time')
         self.until(lambda: self.limits.counters()['photos_in_flight'] == 0, 'its place is free again')
         self.assertEqual(self.limits.counters()['photos_this_hour'], 0)
+
+
+class OneUploadPerClient(unittest.TestCase):
+    """A client's slow upload holds one place at most: while it trickles in,
+    that client's next photo is refused, and other clients are still let in."""
+
+    def setUp(self):
+        s = settings_from({}, 'http://127.0.0.1:9/v1', 'desk')
+        self.limits = Limits()
+        self.pipe = Pipeline(s, self.limits, log=Log(stream=[]), sleep=lambda x: None)
+        self.pipe.run = lambda photo, progress=None: {'status': 'ok', 'provenance': {'calls': []}}
+        self.run_ = Running(s, pipeline=self.pipe, limits=self.limits, public=True)
+        self.addCleanup(self.run_.stop)
+        self.photo = images.jpeg()
+
+    def until(self, test, what):
+        for _ in range(200):
+            if test():
+                return
+            time.sleep(0.02)
+        self.fail(what)
+
+    def slow(self, hop):
+        c = socket.create_connection(('127.0.0.1', self.run_.port), timeout=10)
+        self.addCleanup(c.close)
+        c.sendall(b'POST /api/room HTTP/1.1\r\nHost: 127.0.0.1\r\nX-FramePlay-Request: 1\r\n'
+                  b'Content-Type: image/jpeg\r\nX-Forwarded-For: %s\r\nContent-Length: %d\r\n\r\n'
+                  % (hop.encode(), len(self.photo)) + self.photo[:100])
+        return c
+
+    def post(self, hop):
+        status, h, body = self.run_.request('POST', '/api/room', self.photo, {
+            'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg', 'X-Forwarded-For': hop})
+        return status, h, json.loads(body)
+
+    def test_a_client_has_one_upload_at_a_time(self):
+        slow = self.slow('203.0.113.7')
+        self.until(lambda: self.limits.counters()['photos_in_flight'] == 1, 'the slow upload holds its place')
+        status, h, j = self.post('192.0.2.1, 203.0.113.7')
+        self.assertEqual((status, j['error']['code']), (429, 'busy'), 'its next photo waits, a spoofed first hop or not')
+        self.assertEqual(j['error']['message'], 'This server is still receiving another photo from you. Please try again in a few seconds.')
+        self.assertIn('Retry-After', h)
+        self.assertEqual(self.limits.counters()['photos_in_flight'], 1, 'the refused photo took no place')
+        self.assertEqual(self.post('198.51.100.4')[0], 200, 'another client is still read')
+        # the slow upload ends; that client may send again
+        slow.sendall(self.photo[100:])
+        self.assertIn(b' 200 ', slow.recv(65536).split(b'\r\n', 1)[0])
+        self.until(lambda: self.limits.counters()['photos_in_flight'] == 0, 'both photos are done')
+        self.assertEqual(self.post('203.0.113.7')[0], 200)
+
+    def test_a_given_up_upload_frees_its_client(self):
+        with mock.patch.object(Handler, 'timeout', 0.5):
+            slow = self.slow('203.0.113.7')
+            self.until(lambda: self.limits.counters()['photos_in_flight'] == 1, 'the slow upload holds its place')
+            self.assertIn(b' 400 ', slow.recv(65536).split(b'\r\n', 1)[0], 'its upload stalled and was given up')
+        self.until(lambda: self.limits.counters()['photos_in_flight'] == 0, 'its place is free again')
+        self.assertEqual(self.post('203.0.113.7')[0], 200)
+
+
+class UploadTime(unittest.TestCase):
+    def test_an_upload_has_15_seconds(self):
+        # a 4 MiB photo in 15 s is about 2.2 Mbit/s, a slow phone link; the
+        # page shrinks photos first, so most are far smaller
+        self.assertEqual(config.BODY_TIMEOUT_S, 15.0)
+        self.assertGreaterEqual(config.MAX_BODY * 8 / config.BODY_TIMEOUT_S, 2_000_000)
+        readme = open('README.md', encoding='utf-8').read().replace('\n', ' ')
+        self.assertIn('an upload that takes longer than 15 seconds is given up', readme)
+        self.assertNotIn('longer than 40 seconds', readme)
 
 
 class LiveUntil(unittest.TestCase):

@@ -446,8 +446,10 @@ never used, so a visitor cannot pose as several by writing new ones.
 Visitors who share one address (an office, a VPN) share its photos.
 A photo's place is taken before its upload is read, so no more photos than
 the readers at work are held in memory; a request that sends nothing for 15
-seconds is dropped, and an upload that takes longer than 40 seconds is
-given up. A photo is one Muse Spark
+seconds is dropped, and an upload that takes longer than 15 seconds is
+given up (time for a 4 MiB photo on a slow phone link; the page shrinks
+photos first). Each client uploads one photo at a time, so slow uploads
+from one client hold one of the 4 places at most. A photo is one Muse Spark
 call, at most 12 SAM 3.1 calls and one more Muse Spark call for its riddles
 (at most 14 calls in all): at the published prices about four to five
 cents, and about nine cents at worst (every call answered once; a call sent

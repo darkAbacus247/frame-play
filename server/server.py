@@ -343,6 +343,8 @@ class Handler(BaseHTTPRequestHandler):
         handed = False
         try:
             data = self.read_body(length)
+            if adm is not None:
+                pipeline.limits.uploaded(adm)  # this client may upload another
             if data is None:
                 self.close_connection = True
                 return self.send_json(400, error_body('short', 'The photo arrived incomplete. Please try the same photo again.'))
