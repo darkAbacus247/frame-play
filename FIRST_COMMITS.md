@@ -1,6 +1,6 @@
 # First commit of every file
 
-Every file tracked at commit d60fca8 (2026-10-28 15:14:59 UTC), with the time of the commit that
+Every file tracked at commit 0f24950 (2026-10-28 15:19:28 UTC), with the time of the commit that
 first added it (UTC, the author time git records) and that commit. Made from
 this repository's git history by `python -B tools/first_commits.py`; made
 again at the freeze.
@@ -198,3 +198,5 @@ again at the freeze.
 | `server/tests/test_riddles.py` | 2026-10-28 02:53:35 | 1b740e2 |
 | `tests/ours_fallback.test.js` | 2026-10-28 14:24:54 | 6a4be4d |
 | `server/tests/test_disclosure.py` | 2026-10-28 14:56:20 | e87bbf0 |
+| `FIRST_COMMITS.md` | 2026-10-28 15:19:28 | 0f24950 |
+| `tools/first_commits.py` | 2026-10-28 15:19:28 | 0f24950 |
