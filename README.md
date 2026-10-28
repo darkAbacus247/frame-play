@@ -440,9 +440,10 @@ In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
 day, and stops for the day at an estimated $5. Within those, each client
 gets at most 3 photos an hour and 10 a day, so one visitor cannot use up the
 day for everyone. The client is the connection's address, or with
-`--public` the first `X-Forwarded-For` hop (the visitor's address as the
-Space's proxy gives it); if a proxy passed on a hop the visitor wrote, one
-visitor could pose as several, and the server's own ceilings still hold.
+`--public` the last `X-Forwarded-For` hop (the address the Space's own
+proxy saw and appended); a hop a visitor writes comes before it and is
+never used, so a visitor cannot pose as several by writing new ones.
+Visitors who share one address (an office, a VPN) share its photos.
 A photo's place is taken before its upload is read, so no more photos than
 the readers at work are held in memory; a request that sends nothing for 15
 seconds is dropped, and an upload that takes longer than 40 seconds is

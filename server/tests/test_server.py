@@ -300,15 +300,40 @@ class PerClient(unittest.TestCase):
         status, _, body = run_.request('POST', '/api/room', images.jpeg(), h)
         return status, json.loads(body)
 
-    def test_behind_the_proxy_the_first_forwarded_hop_is_the_client(self):
+    def test_behind_the_proxy_the_last_forwarded_hop_is_the_client(self):
+        # the Space's own proxy appends the address it saw as the last hop;
+        # any hop before it is whatever the sender wrote
         run_ = self.serve(public=True)
-        for _ in range(config.CLIENT_PER_HOUR):
-            self.assertEqual(self.post(run_, '203.0.113.7, 10.0.0.1')[0], 200)
-        status, j = self.post(run_, '203.0.113.7, 10.0.0.2')
-        self.assertEqual((status, j['error']['code']), (429, 'client_hour_cap'))
+        for n in range(config.CLIENT_PER_HOUR):
+            self.assertEqual(self.post(run_, f'10.0.0.{n}, 203.0.113.7')[0], 200)
+        status, j = self.post(run_, '10.0.0.99, 203.0.113.7')
+        self.assertEqual((status, j['error']['code']), (429, 'client_hour_cap'), 'a new first hop is the same client')
         self.assertTrue(j['error']['message'].endswith('.'))
-        self.assertEqual(self.post(run_, '198.51.100.4, 10.0.0.1')[0], 200, 'another visitor is still read')
+        status, j = self.post(run_, '203.0.113.7')
+        self.assertEqual((status, j['error']['code']), (429, 'client_hour_cap'), 'with no hop of its own written')
+        self.assertEqual(self.post(run_, '203.0.113.7, 198.51.100.4')[0], 200, 'another visitor is still read')
         self.assertNotIn('203.0.113.7', '\n'.join(run_.lines), 'the address is never logged')
+
+    def test_a_spoofed_first_hop_does_not_make_a_new_client(self):
+        run_ = self.serve(public=True)
+        for n in range(config.CLIENT_PER_HOUR):
+            self.assertEqual(self.post(run_, f'192.0.2.{n}, 203.0.113.7')[0], 200)
+        status, j = self.post(run_, '192.0.2.200, 203.0.113.7')
+        self.assertEqual((status, j['error']['code']), (429, 'client_hour_cap'))
+        # a second header line the sender wrote does not hide the proxy's own last hop
+        h = {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'}
+        c = http.client.HTTPConnection('127.0.0.1', run_.port, timeout=10)
+        self.addCleanup(c.close)
+        c.putrequest('POST', '/api/room')
+        for k, v in h.items():
+            c.putheader(k, v)
+        c.putheader('X-Forwarded-For', '192.0.2.201')
+        c.putheader('X-Forwarded-For', '192.0.2.202, 203.0.113.7')
+        photo = images.jpeg()
+        c.putheader('Content-Length', str(len(photo)))
+        c.endheaders(photo)
+        r = c.getresponse()
+        self.assertEqual((r.status, json.loads(r.read())['error']['code']), (429, 'client_hour_cap'))
 
     def test_without_public_the_header_is_not_trusted(self):
         run_ = self.serve(public=False)
