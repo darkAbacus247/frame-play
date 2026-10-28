@@ -52,6 +52,10 @@ const STOPS = [
     'Not read live now: this server has read its photos from you for this hour.'],
   ['the live AI unavailable', () => json(503, { status: 'error', error: { code: 'live_unavailable', message: 'The live AI is unavailable on this server right now (an account or model problem the owner must fix). The sample rooms still work.' } }, { 'Retry-After': '600' }),
     'Not read live now: the live AI is unavailable on this server right now.'],
+  ['LIVE stopped for the day by a billing refusal', () => json(503, { status: 'error', error: { code: 'live_unavailable', message: 'The live AI is stopped on this server for the rest of the day (UTC): the Model API refused it for billing or credit. The sample rooms still work.' } }, { 'Retry-After': '14400' }),
+    'Not read live now: the live AI is unavailable on this server right now.'],
+  ['LIVE ended at its set time (FRAMEPLAY_LIVE_UNTIL)', () => json(503, { status: 'error', error: { code: 'live_unavailable', message: 'LIVE on this server ended at 2026-11-09 00:00 UTC, as its owner set, so this photo was not sent. The sample rooms still work.' } }),
+    'Not read live now: the live AI is unavailable on this server right now.'],
   // in the reply itself: the stop reached mid-photo, and a credit or billing refusal from the Model API
   ['the spending stop, mid-photo', () => json(200, { ...liveKitchenReply(), status: 'refused', error: { code: 'spend_stop', message: 'This server has reached its spending stop for today ($5.00 estimated).' } }),
     'Not read live now: this server reached its spending stop for today.'],

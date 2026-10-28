@@ -36,6 +36,28 @@ class Modes(unittest.TestCase):
         self.assertEqual(s.base, 'https://api.meta.ai/v1')
         self.assertNotIn(TEST_VALUE, repr(s))
 
+    def test_live_until_turns_live_off_after_its_time(self):
+        live = {'MODEL_API_KEY': TEST_VALUE, 'FRAMEPLAY_LIVE': 'yes'}
+        self.assertIsNone(settings_from(live).live_until, 'unset: no end')
+        self.assertIsNone(settings_from({**live, 'FRAMEPLAY_LIVE_UNTIL': ' '}).live_until)
+        when = 4_102_444_800.0  # 2100-01-01 00:00 UTC
+        for raw in ('2100-01-01T00:00:00Z', '2100-01-01T00:00:00+00:00', '2100-01-01T00:00', '2100-01-01',
+                    '2100-01-01T02:00:00+02:00'):
+            self.assertEqual(config.live_until_from(raw), when, raw)
+        s = settings_from({**live, 'FRAMEPLAY_LIVE_UNTIL': '2100-01-01T00:00:00Z'})
+        self.assertEqual((s.mode, s.live_until), ('live', when))
+        # already past when the server starts: MOCK, saying why, with no key held
+        s = settings_from({**live, 'FRAMEPLAY_LIVE_UNTIL': '2000-01-01T00:00:00Z'})
+        self.assertEqual(s.mode, 'mock')
+        self.assertIsNone(s.key)
+        self.assertTrue(s.key_present)
+        self.assertEqual(s.reason, 'LIVE on this server ended at 2000-01-01 00:00 UTC, as its owner set (FRAMEPLAY_LIVE_UNTIL), '
+                                   'so no model is called: the sample rooms are drawn by code, and our kitchen replays '
+                                   'Meta’s recorded answer.')
+        for bad in ('soon', '2100-13-01', 'tomorrow at noon'):
+            with self.assertRaises(ConfigError, msg=bad):
+                settings_from({**live, 'FRAMEPLAY_LIVE_UNTIL': bad})
+
     def test_rehearsal_refuses_any_live_variable(self):
         s = settings_from({}, 'http://127.0.0.1:8192/v1', 'living')
         self.assertEqual((s.mode, s.base, s.rehearsal_room), ('rehearsal', 'http://127.0.0.1:8192/v1', 'living'))

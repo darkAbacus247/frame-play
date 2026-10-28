@@ -6,7 +6,9 @@ mode, POST /api/replay/kitchen (the sample kitchen photo's recorded answers
 replayed through the same pipeline; nothing is sent: server/replay.py).
 Everything else is 404. After an account or model problem, POST /api/room
 answers 503 live_unavailable, sending nothing, and health says live_state:
-unavailable.
+unavailable. After FRAMEPLAY_LIVE_UNTIL, LIVE turns itself off: health says
+MOCK, with why, and POST /api/room answers 503 live_unavailable, sending
+nothing.
 
   python server/server.py                       # this machine only, port 8191
   python server/server.py --public              # every interface, at $PORT
@@ -292,6 +294,12 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             self.drain()
             return self.send_json(409, error_body('live_off', 'This server is in MOCK mode, so it sends no photo anywhere. Play the sample rooms.'))
+        if self.server.live_ended():
+            # a page opened while LIVE was on: refused as the live AI
+            # unavailable, so our kitchen falls back to its replay
+            self.close_connection = True
+            self.drain()
+            return self.send_json(503, error_body('live_unavailable', config.ended_refusal(s.live_until)))
         transport = getattr(self.server.pipeline, 'transport', None)
         claim = getattr(transport, 'claim', None)
         held = claim() if claim is not None else 'open'
@@ -365,6 +373,12 @@ class FramePlayServer(ThreadingHTTPServer):
         self.limits = limits
         self._replay = None
         self._replay_lock = threading.Lock()
+        self.clock = time.time  # tests may swap it: FRAMEPLAY_LIVE_UNTIL is wall-clock time
+
+    def live_ended(self):
+        """True once FRAMEPLAY_LIVE_UNTIL has passed on a LIVE server."""
+        s = self.settings
+        return s.mode == 'live' and s.live_until is not None and self.clock() >= s.live_until
 
     def replay_pipeline(self):
         """The replay of the sample kitchen photo, made on first use, or None
@@ -385,14 +399,16 @@ class FramePlayServer(ThreadingHTTPServer):
 
     def health(self):
         s = self.settings
+        # after FRAMEPLAY_LIVE_UNTIL, LIVE has turned itself off: MOCK, and why
+        mode = 'mock' if self.live_ended() else s.mode
         h = {
             'service': 'FRAME//PLAY',
-            'mode': s.mode,
-            'reason': s.reason,
-            'label': s.label,
+            'mode': mode,
+            'reason': config.ended_words(s.live_until) if mode != s.mode else s.reason,
+            'label': config.LABELS[mode],
             'key': 'present (never shown)' if s.key_present or s.mode == 'live' else 'absent',
             'models': {'read': config.SPARK_MODEL, 'find': config.SAM_MODEL},
-            'models_called': list(config.MODELS) if s.mode == 'live' else [],
+            'models_called': list(config.MODELS) if mode == 'live' else [],
             'outline_source': config.OUTLINE_SOURCE,
             'ceilings': {
                 'body_bytes': config.MAX_BODY,
@@ -405,6 +421,8 @@ class FramePlayServer(ThreadingHTTPServer):
                 'photos_per_client_per_hour': config.CLIENT_PER_HOUR,
                 'photos_per_client_per_day': config.CLIENT_PER_DAY,
                 'usd_stop_per_day': s.usd_stop,
+                # FRAMEPLAY_LIVE_UNTIL: when LIVE turns itself off (None: no end)
+                'live_until': config.utc_words(s.live_until) if s.live_until is not None else None,
                 'seconds_per_call': config.CALL_TIMEOUT_S,
                 'seconds_per_read': config.SPARK_TIMEOUT_S,
                 'seconds_per_photo': config.PHOTO_TIMEOUT_S,
@@ -440,7 +458,7 @@ class FramePlayServer(ThreadingHTTPServer):
     def live_state(self):
         """'off' in MOCK; otherwise 'ok', or 'unavailable' after an account or
         model problem, with the reason in words (never the key)."""
-        if self.settings.mode == 'mock':
+        if self.settings.mode == 'mock' or self.live_ended():
             return {'live_state': 'off', 'live_reason': None}
         transport = getattr(self.pipeline, 'transport', None)
         if not hasattr(transport, 'live_state'):

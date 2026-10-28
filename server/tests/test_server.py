@@ -417,6 +417,50 @@ class Uploads(unittest.TestCase):
         self.assertEqual(self.limits.counters()['photos_this_hour'], 0)
 
 
+class LiveUntil(unittest.TestCase):
+    """FRAMEPLAY_LIVE_UNTIL: after it LIVE turns itself off, sending nothing."""
+
+    def test_after_its_time_live_is_off_and_nothing_is_sent(self):
+        fake = FakeMeta()
+        self.addCleanup(fake.stop)
+        fake.always('/chat/completions', ok_json({'error': {'code': 'should_not_be_called'}}, 500))
+        holder = KeyHolder(TEST_VALUE)
+        end = 4_102_444_800.0  # 2100-01-01 00:00 UTC
+        s = Settings('live', 'The key is present and FRAMEPLAY_LIVE is yes.', holder, config.API_BASE, 200, 5.0, '', True,
+                     live_until=end)
+        pipe = Pipeline(s, Limits(), log=Log(stream=[]), transport=Transport(fake.base, holder), sleep=lambda x: None)
+        run_ = Running(s, pipeline=pipe, limits=pipe.limits)
+        self.addCleanup(run_.stop)
+        pipe.log = run_.srv.log
+        run_.srv.clock = lambda: end - 1
+        h = json.loads(run_.request('GET', '/api/health')[2])
+        self.assertEqual((h['mode'], h['live_state'], h['ceilings']['live_until']), ('live', 'ok', '2100-01-01 00:00 UTC'))
+        run_.srv.clock = lambda: end
+        h = json.loads(run_.request('GET', '/api/health')[2])
+        self.assertEqual((h['mode'], h['label'], h['models_called'], h['live_state']), ('mock', config.LABELS['mock'], [], 'off'))
+        self.assertIn('LIVE on this server ended at 2100-01-01 00:00 UTC', h['reason'])
+        self.assertIn('our kitchen replays', h['reason'])
+        # a page opened while LIVE was on: refused as the live AI unavailable, so our kitchen falls back to its replay
+        status, headers, body = run_.request('POST', '/api/room', images.jpeg(), {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'})
+        j = json.loads(body)
+        self.assertEqual((status, j['error']['code']), (503, 'live_unavailable'))
+        self.assertEqual(j['error']['message'], 'LIVE on this server ended at 2100-01-01 00:00 UTC, as its owner set, '
+                                                'so this photo was not sent. The sample rooms still work.')
+        self.assertNotIn('Retry-After', headers, 'it does not come back by itself')
+        self.assertEqual(fake.requests, [], 'nothing is sent')
+        self.assertEqual(pipe.limits.counters()['photos_today'], 0)
+        # the replay still answers, in every mode
+        self.assertEqual(run_.request('POST', '/api/replay/kitchen', b'', {'X-FramePlay-Request': '1'})[0], 200)
+
+    def test_no_end_when_unset(self):
+        srv = FramePlayServer(('127.0.0.1', 0), settings_from({}), log=Log(stream=[]))
+        try:
+            self.assertFalse(srv.live_ended())
+            self.assertIsNone(srv.health()['ceilings']['live_until'])
+        finally:
+            srv.server_close()
+
+
 class RehearsalStaysHome(unittest.TestCase):
     def test_rehearsal_refuses_any_host_but_loopback(self):
         for host in ('0.0.0.0', '::', '192.168.1.20', 'example'):

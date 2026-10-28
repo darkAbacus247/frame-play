@@ -2,7 +2,9 @@
 
 The server runs in one of three modes:
 - mock: the default, whenever the key or the live switch is missing;
-- live: MODEL_API_KEY is present and FRAMEPLAY_LIVE is exactly "yes";
+- live: MODEL_API_KEY is present and FRAMEPLAY_LIVE is exactly "yes", until
+  FRAMEPLAY_LIVE_UNTIL (an ISO time in UTC; unset: no end), after which the
+  server turns LIVE off itself and runs as mock;
 - rehearsal: --rehearse http://127.0.0.1:PORT/v1, a loopback stand-in with a
   fixed dummy credential; it refuses to start if either live variable is set.
 
@@ -14,7 +16,9 @@ import ipaddress
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 API_BASE = 'https://api.meta.ai/v1'
@@ -203,6 +207,37 @@ def check_models(ids):
             raise ConfigError(f'Refusing to start: {m} is not a Standard model id')
 
 
+def live_until_from(raw):
+    """FRAMEPLAY_LIVE_UNTIL as seconds since 1970, or None (unset or empty:
+    no end). An ISO time in UTC, such as 2026-11-09T00:00:00Z; one with no
+    zone is taken as UTC. A time that cannot be read refuses to start."""
+    if raw is None or not raw.strip():
+        return None
+    try:
+        when = datetime.fromisoformat(raw.strip().replace('Z', '+00:00').replace('z', '+00:00'))
+    except ValueError:
+        raise ConfigError('FRAMEPLAY_LIVE_UNTIL must be an ISO time in UTC, such as 2026-11-09T00:00:00Z') from None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.timestamp()
+
+
+def utc_words(t):
+    return time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(t))
+
+
+def ended_words(until):
+    """Health's reason once LIVE has ended."""
+    return (f'LIVE on this server ended at {utc_words(until)}, as its owner set (FRAMEPLAY_LIVE_UNTIL), so no model '
+            'is called: the sample rooms are drawn by code, and our kitchen replays Meta’s recorded answer.')
+
+
+def ended_refusal(until):
+    """A photo sent after LIVE ended."""
+    return (f'LIVE on this server ended at {utc_words(until)}, as its owner set, so this photo was not sent. '
+            'The sample rooms still work.')
+
+
 def _lowered(environ, name, ceiling, cast):
     raw = environ.get(name)
     if raw is None or raw == '':
@@ -229,6 +264,8 @@ class Settings:
     riddles: bool = True
     # LIVE only: the folder that keeps the day's spend (server/limits.py)
     data_dir: str = ''
+    # FRAMEPLAY_LIVE_UNTIL: after it LIVE turns itself off (None: no end)
+    live_until: float = None
 
     @property
     def label(self):
@@ -251,6 +288,7 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
     live_on = environ.get('FRAMEPLAY_LIVE') == 'yes'
     # Ask the room: on unless switched off; a setting may only lower a ceiling
     riddles = (environ.get('FRAMEPLAY_RIDDLES') or '').strip().lower() != 'no'
+    live_until = live_until_from(environ.get('FRAMEPLAY_LIVE_UNTIL'))
     if rehearse is not None:
         if 'MODEL_API_KEY' in environ or 'FRAMEPLAY_LIVE' in environ:
             raise ConfigError('Refusing to rehearse: MODEL_API_KEY or FRAMEPLAY_LIVE is set. Rehearsal never holds a key.')
@@ -258,13 +296,15 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
             raise ConfigError('The rehearsal room must be a sample room id')
         return Settings('rehearsal', 'Rehearsing against a local stand-in, not Meta. No key is held.',
                         None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles)
+    if has_key and live_on and live_until is not None and time.time() >= live_until:
+        return Settings('mock', ended_words(live_until), None, API_BASE, day_cap, usd_stop, '', True, live_until=live_until)
     if has_key and live_on:
         # the day's spend is kept in a writable folder: FRAMEPLAY_DATA_DIR,
         # or frameplay in the system's temporary folder
         data_dir = (environ.get('FRAMEPLAY_DATA_DIR') or '').strip() or os.path.join(tempfile.gettempdir(), 'frameplay')
         return Settings('live', 'The key is present and FRAMEPLAY_LIVE is yes.',
                         KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True, riddles=riddles,
-                        data_dir=data_dir)
+                        data_dir=data_dir, live_until=live_until)
     if has_key:
         why = 'The key is present but FRAMEPLAY_LIVE is not yes, so no model is called.'
     elif live_on:

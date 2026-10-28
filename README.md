@@ -427,6 +427,15 @@ our kitchen photo's recorded answer is replayed there (`POST
 The replay has its own 4 places at once, never LIVE's, so it never waits
 behind a live read, and each client may replay it 10 times a minute.
 
+`FRAMEPLAY_LIVE_UNTIL` (an ISO time in UTC, such as
+`2026-11-09T00:00:00Z`) sets when LIVE turns itself off; unset, LIVE has no
+end. After that time the server calls no model: health says MOCK and why
+(and `live_until` in its ceilings), the sample rooms are drawn by code, our
+kitchen replays Meta's recorded answer labeled REPLAY, and a photo sent from
+a page opened earlier is refused in words (503 live_unavailable), so our
+kitchen falls back to its replay there too. A time that cannot be read
+stops the server from starting.
+
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
 day, and stops for the day at an estimated $5. Within those, each client
 gets at most 3 photos an hour and 10 a day, so one visitor cannot use up the
