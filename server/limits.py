@@ -167,15 +167,33 @@ class Limits:
             self.calls += 1
             return Reservation(usd)
 
-    def settle(self, res, actual_usd):
-        """The reservation becomes the call's actual estimate. A call whose
-        answer was lost stays counted at its reservation (it may be billed)."""
+    def settle(self, res, actual_usd, sends=1):
+        """The reservation becomes the call's actual estimate, counted once
+        for each time the call was sent (a call sent again may be billed
+        again). A call whose answer was lost stays counted at its
+        reservation (it may be billed)."""
+        sends = max(1, sends)
         with self.lock:
             if not res.open:
                 return
             res.open = False
             self.reserved = max(0.0, self.reserved - res.usd)
-            self.spent += res.usd if actual_usd is None else max(0.0, actual_usd)
+            self.spent += (res.usd if actual_usd is None else max(0.0, actual_usd)) * sends
+            self.calls += sends - 1
+
+    def failed(self, res, billed, sends=1):
+        """A call that ended in an error after `sends` sends: each earlier
+        send counted at the reservation (it may be billed), the last as its
+        answer says. Returns the estimate counted."""
+        earlier = max(1, sends) - 1
+        if billed:
+            self.settle(res, None, earlier + 1)
+            return res.usd * (earlier + 1)
+        if earlier:
+            self.settle(res, None, earlier)
+            return res.usd * earlier
+        self.release(res)
+        return 0.0
 
     def release(self, res):
         """A call refused before any work: nothing was billed."""

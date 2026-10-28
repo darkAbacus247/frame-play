@@ -331,11 +331,8 @@ def run_riddles(pipeline, photo, reply):
                                                  deadline, pipeline.sleep, pipeline.clock)
         raw, tin, tout = read_riddles(j, s.key)
     except CallError as e:
-        if e.billed:
-            pipeline.limits.settle(res, None)
-            usage['estimated_usd'] = round(res.usd, 5)
-        else:
-            pipeline.limits.release(res)
+        # each send counted: a call sent again may be billed again
+        usage['estimated_usd'] = round(pipeline.limits.failed(res, e.billed, getattr(e, 'attempt', 1)), 5)
         call = {'stage': 'riddle', 'model': model, 'status': e.status or e.code, 'ms': int((pipeline.clock() - t0) * 1000),
                 'attempt': getattr(e, 'attempt', 1), 'error': e.code}
         if e.excerpt:
@@ -346,8 +343,8 @@ def run_riddles(pipeline, photo, reply):
             pipeline.log.write(event='riddles', request_id=reply.get('request_id'), status=status, error=e.code,
                                ms=call['ms'], listed=len(objects))
         return line_for(pipeline, reply, status, calls=calls, usage=usage, error={'code': e.code, 'message': e.message})
-    cost = spark_cost(tin, tout)
-    pipeline.limits.settle(res, cost)
+    cost = spark_cost(tin, tout) * attempt  # this answer's estimate, each time it was sent
+    pipeline.limits.settle(res, spark_cost(tin, tout), attempt)
     usage.update(tokens_in=tin, tokens_out=tout, estimated_usd=round(cost, 5))
     calls.append({'stage': 'riddle', 'model': model, 'status': 200, 'ms': ms, 'attempt': attempt,
                   'tokens_in': tin, 'tokens_out': tout, 'usd': round(cost, 5)})

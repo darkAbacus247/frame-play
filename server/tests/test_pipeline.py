@@ -8,7 +8,7 @@ from pathlib import Path
 from server import config, samtext
 from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
-from server.limits import Limits, Refusal
+from server.limits import SAM_COST, Limits, Refusal, spark_cost
 from server.meta_api import CallError, Transport
 from server.pipeline import (Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims,
                              held, inside, normalize_name, reply_error, surface_from, surface_like)
@@ -227,6 +227,20 @@ class Reads(WithFake):
         mug = next(o for o in r['objects'] if o['name'] == 'mug')
         self.assertEqual(mug['found_by'], 'points', 'the box for another size is not used; the mug’s point is')
         self.assertIn('not found by SAM 3.1: mug (the answer was for a different picture size); code traces around Muse Spark’s points for it instead', r['warnings'])
+
+    def test_a_call_sent_again_is_counted_each_time(self):
+        # the read answered on its second send, one SAM call on its second
+        self.fake.on('/chat/completions', (500, {}, b''), spark_answer(READ))
+        self.fake.on('/responses', (502, {}, b''))
+        r = self.pipe.run(photo())
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual((self.fake.count('/chat/completions'), self.fake.count('/responses')), (2, 7))
+        want = 2 * spark_cost(2000, 1500) + 7 * SAM_COST
+        self.assertAlmostEqual(self.limits.spent, want)
+        self.assertAlmostEqual(r['usage']['estimated_usd'], round(want, 5))
+        self.assertEqual(self.limits.counters()['calls_sent'], 9, 'every send')
+        read = r['provenance']['calls'][0]
+        self.assertEqual((read['attempt'], read['usd']), (2, round(2 * spark_cost(2000, 1500), 5)))
 
     def test_the_spend_stop(self):
         self.fake.on('/chat/completions', spark_answer(READ))

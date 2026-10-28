@@ -160,6 +160,19 @@ class Ceilings(unittest.TestCase):
         lim.settle(lost, None)  # an answer that was lost stays counted
         self.assertAlmostEqual(lim.spent, 0.01 + SAM_COST)
 
+    def test_a_call_sent_again_is_counted_each_time(self):
+        lim = Limits(clock=Clock())
+        lim.settle(lim.reserve(SAM_COST), SAM_COST, sends=3)
+        self.assertAlmostEqual(lim.spent, 3 * SAM_COST)
+        self.assertEqual(lim.calls, 3)
+        # an error after two sends: the earlier one may be billed; the last as its answer says
+        self.assertAlmostEqual(lim.failed(lim.reserve(SAM_COST), billed=False, sends=2), SAM_COST)
+        self.assertAlmostEqual(lim.failed(lim.reserve(SAM_COST), billed=True, sends=2), 2 * SAM_COST)
+        self.assertAlmostEqual(lim.failed(lim.reserve(SAM_COST), billed=False), 0.0)
+        self.assertAlmostEqual(lim.spent, 6 * SAM_COST)
+        self.assertAlmostEqual(lim.reserved, 0.0)
+        self.assertEqual(lim.calls, 6, 'a last send refused before any work is not counted')
+
     def test_counters(self):
         lim = Limits(clock=Clock())
         lim.admit()

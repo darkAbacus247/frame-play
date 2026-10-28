@@ -856,11 +856,8 @@ class Pipeline:
             j, attempt, ms = self.transport.post('/chat/completions', spark_body(data_url), deadline, self.sleep, self.clock)
             read, tin, tout, reasoning = read_spark(j, s.key)
         except CallError as e:
-            if e.billed:
-                self.limits.settle(res, None)
-                usage['estimated_usd'] += res.usd
-            else:
-                self.limits.release(res)
+            # each send counted: a call sent again may be billed again
+            usage['estimated_usd'] += self.limits.failed(res, e.billed, getattr(e, 'attempt', 1))
             usage['calls'] += 1
             usage['spark_calls'] += 1
             extra = {'error': e.code}
@@ -880,8 +877,9 @@ class Pipeline:
             retry = not latched and (getattr(e, 'transient', False) or e.code in RETRY_SAME)
             return reply('error', {'code': code, 'message': e.message, 'retry_same': retry,
                                    **({'status': e.status} if isinstance(e.status, int) else {})})
-        cost = spark_cost(tin, tout)
-        self.limits.settle(res, cost)
+        # a read sent again is counted at this answer's estimate each time
+        cost = spark_cost(tin, tout) * attempt
+        self.limits.settle(res, spark_cost(tin, tout), attempt)
         usage.update(calls=usage['calls'] + 1, spark_calls=1, tokens_in=tin, tokens_out=tout, reasoning_tokens=reasoning)
         usage['estimated_usd'] += cost
         note('read', config.SPARK_MODEL, 200, ms, attempt, tokens_in=tin, tokens_out=tout, usd=round(cost, 5))
@@ -925,18 +923,15 @@ class Pipeline:
             try:
                 j, attempt, ms = self.transport.post('/responses', sam_body(noun, data_url), deadline, self.sleep, self.clock)
             except CallError as e:
-                if e.billed:
-                    self.limits.settle(r, None)
-                else:
-                    self.limits.release(r)
+                self.limits.failed(r, e.billed, getattr(e, 'attempt', 1))
                 note('find', config.SAM_MODEL, e.status or e.code, int((self.clock() - t) * 1000), getattr(e, 'attempt', 1),
                      noun=noun, error=e.code, **({'excerpt': e.excerpt} if e.excerpt else {}),
                      **({'surface': True} if kind == 'surface' else {}))
                 return job, None, e
-            self.limits.settle(r, SAM_COST)
+            self.limits.settle(r, SAM_COST, attempt)  # once for each time it was sent
             text = sam_text(j)
             parsed = samtext.parse(text, W, H)
-            extra = {'noun': noun, 'matches': len(parsed.records), 'usd': SAM_COST}
+            extra = {'noun': noun, 'matches': len(parsed.records), 'usd': SAM_COST * attempt}
             if kind == 'surface':
                 extra['surface'] = True
             if parsed.errors:
@@ -947,7 +942,7 @@ class Pipeline:
                 extra['diagnostics'] = parsed.warnings
             note('find', config.SAM_MODEL, 200, ms, attempt, **extra)
             with lock:
-                usage['estimated_usd'] += SAM_COST
+                usage['estimated_usd'] += SAM_COST * attempt
             return job, parsed, None
 
         with ThreadPoolExecutor(max_workers=max(1, min(SAM_WORKERS, len(jobs)))) as pool:

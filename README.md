@@ -441,7 +441,7 @@ given up. A photo is one Muse Spark
 call, at most 12 SAM 3.1 calls and one more Muse Spark call for its riddles
 (at most 14 calls in all): at the published prices about four to five
 cents, and about nine cents at worst (every call answered once; a call sent
-again costs again), so the stop allows at least 50 photos a day. If the Model API refuses the
+again costs again, and the estimate counts each send), so the stop allows at least 50 photos a day. If the Model API refuses the
 key, the account has no credit or quota, or a model is gone, the server
 stops sending photos, says so in health (live_state: unavailable), and lets
 one photo check again every 10 minutes. When LIVE cannot read a photo for

@@ -158,8 +158,12 @@ class ReplayLimits:
     def reserve(self, usd):
         return Reservation(0.0)
 
-    def settle(self, res, actual_usd):
+    def settle(self, res, actual_usd, sends=1):
         res.open = False
+
+    def failed(self, res, billed, sends=1):
+        res.open = False
+        return 0.0
 
     def release(self, res):
         res.open = False
