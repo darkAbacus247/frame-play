@@ -25,7 +25,12 @@ Drills on demand (--drill, or POST /drill {"name": ...} from this machine):
 401, 404 (model_not_found), 429 (once, with Retry-After), 503,
 content_filter, zero_matches, malformed_record, people, and sam_busy (the
 room read is answered; every SAM call is answered 429, Retry-After 0, as
-long as the drill holds).
+long as the drill holds). Say it: voice_400, voice_429 and voice_503 drill
+the transcribe call the same way.
+
+  - POST /v1/asr/transcribe answers a fixed transcript in the documented
+    shape {"sessionId", "transcript", "audioDurationMs", "turns"}; its body
+    is multipart, not JSON.
 
   python server/standin.py --room desk --port 8192
 """
@@ -49,7 +54,9 @@ from server.imageinfo import ImageError, size, sniff  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 DRILLS = ('401', '404', '429', '503', 'content_filter', 'zero_matches', 'malformed_record', 'people', 'sam_busy',
           # Ask the room: the riddles call answered wrong in one way each
-          'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter')
+          'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter',
+          # Say it: the transcribe call answered wrong in one way each
+          'voice_400', 'voice_429', 'voice_503')
 LISTED = re.compile(r'^(o\d+) \| (.+?) \| x (\d+)-(\d+), y (\d+)-(\d+)$')
 
 
@@ -292,6 +299,8 @@ class StandIn:
             return 429, {'Retry-After': '0'}, {'error': {'code': 'rate_limited', 'type': 'rate_limit_error', 'message': 'Slow down'}}
         if drill == '503':
             return 503, {}, {'error': {'code': 'unavailable', 'type': 'server_error', 'message': 'Unavailable'}}
+        if path == '/v1/asr/transcribe':
+            return self.transcribe(body, drill)
         if not isinstance(body, dict):
             return 400, {}, {'error': {'code': 'invalid_request', 'message': 'The body is not JSON'}}
         if path == '/v1/chat/completions':
@@ -299,6 +308,17 @@ class StandIn:
         if path == '/v1/responses':
             return self.responses(body, drill)
         return 404, {}, {'error': {'code': 'not_found', 'message': 'No such route'}}
+
+    def transcribe(self, body, drill):
+        """Say it: a fixed transcript in the documented shape. The body is
+        multipart, not JSON, so it is not checked."""
+        if drill == 'voice_400':
+            return 400, {}, {'error': {'code': 'invalid_request', 'message': 'The voice request cannot be read'}}
+        if drill == 'voice_429':
+            return 429, {'Retry-After': '1'}, {'error': {'code': 'rate_limited', 'type': 'rate_limit_error', 'message': 'Slow down'}}
+        if drill == 'voice_503':
+            return 503, {}, {'error': {'code': 'unavailable', 'type': 'server_error', 'message': 'Unavailable'}}
+        return 200, {}, {'sessionId': 'asr-standin', 'transcript': 'the fridge', 'audioDurationMs': 1500, 'turns': []}
 
     def riddles(self, body, drill):
         """Ask the room: the room file's own riddles, in Muse Spark's shape,
