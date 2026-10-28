@@ -64,6 +64,39 @@ class WhatWasPreExisting(unittest.TestCase):
             self.assertTrue(after.startswith((' below', ' under License')), after)
 
 
+class Claims(unittest.TestCase):
+    def test_the_people_refusal_is_said_for_reads_only(self):
+        # claims-5: Muse Spark's flag stops a LIVE read; in MOCK nothing
+        # reads the photo, so nothing checks it for people
+        readme = flat('README.md')
+        self.assertIn('in LIVE, Muse Spark sees a person in the photo it reads, and the read stops there', readme)
+        self.assertIn('In MOCK no model reads the photo, so nothing checks it for people', readme)
+
+    def test_a_riddle_count_is_the_number_of_its_answers(self):
+        # claims-6: n is len(answer_ids) Muse Spark chose (server/riddles.py),
+        # each one a thing SAM found; SAM does not give the count
+        self.assertIn("'n': len(ids)", text('server/riddles.py'))
+        for rel in ('README.md', 'server/riddles.py', 'src/riddle.js'):
+            words = flat(rel)
+            for said in ('where they are and how many there are', "from SAM's records", 'count from SAM', 'count SAM confirmed', 'how many come from SAM'):
+                self.assertNotIn(said, words, rel)
+        self.assertIn('code fills in the count of those answers', flat('README.md'))
+
+    def test_screen_reader_support_is_said_as_far_as_it_is_checked(self):
+        # claims-11: the tests run on a stand-in page; no real screen reader
+        # run is recorded
+        readme = flat('README.md')
+        self.assertNotIn('every screen works by keyboard and screen reader', readme)
+        self.assertIn('no run with a real screen reader is recorded here yet', readme)
+
+    def test_object_outlines_keep_their_holes_the_floor_does_not(self):
+        # claims-16: src/geom.js keeps holes (even-odd); src/floor_mask.js
+        # fills the floor's
+        readme = flat('README.md')
+        self.assertNotIn("walk, read even-odd (a mug's handle stays open)", readme)
+        self.assertIn("An object's outline keeps its holes; the floor's holes, where things stand, are filled as hidden floor", readme)
+
+
 class License(unittest.TestCase):
     # the two files the SAM License covers, each saying so in its header
     SAM_FILES = ('server/sam_mask.py', 'server/tests/lossless_encoder.py')

@@ -17,8 +17,10 @@ license is in the NOTICE under License, below.
 
 **Who it is for.** Any room you can photograph becomes a game: kids learning
 the names of things (the riddles), people in rehab or memory care playing in
-a room they know, and anyone, since every screen works by keyboard and
-screen reader.
+a room they know, and anyone: every screen is built for the keyboard and a
+screen reader, with labelled buttons, keys that steer and a spoken line for
+what happens (checked on a stand-in page by the tests; no run with a real
+screen reader is recorded here yet).
 
 **Try it in a minute.** Open the demo (the link is in the submission), or run
 `python server/server.py` and open `http://127.0.0.1:8191/`. On Step 2, pick
@@ -90,10 +92,10 @@ area, every outline a decoded mask, walls and doorways.
   room; SAM 3.1 answers "floor" (or the desk, the table) with one match a
   room. **SAM 3.1's floor mask is the play area:** the server lays the
   masks of SAM's floor matches together, and that floor is where the
-  explorer may walk, read even-odd (a mug's handle stays open), together
-  with **the floor you cannot see**: the floor hidden behind and under the
-  things standing on it, inferred from the floor that was seen. The mask's
-  holes are filled, and so are the slivers a mask leaves between a thing and
+  explorer may walk, together with **the floor you cannot see**: the floor
+  hidden behind and under the things standing on it, inferred from the floor
+  that was seen. An object's outline keeps its holes; the floor's holes,
+  where things stand, are filled as hidden floor, and so are the slivers a mask leaves between a thing and
   the floor around it (within 0.6% of the picture's long side of a thing);
   then only each thing's footprint is taken out (seen at eye level, the band
   at its base where it meets the floor, not its whole silhouette; from
@@ -200,9 +202,12 @@ why ("Out of reach: behind walls with no doorway"), a tap there is refused
 where the explorer can stand, the floor's outline and a ring on each
 doorway.
 
-The people refusal (a person in the photo) and Muse Spark declining to
-read a photo for its content are the refusals with no marking after them:
-such a photo makes no room in any way. A photo that is
+The people refusal (in LIVE, Muse Spark sees a person in the photo it
+reads, and the read stops there) and Muse Spark declining to read a photo
+for its content are the refusals with no marking after them: such a photo
+makes no room in any way. In MOCK no model reads the photo, so nothing
+checks it for people; it stays on the device and can only be marked by
+hand. A photo that is
 refused is not shown on Step 12; the screen says in words why no room was
 made from it, and the photo appears again only on the marking board, if
 you choose to mark it.
@@ -347,9 +352,9 @@ waits for it: the card's primary still goes on, and so does the counter's →.
   was asked"; in REHEARSAL the stand-in answers with them. Our kitchen's
   replay has none: its recorded answers hold no riddle call.
 - **Who decides what is right.** Muse Spark says which things answer a
-  riddle; SAM 3.1 says where they are and how many there are (the number in
-  "find the four ..." is filled in by code from SAM's records, never written
-  by the model); code decides whether the player touched them, on each
+  riddle, and every answer must be a thing SAM 3.1 found; SAM 3.1 says
+  where they are; code fills in the count of those answers (the number in
+  "find the four ..."), so no model writes a number; code decides whether the player touched them, on each
   thing's own outline: SAM 3.1's mask in LIVE, the painted shape in the
   samples. No model judges an answer.
 - **What is kept.** Code keeps a riddle only if it passes every check
@@ -369,7 +374,8 @@ waits for it: the card's primary still goes on, and so does the counter's →.
 - **Cost and switch.** One more Muse Spark call a photo, about 0.8 cent;
   `FRAMEPLAY_RIDDLES=no` on the server turns it off. Checked live on our
   kitchen photo on 2026-10-28: three riddles 6.4 s after the reveal (the
-  refrigerator, the stove, and the four cabinets, their count from SAM),
+  refrigerator, the stove, and the four cabinets, their count filled in
+  by code),
   every answer graded on SAM 3.1's own masks.
 
 ## Sound and motion
@@ -507,8 +513,10 @@ picture through them.
   reveal counts it as kept as a box.
 - One photo, one room; a 2.5D approximation with one baseline per object.
 - Ask the room: a riddle's answer is Muse Spark's judgement of the photo;
-  where its answers are and how many come from SAM 3.1, so a thing SAM did
-  not find is never an answer. English only, at most three riddles a room.
+  where its answers are comes from SAM 3.1, so a thing SAM did not find is
+  never an answer, and their count is the number of answers Muse Spark
+  chose (if SAM found five cabinets and Muse Spark chose four, the riddle
+  asks for four). English only, at most three riddles a room.
 
 ## Disclosure
 

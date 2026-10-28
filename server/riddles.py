@@ -6,9 +6,10 @@ the photo and the list of what SAM 3.1 found, under the reply's own ids
 Code cleans every riddle (rules 1 to 8 below; each one dropped is said in
 words) and checks each answer's point against the box SAM found for that
 id. So the truth splits three ways: Muse Spark says which things answer a
-riddle, SAM 3.1 says where they are and how many there are, and the page's
-code says whether the player touched them. The count is never written by a
-model: the page fills it in from SAM's records. The server keeps nothing.
+riddle (each one a thing SAM 3.1 found), SAM 3.1 says where they are, and
+the page's code says whether the player touched them. The count is never
+written by a model: the page fills it in as the number of those answers.
+The server keeps nothing.
 
 Off with FRAMEPLAY_RIDDLES=no. Only in stream mode, only after an ok reply
 with at least two things, only within its own time and the spend stop.

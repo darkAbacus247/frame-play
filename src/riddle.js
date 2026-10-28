@@ -1,8 +1,8 @@
 // Ask the room: after a round, riddles about the picture, answered by
 // touching a thing in it. The truth splits three ways: Muse Spark (or the
-// sample's author) says which things answer a riddle, SAM 3.1 says where
-// they are and how many there are, and this code says whether the player
-// touched them. No model ever judges the player's answer. Pure logic.
+// sample's author) says which things answer a riddle, each one a thing SAM
+// 3.1 found, SAM 3.1 says where they are, this code counts them, and it says
+// whether the player touched them. No model ever judges the player's answer. Pure logic.
 import { pointInShape, distToRings, bounds, shapeArea } from './geom.js';
 import { objectWords } from './level.js';
 
@@ -28,7 +28,8 @@ const PEOPLE = new Set(['person', 'people', 'man', 'men', 'woman', 'women', 'chi
 const words = (s) => String(s).toLowerCase().match(/[a-z]+/g) || [];
 const stem = (w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
 
-// "{n}" becomes the count SAM confirmed, as a word: "Find the three things".
+// "{n}" becomes the number of the riddle's answers (each one a thing SAM
+// found), as a word: "Find the three things".
 export function fillCount(text, n) {
   return String(text).replace('{n}', NUMBER_WORDS[n] || String(n));
 }
