@@ -76,7 +76,11 @@ area, every outline a decoded mask, walls and doorways.
   about it (Ask the room, below); at most 14 calls in all, each carrying
   the photo (a failed call may be
   sent one more time, a busy answer twice; the room read is never sent
-  again after a timeout). This app does not store the photo. The room is
+  again after a timeout). This app does not store the photo. While this
+  demo runs on Meta's free hackathon credits, Meta may use the photos it
+  receives to improve its products (Meta's Billing page for the demo's
+  key: "While using free credits your content may be used for product
+  improvement."); the page says so before a photo is sent. The room is
   built from what the models found in it: Muse Spark names the things and
   gives each a role and a few points on it; SAM 3.1 answers each name with
   its matches (a box and a mask each), and of several, the ones holding
