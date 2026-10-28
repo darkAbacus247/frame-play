@@ -133,6 +133,9 @@ class ReplayLimits:
         with self.lock:
             self.in_flight = max(0, self.in_flight - 1)
 
+    def uncount(self, adm):
+        pass  # nothing was counted
+
     def reserve(self, usd):
         return Reservation(0.0)
 

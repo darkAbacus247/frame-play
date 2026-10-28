@@ -8,7 +8,7 @@ from pathlib import Path
 from server import config, samtext
 from server.config import KeyHolder, Settings, settings_from
 from server.imageinfo import check_photo
-from server.limits import Limits
+from server.limits import Limits, Refusal
 from server.meta_api import CallError, Transport
 from server.pipeline import (Pipeline, choose_matches, clean_read, iou, name_problem, point_regions, settle_claims,
                              held, inside, normalize_name, reply_error, surface_from, surface_like)
@@ -984,6 +984,20 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(status, 429)
         self.assertIn('Retry-After', h)
         self.assertEqual(json.loads(body)['error']['code'], 'busy')
+        self.assertEqual(len(self.fake.requests), 0)
+
+    def test_a_photo_refused_at_its_first_call_gives_its_place_back(self):
+        # another photo's call took the last of the day's room between this
+        # photo's admission and its first call
+        def stop(usd):
+            raise Refusal('spend_stop', 'This server has reached its spending stop for today ($5.00 estimated).')
+        self.limits.reserve = stop
+        for accept in ('application/json', 'application/x-ndjson'):
+            status, _, body = self.post(accept)
+            self.assertEqual(status, 200)
+            self.assertIn(b'spend_stop', body)
+        c = self.limits.counters()
+        self.assertEqual((c['photos_in_flight'], c['photos_this_hour'], c['photos_today']), (0, 0, 0))
         self.assertEqual(len(self.fake.requests), 0)
 
     def test_health_counts(self):

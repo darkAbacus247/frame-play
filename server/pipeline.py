@@ -668,7 +668,7 @@ class Pipeline:
     # ---- the HTTP side ----
     def handle(self, handler, photo, stream):
         try:
-            self.limits.admit()
+            adm = self.limits.admit()
         except Refusal as e:
             extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
             return handler.send_json(429, {'schema': REPLY_SCHEMA, 'status': 'refused',
@@ -684,6 +684,7 @@ class Pipeline:
         try:
             if not stream:
                 reply = self.run(photo)
+                self.unsent(adm, reply)
                 finish()
                 return handler.send_json(200, reply)
             handler.send_response(200)
@@ -714,6 +715,7 @@ class Pipeline:
                 if self.log is not None:
                     self.log.write(event='photo_failed', error=type(e).__name__)
                 reply = self.failed_reply()
+            self.unsent(adm, reply)
             finish()
             line({'type': 'reply', 'reply': reply})
             # Ask the room: the reply is on the page and the round can start;
@@ -724,6 +726,13 @@ class Pipeline:
             chunk(b'')  # the terminating chunk: 0, then an empty line
         finally:
             finish()
+
+    def unsent(self, adm, reply):
+        """A photo refused at the spending stop before its first call sent
+        nothing: it gives its place in the hour and the day back."""
+        err = reply.get('error') or {}
+        if reply.get('status') == 'refused' and err.get('code') == 'spend_stop' and not reply['provenance']['calls']:
+            self.limits.uncount(adm)
 
     def riddles(self, photo, reply):
         """The riddles line for a reply already sent (server/riddles.py)."""

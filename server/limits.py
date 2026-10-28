@@ -34,6 +34,17 @@ class Reservation:
         self.open = True
 
 
+class Admission:
+    """A photo taken in: when it was counted in the hour and the day, so a
+    photo that sends nothing can give its place back (uncount)."""
+    __slots__ = ('t', 'day', 'counted')
+
+    def __init__(self, t, day):
+        self.t = t
+        self.day = day
+        self.counted = True
+
+
 class Limits:
     def __init__(self, day_cap=config.PER_DAY, usd_stop=config.USD_STOP, clock=time.time,
                  in_flight=config.IN_FLIGHT, per_hour=config.PER_HOUR):
@@ -65,11 +76,13 @@ class Limits:
         return int((self.day + 1) * 86400 - now) + 1
 
     def admit(self):
-        """Take a photo in, or raise a Refusal. Pair with finish()."""
+        """Take a photo in, or raise a Refusal. Pair with finish(). A photo
+        whose first call could not be reserved is refused here, before it
+        counts in the hour or the day."""
         with self.lock:
             now = self.clock()
             self._roll(now)
-            if self.spent + self.reserved >= self.usd_stop:
+            if self.spent + self.reserved + SPARK_WORST > self.usd_stop + 1e-12:
                 raise Refusal('spend_stop', f'This server has reached its spending stop for today (${self.usd_stop:.2f} estimated). Please try again tomorrow, or play the sample rooms.', self._to_midnight(now))
             if self.in_flight >= self.max_in_flight:
                 raise Refusal('busy', 'Every reader on this server is busy with other photos. Please try again in a few seconds.', 5)
@@ -81,7 +94,21 @@ class Limits:
             self.in_flight += 1
             self.hour.append(now)
             self.photos_today += 1
-            return True
+            return Admission(now, self.day)
+
+    def uncount(self, adm):
+        """A photo that sent nothing (refused at the spending stop by a call
+        racing it): it uses none of the hour's or the day's room."""
+        with self.lock:
+            if adm is None or not adm.counted:
+                return
+            adm.counted = False
+            try:
+                self.hour.remove(adm.t)
+            except ValueError:
+                pass  # already out of the hour
+            if adm.day == self.day:
+                self.photos_today = max(0, self.photos_today - 1)
 
     def finish(self):
         with self.lock:

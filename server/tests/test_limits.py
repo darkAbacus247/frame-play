@@ -81,6 +81,26 @@ class Ceilings(unittest.TestCase):
             lim.admit()
         self.assertEqual(c.exception.code, 'spend_stop')
 
+    def test_a_photo_refused_at_the_stop_uses_no_hour_or_day(self):
+        # the rehearsal run's figures: $0.097 of a $0.12 stop leaves less than the read's worst
+        lim = Limits(usd_stop=0.12, clock=Clock())
+        r = lim.reserve(0.097)
+        lim.settle(r, 0.097)
+        for _ in range(3):
+            with self.assertRaises(Refusal) as c:
+                lim.admit()
+            self.assertEqual(c.exception.code, 'spend_stop')
+        c = lim.counters()
+        self.assertEqual((c['photos_in_flight'], c['photos_this_hour'], c['photos_today']), (0, 0, 0))
+        # a photo let in, then refused at its first call by a call racing it, gives its place back
+        lim = Limits(clock=Clock())
+        adm = lim.admit()
+        lim.uncount(adm)
+        lim.uncount(adm)  # once only
+        lim.finish()
+        c = lim.counters()
+        self.assertEqual((c['photos_in_flight'], c['photos_this_hour'], c['photos_today']), (0, 0, 0))
+
     def test_reservations_settle_and_release(self):
         lim = Limits(clock=Clock())
         r = lim.reserve(SPARK_WORST)
