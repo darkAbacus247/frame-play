@@ -389,6 +389,31 @@ waits for it: the card's primary still goes on, and so does the counter's →.
   by code),
   every answer graded on SAM 3.1's own masks.
 
+### Postcard (Muse Image)
+
+After a round in a room read live from a photo, the end card and the
+closing screen offer **Make a postcard (Muse Image)** as a secondary
+button: press it and the same shrunk, stripped photo the round used goes to
+Meta's Muse Image one more time, which draws a postcard of that very room
+with "Greetings from" and the room's name printed on it, then Muse Spark
+reads the printed text back and the card says whether it matches. It is off
+on the public demo and off by default: `FRAMEPLAY_IMAGE=yes` on the server
+turns it on (health says `postcard: on`), and the page offers it only then,
+and never for a sample room, a replay, a rehearsal or a marked room.
+
+- **What the card shows.** The picture, labelled "Made by Muse Image (AI) ·
+  LIVE", the read-back in one line (a match, or the difference named, such
+  as `expected "Kitchen" but read "Kitchn"`), and **Save the postcard**,
+  which downloads the JPEG. A postcard that fails says why in words, and
+  the round's own card is a press away; the round itself is never blocked.
+- **What is kept.** The round's shrunk photo stays in memory with its level
+  for the visit, never on the device or the server; a level loaded from the
+  device offers no postcard until its photo is picked again. The consent
+  notices say so before a photo is sent.
+- **Cost and limits.** About one cent a postcard (`POSTCARD_USD`) plus the
+  read-back's Muse Spark tokens, counted in the server's daily spending
+  stop, and at most 100 postcards a day on a server (`POSTCARD_DAY_CAP`).
+
 ## Sound and motion
 
 Every sound and the music are made in code with the Web Audio API; there

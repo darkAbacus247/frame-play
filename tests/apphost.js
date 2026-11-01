@@ -82,7 +82,10 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // replay(): the reply api/replay/kitchen gives (the server's replay of our
 // kitchen photo), or its streamed lines as a list, or null when the server
 // has no replay (an older one).
-export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null } = {}) {
+// health: more fields in the health answer (postcard: 'on', for one).
+// postcard(body): the answer api/postcard gives for a POST, as { status,
+// body } (a promise may wait), or null for no such route on this server.
+export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null, health = {}, postcard = null } = {}) {
   const doc = installFakeDocument();
   if (answer) {
     const make = doc.createElement;
@@ -119,10 +122,14 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
       requests.push([opts.method || 'GET', String(url)]);
       if (url === 'api/health') {
         if (!server) throw new Error('no server');
-        const h = { mode, reason: '', label: mode };
+        const h = { mode, reason: '', label: mode, ...health };
         if (mode === 'rehearsal') h.rehearsal = { stand_in_base: 'http://127.0.0.1:8192/v1', room };
         if (replay) h.replay = { kitchen: { route: 'api/replay/kitchen', photo: 'rooms/kitchen.jpg', recorded: '2026-10-27' } };
         return { ok: true, json: async () => h };
+      }
+      if (url === 'api/postcard' && postcard) {
+        const r = await postcard(opts.body, opts);
+        return { ok: r.status >= 200 && r.status < 300, status: r.status, headers: { get: () => 'application/json' }, json: async () => r.body };
       }
       if (url === 'api/replay/kitchen' && replay) {
         const reply = replay();

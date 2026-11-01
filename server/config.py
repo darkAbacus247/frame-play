@@ -69,6 +69,14 @@ SPARK_MAX_COMPLETION_TOKENS = 4000
 RIDDLE_SPARK_CALLS = 1
 RIDDLE_MAX_COMPLETION_TOKENS = 4000
 RIDDLE_TIMEOUT_S = 30.0
+# A room postcard (server/postcard.py): one Muse Image edit of the round's
+# photo, off unless FRAMEPLAY_IMAGE=yes says so. The picture itself is a
+# fixed price; the read-back of its printed text is one more Muse Spark call
+# with its own small output ceiling, reserved at its worst beside the picture.
+POSTCARD_USD = 0.01
+POSTCARD_DAY_CAP = 100
+READBACK_MAX_COMPLETION_TOKENS = 400
+READBACK_TIMEOUT_S = 30.0
 # After an account or model problem, no photo is sent for this long; then one
 # photo may check again.
 LIVE_HOLD_S = 600.0
@@ -264,6 +272,8 @@ class Settings:
     rehearsal_room: str = ''
     key_present: bool = False
     riddles: bool = True
+    # A room postcard: off unless FRAMEPLAY_IMAGE=yes says so.
+    image: bool = False
     # LIVE only: the folder that keeps the day's spend (server/limits.py)
     data_dir: str = ''
     # FRAMEPLAY_LIVE_UNTIL: after it LIVE turns itself off (None: no end)
@@ -290,6 +300,8 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
     live_on = environ.get('FRAMEPLAY_LIVE') == 'yes'
     # Ask the room: on unless switched off; a setting may only lower a ceiling
     riddles = (environ.get('FRAMEPLAY_RIDDLES') or '').strip().lower() != 'no'
+    # A room postcard: off unless the environment says yes.
+    image = environ.get('FRAMEPLAY_IMAGE') == 'yes'
     live_until = live_until_from(environ.get('FRAMEPLAY_LIVE_UNTIL'))
     if rehearse is not None:
         if 'MODEL_API_KEY' in environ or 'FRAMEPLAY_LIVE' in environ:
@@ -297,7 +309,7 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
         if not re.fullmatch(r'[a-z0-9_-]{1,32}', rehearsal_room or ''):
             raise ConfigError('The rehearsal room must be a sample room id')
         return Settings('rehearsal', 'Rehearsing against a local stand-in, not Meta. No key is held.',
-                        None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles)
+                        None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles, image=image)
     if has_key and live_on and live_until is not None and time.time() >= live_until:
         return Settings('mock', ended_words(live_until), None, API_BASE, day_cap, usd_stop, '', True, live_until=live_until)
     if has_key and live_on:
@@ -306,11 +318,11 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
         data_dir = (environ.get('FRAMEPLAY_DATA_DIR') or '').strip() or os.path.join(tempfile.gettempdir(), 'frameplay')
         return Settings('live', 'The key is present and FRAMEPLAY_LIVE is yes.',
                         KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True, riddles=riddles,
-                        data_dir=data_dir, live_until=live_until)
+                        image=image, data_dir=data_dir, live_until=live_until)
     if has_key:
         why = 'The key is present but FRAMEPLAY_LIVE is not yes, so no model is called.'
     elif live_on:
         why = 'FRAMEPLAY_LIVE is yes but there is no key, so no model is called.'
     else:
         why = 'No key and no live switch: sample rooms only, no model is called.'
-    return Settings('mock', why, None, API_BASE, day_cap, usd_stop, '', has_key)
+    return Settings('mock', why, None, API_BASE, day_cap, usd_stop, '', has_key, image=image)

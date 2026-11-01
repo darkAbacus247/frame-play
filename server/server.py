@@ -1,9 +1,11 @@
 """FRAME//PLAY's server: Python standard library only.
 
 Routes: GET / and an allowlist of the page's own files (the rooms and the
-sample kitchen photo included), GET /api/health, POST /api/room and, in every
-mode, POST /api/replay/kitchen (the sample kitchen photo's recorded answers
-replayed through the same pipeline; nothing is sent: server/replay.py).
+sample kitchen photo included), GET /api/health, POST /api/room, POST
+/api/postcard (a room postcard made by Muse Image, LIVE only and only when
+the postcard switch is on) and, in every mode, POST /api/replay/kitchen (the
+sample kitchen photo's recorded answers replayed through the same pipeline;
+nothing is sent: server/replay.py).
 Everything else is 404. After an account or model problem, POST /api/room
 answers 503 live_unavailable, sending nothing, and health says live_state:
 unavailable. After FRAMEPLAY_LIVE_UNTIL, LIVE turns itself off: health says
@@ -65,8 +67,11 @@ FIXED_FILES = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.j
                '/icons/icon-192.png': 'icons/icon-192.png', '/icons/icon-512.png': 'icons/icon-512.png'}
 PATTERNS = (re.compile(r'/src/[a-z_]+\.js'), re.compile(r'/rooms/[a-z0-9_-]+\.json'), re.compile(r'/rooms/kitchen\.jpg'))
 REPLAY_ROUTE = '/api/replay/kitchen'
+POSTCARD_ROUTE = '/api/postcard'
 # a replay carries no photo: its body, if any, is at most this long
 REPLAY_MAX_BODY = 64
+# a postcard carries the round's shrunk photo as a data URL: room JSON plus margin
+POSTCARD_MAX_BODY = 1024 * 1024
 
 
 def static_file(path):
@@ -169,9 +174,23 @@ class Handler(BaseHTTPRequestHandler):
         if not head:
             self.wfile.write(body)
 
-    def send_json(self, status, obj, extra=None, head=False):
-        text = config.redact(json.dumps(obj, ensure_ascii=False), self.server.settings.key)
+    def send_json(self, status, obj, extra=None, head=False, plain=()):
+        text = json.dumps(self.scrubbed(obj, plain), ensure_ascii=False)
         self.send_bytes(status, text.encode('utf-8'), 'application/json; charset=utf-8', extra, head)
+
+    def scrubbed(self, value, plain=()):
+        """The answer with the key and key-shaped strings removed from its
+        values, for the page: keys are never scrubbed, and plain names the
+        fields sent back byte for byte (the postcard picture is not a
+        secret). Logs and error text go through config.redact itself."""
+        holder = self.server.settings.key
+        if isinstance(value, dict):
+            return {k: (v if k in plain else self.scrubbed(v, ())) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.scrubbed(v, ()) for v in value]
+        if isinstance(value, str):
+            return config.redact(value, holder)
+        return value
 
     # ---- routes ----
     def do_GET(self, head=False):
@@ -194,6 +213,8 @@ class Handler(BaseHTTPRequestHandler):
         route = self.route
         if route == REPLAY_ROUTE:
             return self.post_replay()
+        if route == POSTCARD_ROUTE:
+            return self.post_postcard()
         if route != '/api/room':
             self.close_connection = True  # its body is never used
             self.drain()
@@ -206,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
         route = self.route
         self.close_connection = True
         self.drain()
-        if route in ('/api/room', REPLAY_ROUTE):
+        if route in ('/api/room', REPLAY_ROUTE, POSTCARD_ROUTE):
             return self.send_json(405, error_body('method', f'Use POST for {route}.'), {'Allow': 'POST'})
         if route == '/api/health' or static_file(route) is not None:
             return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
@@ -361,6 +382,113 @@ class Handler(BaseHTTPRequestHandler):
             if adm is not None and not handed:
                 pipeline.limits.cancel(adm)
 
+    def post_postcard(self):
+        """A room postcard made by Muse Image, then a read-back of its printed
+        text. LIVE only, and only when the postcard switch is on. The picture
+        is the round's shrunk photo as a data URL; the read-back failing never
+        fails the postcard."""
+        s = self.server.settings
+        if not self.page_only():
+            return
+        try:
+            length = int(self.headers.get('Content-Length', ''))
+        except ValueError:
+            self.close_connection = True
+            return self.send_json(411, error_body('length', 'The postcard must come with its length. Please try again from the page.'))
+        if length < 0 or length > POSTCARD_MAX_BODY:
+            self.close_connection = True
+            self.drain()
+            return self.send_json(413, error_body('too_large', 'The postcard request is too large. Please try again from the page.'))
+        data = self.read_body(length)
+        if data is None:
+            self.close_connection = True
+            return self.send_json(400, error_body('short', 'The postcard request arrived incomplete. Please try again.'))
+        try:
+            got = json.loads(data)
+        except ValueError:
+            return self.send_json(400, error_body('bad_request', 'The postcard request is not JSON. Please try again from the page.'))
+        photo = got.get('photo') if isinstance(got, dict) else None
+        room = got.get('room') if isinstance(got, dict) else None
+        from server import postcard as postcard_mod
+        name = postcard_mod.clean_room_name(room)
+        if not isinstance(photo, str) or not photo.startswith('data:image/jpeg;base64,') or not name:
+            return self.send_json(400, error_body('bad_request', 'The postcard needs the round\'s photo and the room\'s name. Please try again from the page.'))
+        if not s.image:
+            self.close_connection = True
+            self.drain()
+            return self.send_json(409, error_body('image_off', 'Room postcards are switched off on this server. The round itself still works.'))
+        if s.mode != 'live' or self.server.live_ended():
+            self.close_connection = True
+            self.drain()
+            if self.server.live_ended():
+                return self.send_json(503, error_body('live_unavailable', config.ended_refusal(s.live_until)))
+            return self.send_json(409, error_body('live_off', 'Room postcards need the live AI. The round itself still works.'))
+        transport = getattr(self.server.pipeline, 'transport', None)
+        if transport is None:
+            return self.send_json(503, error_body('not_ready', 'The live path is not available on this server. The round itself still works.'))
+        claim = getattr(transport, 'claim', None)
+        held = claim() if claim is not None else 'open'
+        if held is None:
+            self.close_connection = True
+            _, _, wait = transport.live_state()
+            words = transport.refusal_words() if hasattr(transport, 'refusal_words') else LIVE_UNAVAILABLE
+            return self.send_json(503, error_body('live_unavailable', words), {'Retry-After': str(max(1, wait))})
+        try:
+            return self.run_postcard(transport, photo, name)
+        finally:
+            if held == 'probe':
+                transport.release()
+
+    def run_postcard(self, transport, photo, name):
+        """The postcard's guards (the day cap, the spend stop) and its calls."""
+        from server import postcard as postcard_mod
+        from server.limits import Refusal as LimitRefusal
+        from server.meta_api import CallError
+        server = self.server
+        try:
+            server.take_postcard_place()
+        except LimitRefusal as e:
+            self.close_connection = True
+            extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
+            return self.send_json(429, error_body(e.code, e.message), extra)
+        limits = server.pipeline.limits if server.pipeline is not None else server.limits
+        try:
+            res = limits.reserve(postcard_mod.POSTCARD_WORST)
+        except LimitRefusal as e:
+            server.give_postcard_place_back()
+            self.close_connection = True
+            extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
+            return self.send_json(429, error_body(e.code, e.message), extra)
+        user_id = 'frameplay-demo'
+        sleep = getattr(server.pipeline, 'sleep', time.sleep)
+        clock = getattr(server.pipeline, 'clock', time.monotonic)
+        try:
+            deadline = clock() + config.CALL_TIMEOUT_S
+            b64, _, image_sends = postcard_mod.edit_postcard(transport, name, photo, user_id, deadline, sleep, clock)
+        except CallError as e:
+            if e.code == 'refused':
+                limits.release(res)
+            else:
+                limits.failed(res, e.billed, getattr(e, 'attempt', 1) or 1)
+            self.close_connection = True
+            status = 400 if e.code == 'refused' else (503 if e.transient else 400)
+            return self.send_json(status, error_body(e.code, e.message))
+        readback = {'lines': [], 'match': False, 'difference': 'the read-back did not run'}
+        try:
+            deadline = clock() + config.READBACK_TIMEOUT_S
+            lines, tin, tout, _ = postcard_mod.readback(transport, b64, deadline, sleep, clock)
+            compared = postcard_mod.compare_readback(lines, name)
+            readback = {'lines': lines, 'match': compared['match'], 'difference': compared['difference']}
+            from server.limits import spark_cost
+            limits.settle(res, config.POSTCARD_USD + spark_cost(tin, tout), image_sends)
+        except CallError:
+            limits.settle(res, config.POSTCARD_USD, image_sends)
+        except (ValueError, TypeError, KeyError):
+            limits.settle(res, config.POSTCARD_USD, image_sends)
+        # The picture is base64, which the scrubber would read as a key; it is not a secret, so it goes plain.
+        return self.send_json(200, {'image': b64, 'label': postcard_mod.POSTCARD_LABEL, 'mode': 'live',
+                                    'readback': readback}, plain=('image',))
+
 
 class FramePlayServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -377,6 +505,31 @@ class FramePlayServer(ThreadingHTTPServer):
         self._replay = None
         self._replay_lock = threading.Lock()
         self.clock = time.time  # tests may swap it: FRAMEPLAY_LIVE_UNTIL is wall-clock time
+        # a room postcard's own day: postcards made today (UTC), under one lock
+        self.postcard_day = int(self.clock() // 86400)
+        self.postcards_today = 0
+        self._postcard_lock = threading.Lock()
+
+    def take_postcard_place(self):
+        """Count one postcard into its day (UTC), or refuse past its day cap."""
+        from server.limits import Refusal as LimitRefusal
+        with self._postcard_lock:
+            day = int(self.clock() // 86400)
+            if day != self.postcard_day:
+                self.postcard_day = day
+                self.postcards_today = 0
+            if self.postcards_today >= config.POSTCARD_DAY_CAP:
+                left = int((self.postcard_day + 1) * 86400 - self.clock()) + 1
+                raise LimitRefusal('postcard_day_cap',
+                                   f'This server has made its {config.POSTCARD_DAY_CAP} postcards for today. '
+                                   'Please try again tomorrow.', left)
+            self.postcards_today += 1
+
+    def give_postcard_place_back(self):
+        """A postcard that reserved nothing (refused at the spending stop):
+        it uses none of the postcard day."""
+        with self._postcard_lock:
+            self.postcards_today = max(0, self.postcards_today - 1)
 
     def live_ended(self):
         """True once FRAMEPLAY_LIVE_UNTIL has passed on a LIVE server."""
@@ -434,6 +587,12 @@ class FramePlayServer(ThreadingHTTPServer):
                 # Ask the room: one more Muse Spark call a photo, after its reply
                 'riddle_spark_calls_per_photo': config.RIDDLE_SPARK_CALLS if s.riddles else 0,
                 'seconds_for_riddles': config.RIDDLE_TIMEOUT_S,
+                # A room postcard: one Muse Image edit and one Muse Spark read-back
+                'postcards_per_day': config.POSTCARD_DAY_CAP,
+                'postcard_usd': config.POSTCARD_USD,
+                'postcard_readback_max_completion_tokens': config.READBACK_MAX_COMPLETION_TOKENS,
+                'seconds_per_postcard_call': config.CALL_TIMEOUT_S,
+                'seconds_for_postcard_readback': config.READBACK_TIMEOUT_S,
                 # after an account or model problem, LIVE is held this long;
                 # after a billing or credit refusal, until midnight UTC
                 'live_hold_seconds': config.LIVE_HOLD_S,
@@ -445,6 +604,9 @@ class FramePlayServer(ThreadingHTTPServer):
             'riddles': 'on' if s.riddles else 'off',
             'riddles_reason': ('After each photo, one more Muse Spark call writes up to 3 riddles about it.'
                                if s.riddles else 'FRAMEPLAY_RIDDLES is no: no riddles are written.'),
+            'postcard': 'on' if s.image else 'off',
+            'postcard_reason': ('One Muse Image edit of the round\'s photo, then a Muse Spark read-back of its printed text.'
+                                if s.image else 'FRAMEPLAY_IMAGE is not yes: no postcards are made.'),
         }
         h.update(self.live_state())
         if self.limits is not None:

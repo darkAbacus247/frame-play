@@ -16,12 +16,14 @@ export function el(tag, attrs = {}, kids = []) {
 }
 
 // ---- modal cards (end cards, welcome back): focus stays on the card ----
-export function showCard(dialog, { title, lines = [], label, primary, secondary = [] }) {
+// nodes: elements shown after the lines (a postcard's picture and its Save)
+export function showCard(dialog, { title, lines = [], label, nodes = [], primary, secondary = [] }) {
   dialog.replaceChildren();
   const h = el('h2', { id: 'card-title', text: title });
   const body = el('div', { class: 'card-body' }, [h]);
   for (const t of lines) if (t) body.append(el('p', { text: t }));
   if (label) body.append(el('p', { class: 'label', text: label }));
+  for (const n of nodes) if (n) body.append(n);
   const bar = el('div', { class: 'actions' });
   if (primary) {
     bar.append(el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', text: primary.label, onclick: () => { closeCard(dialog); primary.onClick(); } }));

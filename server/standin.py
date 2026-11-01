@@ -49,8 +49,29 @@ from server.imageinfo import ImageError, size, sniff  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 DRILLS = ('401', '404', '429', '503', 'content_filter', 'zero_matches', 'malformed_record', 'people', 'sam_busy',
           # Ask the room: the riddles call answered wrong in one way each
-          'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter')
+          'riddle_bad_id', 'riddle_point_outside', 'riddle_leak', 'riddle_malformed', 'riddle_none', 'riddle_filter',
+          # A room postcard: the picture refused, and the picture's server busy
+          'postcard_refused', 'postcard_busy')
 LISTED = re.compile(r'^(o\d+) \| (.+?) \| x (\d+)-(\d+), y (\d+)-(\d+)$')
+
+# A room postcard: a small fixed payload the stand-in answers for
+# /v1/images/edits. It is the same bytes a 1x1 JPEG would hold, but its
+# base64 carries no run of 32 or more letters or digits, so the server's
+# redactor never mistakes it for a key.
+POSTCARD_JPEG = (b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00'
+                 b'\xff\xdb\x00\x43\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\x09\x09\x08\x0a\x0c\x14\x0d\x0c\x0b\x0b'
+                 b'\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.4.\'",#"\x1c\x1c(7),01444\x1f\'9=82<.342'
+                 b'\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00'
+                 b'\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03'
+                 b'\x04\x05\x06\x07\x08\x09\x0a\x0b'
+                 b'\xff\xc4\x00\xb5\x10\x00\x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01\x7d\x01\x02\x03\x00'
+                 b'\x04\x11\x05\x12!\x311\x06\x13Qa\x07"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R\xd1\xf0$3br\x82\x09'
+                 b'\x0e\x17\x18\x19\x1a&\'()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86\x87\x88\x89\x8a'
+                 b'\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5\xb6\xb7\xb8'
+                 b'\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe1\xe2\xe3\xe4\xe5'
+                 b'\xe6\xe7\xe8\xe9\xea\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa+/+'
+                 b'\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xfb\xd2\x8a\x28\x03\xff\xd9')
+POSTCARD_JPEG_B64 = base64.b64encode(POSTCARD_JPEG).decode('ascii')
 
 
 # ---- the room's shapes, read the same way the page reads them ----
@@ -298,6 +319,8 @@ class StandIn:
             return self.chat(body, drill)
         if path == '/v1/responses':
             return self.responses(body, drill)
+        if path == '/v1/images/edits':
+            return self.edits(body, drill)
         return 404, {}, {'error': {'code': 'not_found', 'message': 'No such route'}}
 
     def riddles(self, body, drill):
@@ -367,6 +390,37 @@ class StandIn:
             'choices': [{'index': 0, 'finish_reason': finish, 'message': {'role': 'assistant', 'content': content}}],
             'usage': {'prompt_tokens': 2100, 'completion_tokens': 1400, 'total_tokens': 3500,
                       'completion_tokens_details': {'reasoning_tokens': 800}},
+        }
+
+    def edits(self, body, drill):
+        """A room postcard: the small fixed JPEG in the images shape. The
+        request follows the contract or it is refused; postcard_refused says
+        what a content refusal says, and postcard_busy is busy once."""
+        if drill == 'postcard_refused':
+            return 400, {}, {'error': {'code': 'content_policy_violation', 'type': 'invalid_request_error',
+                                       'message': 'The picture was refused'}}
+        if drill == 'postcard_busy':
+            with self.lock:
+                if not self.drill_used:
+                    self.drill_used = True
+                    return 503, {}, {'error': {'code': 'unavailable', 'type': 'server_error', 'message': 'Unavailable'}}
+        tools = body.get('tool_enablement') or {}
+        try:
+            image = body['images'][0]['image_url']
+        except (KeyError, IndexError, TypeError):
+            image = ''
+        if body.get('model') != 'muse-image-1.0' or body.get('prompt') in (None, '') \
+                or body.get('n') != 1 or body.get('size') != '1536x1024' \
+                or body.get('response_format') != 'b64_json' or body.get('output_format') != 'jpeg' \
+                or body.get('reasoning_strength') != 'low' \
+                or tools.get('enable_image_search') is not False or tools.get('enable_web_search') is not False \
+                or tools.get('enable_shell') is not False or not body.get('user') \
+                or not str(image).startswith('data:image/'):
+            return 400, {}, {'error': {'code': 'invalid_request', 'message': 'The request does not follow the contract'}}
+        return 200, {}, {
+            'created': 1,
+            'data': [{'b64_json': POSTCARD_JPEG_B64}],
+            'usage': {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0},
         }
 
     def responses(self, body, drill):
