@@ -195,6 +195,15 @@ const sourceWords = (level, src) => (level.origin === 'marked' ? MARKED_SOURCE_W
 
 const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
 
+// What Muse Spark named, against the things in the room: it names kinds
+// (three coins are one), so a room with more things than kinds says both,
+// "8 kinds of thing (12 things)"; with as many, or with kinds SAM did not
+// find (our kitchen: 8 named, 5 found), the count alone, as things.
+export function namedWords(kinds, things) {
+  if (things > kinds) return `${plural(kinds, 'kind', 'kinds')} of thing (${plural(things, 'thing', 'things')})`;
+  return plural(kinds, 'thing', 'things');
+}
+
 // How many objects came from Muse Spark's points because SAM did not find
 // them, from the level's own counts.
 export const fromPoints = (level) => {
@@ -246,9 +255,9 @@ export function summaryLine(level, summary) {
   const instead = summary && summary.instead ? `${summary.instead} ` : '';
   const lead = level.origin === 'replay' ? `${instead}${REPLAY_WORDS} ` : summary && summary.ours ? 'Our kitchen photo, read by Meta’s models now. ' : '';
   if (fromPoints(level)) {
-    return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
+    return `${lead}${who[0]} named ${namedWords(named, n)} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
   }
-  return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
+  return `${lead}${who[0]} named ${namedWords(named, n)} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
 }
 
 // Where the play area came from, as the level says it (src/level.js and
@@ -668,7 +677,7 @@ export function resultLine(road, slot) {
 
 export function aiLine(level, summary) {
   const n = level.objects.length;
-  const things = (k) => `${k} ${k === 1 ? 'thing' : 'things'}`;
+  const things = (k) => namedWords(k, n);
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
   if (level.origin === 'marked') return `${markedWords(level)} Code proved the room can be won.`;
   if (level.origin === 'replay') {
