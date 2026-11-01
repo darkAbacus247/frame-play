@@ -33,12 +33,14 @@ reader, with labeled buttons, keys that steer and a spoken line for what
 happens (checked on a stand-in page by the tests; no run with a real
 screen reader is recorded here yet).
 
-**Try it in a minute.** Open the demo at https://huggingface.co/spaces/darkAbacus247/frame-play, or run
+**Try it in a minute.** Open the demo at https://darkabacus247-frame-play.hf.space/ (also embedded at https://huggingface.co/spaces/darkAbacus247/frame-play), or run
 `python server/server.py` and open `http://127.0.0.1:8191/`. On Step 2, pick
 **Our kitchen (a real photo)**: with no key it replays Meta's recorded answer
 for that photo, and says so; on a live server it is read fresh. Play the
-round, then press **Ask the room** on its end card. The demo video is linked
-in the submission too.
+round, then press **Ask the room** on its end card. On the public demo
+(LIVE) the marking board appears when a read is refused (the hourly cap, a
+failed read); run without a key (MOCK) it is the way on for every photo.
+The demo video is linked in the submission too.
 
 ## The road
 
@@ -257,7 +259,9 @@ play say you marked the objects and code traced the outlines, and that no
 model was called. Nothing is sent, in any mode: the marks (roles and
 boxes) and the level are kept on this device under the photo's
 fingerprint, taken on the device, never the photo, so after a reload the
-same photo picked again brings the room back in place.
+same photo picked again brings the room back in place. On the public demo
+(LIVE) the marking board appears when a read is refused (the hourly cap, a
+failed read); run without a key (MOCK) it is the way on for every photo.
 
 **A sure way to completion.** Every Play step on the road has a plainly
 labeled secondary, **End this round**. It asks first in a true modal card
