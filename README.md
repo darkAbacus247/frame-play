@@ -357,12 +357,12 @@ longer text (the full consent notice, the list of what the AI found, the
 proof) in a disclosure that starts closed. Text runs in one column held to
 65ch (65 widths of the digit zero). In a 1280x800 window the closing screen
 fits whole (its ways on sit right under the won line, and the four rooms
-two by two), and so does every road screen but seven: in MOCK, your own
-room with a photo kept here; in REHEARSAL, under its band, the three pick
-steps (as first opened and with a room chosen) and Your three rooms. Those
-seven scroll by 19 to 40 px there, in the model.
+two by two), and so does every road screen but three: in MOCK, your own
+room with a photo kept here (landscape or portrait), and in REHEARSAL,
+under its band, Your three rooms. Those three scroll by 29 to 40 px there,
+in the model.
 `tests/fit.test.js` checks every road screen and the closing screen at
-839x945 and 1259x1418, and at 1280x800 names those seven and checks the
+839x945 and 1259x1418, and at 1280x800 names those three and checks the
 rest, and `tests/layout.test.js` checks the play screen,
 both with a layout model built on the stylesheet's own rules and no
 tolerance; it is a model, not a browser. A picture sized to fill the space
@@ -685,6 +685,10 @@ picture through them.
   a thing much like its background, keeps your box as you drew it, and the
   reveal counts it as kept as a box.
 - One photo, one room; a 2.5D approximation with one baseline per object.
+  Seen at eye level, the floor inferred behind a low thing takes in its
+  top, so the explorer can appear to cross a table or a sofa seat: it
+  starts on the floor the camera saw where a cell of it reaches the goals,
+  but it may still walk over such a top on its way.
 - Ask the room: a riddle's answer is Muse Spark's judgement of the photo;
   where its answers are comes from the room's things (found by SAM 3.1, or
   traced by code around Muse Spark's points), so a thing the read did not

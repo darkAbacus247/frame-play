@@ -132,7 +132,7 @@ export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, 
 // Why the photo picker on Steps 2, 5 and 8 is off, by mode.
 export const OFF_WORDS = {
   rehearsal: 'Off here in REHEARSAL: the stand-in knows only its own sample room. On Step 12 you can send its saved picture.',
-  mock: 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.',
+  mock: 'Off in MOCK mode: no live connection, so the page plays sample rooms drawn by code, and our kitchen from Meta’s recorded answer.',
 };
 
 export const PICK_HEADINGS = ['Your room: pick a photo', 'Another room: pick a second photo', 'A third room: pick a third photo'];

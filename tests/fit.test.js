@@ -1,6 +1,6 @@
 // Every screen fits main without scrolling at 100% zoom in an 839x945 and
 // a 1259x1418 window, where content allows, and at 1280x800 the closing
-// screen and every road screen but the seven named below. Laid out by tests/layoutmodel.js
+// screen and every road screen but the three named below. Laid out by tests/layoutmodel.js
 // with the stylesheet's own cascade and text a little wider than the real
 // font, under the header each step really draws.
 //
@@ -66,15 +66,11 @@ for (const [vw, vh] of WINDOWS) {
 // closing screen keeps its ways on in the first view by fitting whole, and
 // every road screen fits but the ones named here, measured and left as they
 // are (the app is not restyled for this window): in MOCK your own room with
-// a photo kept here, and in REHEARSAL (whose band takes 44 px) the pick
-// steps and Your three rooms.
+// a photo kept here, and in REHEARSAL (whose band takes 44 px) Your three
+// rooms.
 const OVER_AT_1280x800 = [
   'mock · Your own room, with a landscape photo kept here',
   'mock · Your own room, with a portrait photo kept here',
-  'rehearsal · Pick room 1',
-  'rehearsal · Pick room 1, chosen',
-  'rehearsal · Pick room 2, chosen',
-  'rehearsal · Pick room 3, chosen',
   'rehearsal · Your three rooms',
 ];
 test('at 1280x800 the closing screen fits whole, and so does every road screen but the known ones', () => {

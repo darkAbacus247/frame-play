@@ -54,7 +54,7 @@ MISMATCH_WORDS = 'The sample photo on this server is not the one the recorded an
 RIDDLES = Path(__file__).resolve().parent / 'replay' / 'kitchen_riddles.json'
 RIDDLES_RECORDED = '2026-10-28'
 RIDDLES_SHOWN = 'Oct 28, 2026'
-RIDDLES_LABEL = 'REPLAY · Riddles by muse-spark-1.3, recorded Oct 28, 2026 · no model was called now'
+RIDDLES_LABEL = 'REPLAY · Riddle by muse-spark-1.3, recorded Oct 28, 2026 · no model was called now'
 RIDDLES_WORDS = ('Muse Spark wrote these riddles for this photo on Oct 28, 2026; this copy replays them; '
                  'no model was called now.')
 

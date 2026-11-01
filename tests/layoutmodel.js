@@ -214,7 +214,11 @@ export class Layout {
     const kids = this.kids(e).filter((k) => k.tagName === '#TEXT' || !this.hidden(k, styleOf([...ch, nodeOf(k)], this.vw, this.vh)));
     const container = /flex|grid/.test(st.display || '') && kids.some((k) => k.tagName !== '#TEXT');
     if (!container && !kids.some((k) => this.isBox(k, k.tagName === '#TEXT' ? {} : styleOf([...ch, nodeOf(k)], this.vw, this.vh)))) {
-      return Math.max(this.len(st['min-width']) || 0, this.textWidth(this.text(e), f) + extra);
+      // a run of text is no wider than its max-width (as a flex line breaks
+      // by a box's hypothetical size, so a 65ch line stays beside a button)
+      const maxW = this.len(st['max-width'], this.vw);
+      const text = this.textWidth(this.text(e), f) + extra;
+      return Math.max(this.len(st['min-width']) || 0, maxW != null ? Math.min(text, maxW) : text);
     }
     const ws = kids.map((k) => this.natural(k, ch, f));
     const row = /flex/.test(st.display || '') && !/column/.test(st['flex-direction'] || '');
