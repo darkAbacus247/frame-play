@@ -205,11 +205,11 @@ test('the welcome notice: key points in view, every required statement one press
     const details = all.find((e) => e.tagName === 'DETAILS');
     assert.equal(details.children[0].textContent, 'Read the full notice');
     const inside = details.all().map((e) => e.textContent).join(' ');
-    for (const line of ['Keep people and anything private out of the photo.', 'You must be 18 or over to send a photo (Meta’s terms).', V.WHERE[mode], V.KEPT]) {
+    for (const line of ['Keep people and anything private out of the photo.', 'You must be 18 or over to send a photo (Meta’s terms).', V.LAWFUL, V.WHERE[mode], V.KEPT]) {
       assert.ok(inside.includes(line), `${mode}: "${line}" is in the full notice`);
     }
     const points = all.find((e) => e.tagName === 'UL' && e.getAttribute('aria-label') === 'Before you start');
-    assert.equal(points.children.length, 4, 'the key points: people, age, where the photo goes, what is kept');
+    assert.equal(points.children.length, 5, 'the key points: people, age, lawful use, where the photo goes, what is kept');
     assert.ok(points.children.every((li) => li.textContent.length <= 80), 'each key point is one short line');
     const button = all.find((e) => e.tagName === 'BUTTON' && e.hasAttribute('data-primary'));
     assert.equal(button.parentNode.className, 'bar-end welcome-bar', 'the consent button sits in the bar, outside the text');

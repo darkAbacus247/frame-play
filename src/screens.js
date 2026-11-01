@@ -61,6 +61,9 @@ const WHERE_SHORT = {
 };
 export const PEOPLE = 'Keep people and anything private out of the photo.';
 export const AGE = 'You must be 18 or over to send a photo (Meta’s terms).';
+// Meta's API Terms (section 1) and its AUP: the operator requires lawful use
+// of its end users; said beside the age line, in the key points and the full notice
+export const LAWFUL = 'By continuing you agree to use this demo lawfully (Meta’s Model API terms).';
 // what this app keeps; in LIVE, Meta's own use is said beside it (META_USE)
 export const KEPT_SHORT = 'Kept by this app: no photo. Levels and choices stay on this device.';
 // the host of a public copy keeps its own access log, which is not this app's
@@ -86,6 +89,7 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
       el('ul', { class: 'consent', 'aria-label': 'Before you start' }, [
         el('li', { text: PEOPLE }),
         el('li', { text: AGE }),
+        el('li', { text: LAWFUL }),
         el('li', { text: WHERE_SHORT[m] }),
         el('li', { text: KEPT_SHORT }),
       ]),
@@ -94,6 +98,7 @@ export function welcomeView({ mode, primaryLabel, onConsent }) {
         el('ul', { class: 'consent' }, [
           el('li', { text: PEOPLE }),
           el('li', { text: AGE }),
+          el('li', { text: LAWFUL }),
           el('li', { text: WHERE[m] }),
           el('li', { text: KEPT }),
         ]),

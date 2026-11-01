@@ -499,7 +499,9 @@ against a stand-in AudioContext and a fake page, not yet in a browser.
 FRAME//PLAY is for players 18 and over: the first screen says "You must be
 18 or over to send a photo (Meta's terms)." and its button reads "I am 18
 or over and I understand. Continue". That screen also asks you to keep
-people and anything private out of the photo.
+people and anything private out of the photo. By continuing past it you
+agree to use this demo lawfully; LIVE reads run under Meta's Model API
+terms.
 
 - **What is sent.** Only in LIVE, after that screen: the photo, shrunk and
   stripped of its camera data on the device, through this app's server to

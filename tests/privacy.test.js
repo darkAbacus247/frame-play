@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument } from './fakedom.js';
 import { el } from '../src/ui.js';
-import { WHERE, OWN_NOTICE, KEPT, KEPT_SHORT, PEOPLE, AGE, welcomeView } from '../src/screens.js';
+import { WHERE, OWN_NOTICE, KEPT, KEPT_SHORT, PEOPLE, AGE, LAWFUL, welcomeView } from '../src/screens.js';
 
 const doc = installFakeDocument();
 doc.body.append(el('div', { id: 'tips' }));
@@ -28,7 +28,7 @@ const points = (mode) => {
 const liveTexts = () => {
   const readme = read('../README.md');
   const bullet = /- \*\*LIVE\*\*[\s\S]*?(?=\n- \*\*)/.exec(readme)[0];
-  return { bullet, texts: { 'WHERE.live': WHERE.live, 'OWN_NOTICE.live': OWN_NOTICE.live, 'the LIVE key point': points('live')[2], 'the README LIVE bullet': bullet } };
+  return { bullet, texts: { 'WHERE.live': WHERE.live, 'OWN_NOTICE.live': OWN_NOTICE.live, 'the LIVE key point': points('live')[3], 'the README LIVE bullet': bullet } };
 };
 
 test('the LIVE words never say "once", and count the calls the server makes', () => {
@@ -70,7 +70,7 @@ test('every LIVE notice says Meta may use the photos while the demo runs on its 
     const flat = t.replace(/\s+/g, ' ').replace(/'/g, '’');
     assert.ok(flat.includes(META_USE_WORDS.slice(0, -1)), `${where}: ${t}`);
   }
-  assert.match(points('live')[2], /Meta reads your photo and may use it; this app keeps none\./, 'the key point is no weaker');
+  assert.match(points('live')[3], /Meta reads your photo and may use it; this app keeps none\./, 'the key point is no weaker');
   assert.match(OWN_NOTICE.live, /^LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API \(Muse Spark and SAM 3\.1\)\. This app keeps none\. /);
   assert.ok(WHERE.live.endsWith('This app does not store it. ' + META_USE_WORDS));
   // the postcard sentence sits between what this app keeps and Meta's use
@@ -92,18 +92,19 @@ test('the key points are no weaker than the full notice', () => {
     const p = points(mode);
     assert.equal(p[0], PEOPLE);
     assert.equal(p[1], AGE, 'you must be 18 or over');
-    assert.equal(p[3], KEPT_SHORT);
+    assert.equal(p[2], LAWFUL, 'the terms flow down to the player, beside the age line');
+    assert.equal(p[4], KEPT_SHORT);
     assert.ok(KEPT.startsWith('Kept by this app: no photo, on this device or on its server.') && KEPT_SHORT.startsWith('Kept by this app: no photo.'));
     assert.ok(p.every((t) => t.length <= 80), `${mode}: one short line each`);
   }
-  assert.match(points('mock')[2], /no photo is sent anywhere; sample rooms are drawn by code/);
+  assert.match(points('mock')[3], /no photo is sent anywhere; sample rooms are drawn by code/);
   assert.match(WHERE.live, /shrunk on this device/);
   assert.match(WHERE.live, /camera data is removed/);
   assert.match(WHERE.live, /this app’s server/);
 });
 
 test('what is kept is said for this app only, the one thing this code can vouch for', () => {
-  const live = points('live')[2];
+  const live = points('live')[3];
   assert.equal(live, 'LIVE mode: Meta reads your photo and may use it; this app keeps none.');
   assert.ok(live.length <= 80);
   assert.ok(OWN_NOTICE.live.includes('(Muse Spark and SAM 3.1). This app keeps none. '));
@@ -128,4 +129,20 @@ test('the full notice says what the host may keep and how a player removes what 
     assert.ok(inside.includes(KEPT), `${mode}: the full notice`);
     assert.ok(points(mode).every((t) => !t.includes('access log')), `${mode}: the key points stay short`);
   }
+});
+
+// Meta's API Terms (section 1) and its AUP ask the operator to require lawful
+// use of its end users: the welcome says so beside the age line, in the key
+// points and the full notice, and the README's Privacy section says the same.
+test('the welcome asks the player to use the demo lawfully, and the README says so too', () => {
+  assert.equal(LAWFUL, 'By continuing you agree to use this demo lawfully (Meta’s Model API terms).');
+  assert.ok(LAWFUL.length <= 80, 'one short line');
+  for (const mode of ['mock', 'live', 'rehearsal']) {
+    assert.equal(points(mode)[2], LAWFUL, `${mode}: the key point, beside the age line`);
+    const { section } = welcomeView({ mode, primaryLabel: 'Continue', onConsent() {} });
+    const inside = section.all().filter((e) => e.tagName === 'LI').map((e) => e.textContent);
+    assert.equal(inside.filter((t) => t === LAWFUL).length, 2, `${mode}: the key points and the full notice`);
+  }
+  const privacy = read('../README.md').split('## Privacy')[1].split('\n## ')[0].replace(/\s+/g, ' ');
+  assert.ok(privacy.includes("By continuing past it you agree to use this demo lawfully; LIVE reads run under Meta's Model API terms."), 'the README’s Privacy section');
 });
