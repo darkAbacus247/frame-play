@@ -8,21 +8,32 @@ walls you walk around, the things you collect, the hazard you avoid and the
 exit you reach.
 
 Built during the Meta Global AI Developer Hackathon (Indie track). This
-repository was created on 2026-10-26 after 16:00 UTC, during the event.
+repository was created on 2026-10-26 after 16:00 UTC, during the event
+([FIRST_COMMITS.md](FIRST_COMMITS.md) lists every file's first commit;
+[PROVENANCE.md](PROVENANCE.md) says what wrote each part).
 Pre-existing: Meta's Muse Spark and SAM 3.1 models, SAM's mask format
 (ported under its license), and the written notes of my pre-event prototype
 (Oct 21 to 25), read as a spec, with none of its code; built during the
-event, from the first commit: all the code, art, music and tests. The port's
-license is in the NOTICE under License, below.
+event, from the first commit: all the code, art, music and tests. The port
+(of meta-sam-parser 0.1.0's mask codec and contour tracing,
+`server/sam_mask.py`) and its license are named in the NOTICE under
+License, below. Apart from Meta's SAM License text, kept verbatim in
+`LICENSES/SAM_LICENSE.txt`, the one file that may be older than the event
+is the sample kitchen photo, `rooms/kitchen.jpg`, added on Oct 27 with no
+recorded capture date.
 
-**Who it is for.** Any room you can photograph becomes a game: kids learning
-the names of things (the riddles), people in rehab or memory care playing in
-a room they know, and anyone: every screen is built for the keyboard and a
-screen reader, with labelled buttons, keys that steer and a spoken line for
-what happens (checked on a stand-in page by the tests; no run with a real
+**Who it is for.** Any room you can photograph becomes a game: someone
+who wants to play their own desk as a level in a minute, two friends
+passing one phone round a kitchen table, an English learner matching
+riddles about their own kitchen to the names of its things (reading a
+photo, and riddles about it, need a server running LIVE; without one you
+mark the room yourself). It is for players
+18 and over (see Privacy, below). Every screen is built for the keyboard and a screen
+reader, with labeled buttons, keys that steer and a spoken line for what
+happens (checked on a stand-in page by the tests; no run with a real
 screen reader is recorded here yet).
 
-**Try it in a minute.** Open the demo (the link is in the submission), or run
+**Try it in a minute.** Open the demo at [Space URL], or run
 `python server/server.py` and open `http://127.0.0.1:8191/`. On Step 2, pick
 **Our kitchen (a real photo)**: with no key it replays Meta's recorded answer
 for that photo, and says so; on a live server it is read fresh. Play the
@@ -38,11 +49,13 @@ rooms), then **your own room**: a photo from your device, or from the
 camera where the browser offers one. What happens to that photo depends on
 the server's mode, and Step 12 says so before you choose one.
 
-The rooms follow one another: when a round ends, win or lose, the end
-card's primary goes straight on to the next room's reveal. The
+The sample rooms follow one another: when a round ends, win or lose, the
+end card's primary goes straight on to the next room's reveal (after the
+third, to Your three rooms). The
 pick steps stay on the road with the next room already chosen there, so
 ← (or the browser's Back, or Choose a different room) still reaches them,
-and any room can be picked there instead. Every pick step offers four
+and a room can be picked there instead, unless an earlier step or your own
+room holds it. Every pick step offers four
 cards: the three sample rooms and **Our kitchen (a real photo)**, with its
 thumbnail (see "Don't have a photo? Use ours" below). Picked there, our
 kitchen is played as a sample room is: its result, Your three rooms, the
@@ -54,7 +67,7 @@ it).
 
 ### Sample rooms
 
-Drawn by code, with exact outlines, and labelled MOCK: The Desk Top and
+Drawn by code, with exact outlines, and labeled MOCK: The Desk Top and
 The Living Room, seen at eye level, and The Apartment, a floor plan seen
 from above: a living room, a kitchen, a bedroom and a hall, joined by
 three doorways and walled off everywhere else, with a coin in each of
@@ -75,8 +88,10 @@ area, every outline a decoded mask, walls and doorways.
   then, while you play, one more Muse Spark call writes up to 3 riddles
   about it (Ask the room, below); at most 14 calls in all, each carrying
   the photo (a failed call may be
-  sent one more time, a busy answer twice; the room read is never sent
-  again after a timeout). This app does not store the photo. While this
+  sent one more time, a busy one two more times; the room read is never
+  sent again by itself after a timeout); a postcard, where a server has it
+  on and you ask for one, sends the same photo to Muse Image one more time
+  (Postcard, below). This app does not store the photo. While this
   demo runs on Meta's free hackathon credits, Meta may use the photos it
   receives to improve its products (Meta's Billing page for the demo's
   key: "While using free credits your content may be used for product
@@ -93,8 +108,8 @@ area, every outline a decoded mask, walls and doorways.
   3.1's masks gave 9 exact outlines; code traced 0"). Muse Spark also says
   how the camera sees the room (at eye level, from above as in a floor
   plan, or at a slant) and gives points on the open floor, one or more a
-  room; SAM 3.1 answers "floor" (or the desk, the table) with one match a
-  room. **SAM 3.1's floor mask is the play area:** the server lays the
+  room; SAM 3.1 answers "floor" (or the desk, the table) with its
+  matches. **SAM 3.1's floor mask is the play area:** the server lays the
   masks of SAM's floor matches together, and that floor is where the
   explorer may walk, together with **the floor you cannot see**: the floor
   hidden behind and under the things standing on it, inferred from the floor
@@ -107,14 +122,14 @@ area, every outline a decoded mask, walls and doorways.
   sofa, hidden by it while it is there, as it would in the room. The
   floor's outer boundary away from things, and the picture's edges, stay
   walls, and seen from above a thing never opens a wall. Everything else is wall. Pieces of the mask that
-  touch only at a corner or lie one or two squares of the explorer's grid
-  apart (a seam in the mask, never a real wall) are joined, with a passage
-  the explorer fits through, so no coin is cut off, and the words say how
-  many gaps were joined. A doorway is where the floor runs on from one room
+  lie at most two squares of the explorer's grid apart (a seam in the mask,
+  never a real wall) are joined, with a passage the explorer fits through,
+  and the words say how many gaps were joined (a piece under 0.4% of the
+  picture is left as it is). A doorway is where the floor runs on from one room
   into the next, and where it meets the exit's outline. The proof that the
   room can be won runs on this floor. Only when no floor mask decodes does
   code grow the floor from Muse Spark's points, by colour and edges, inside
-  SAM's floor boxes, as before. Seen from above, a thing blocks its whole
+  SAM's floor boxes (each grown by 2% of the picture's long side). Seen from above, a thing blocks its whole
   outline. With no floor found (no points, no floor match, or too little
   floor around the points) the play area is everything below the horizon
   (from above, the whole picture), and the level's provenance says so in
@@ -122,13 +137,15 @@ area, every outline a decoded mask, walls and doorways.
   finds nothing usable for, code traces around Muse Spark's own points
   instead, with the same tracer, and the reveal says how many came each way
   ("SAM 3.1 found 5; for 4 more, code traced around Muse Spark's points").
-  Only when SAM finds nothing and Muse Spark gave no points does the read
-  make no room. If the read fails or makes no room (the key the
-  operator set is refused, the account has no credit, the read runs out of
-  time, the server cannot be reached), the screen says why in words, and
-  for a refused key it says plainly that it is the operator's key, not
-  anything of yours; then Mark your room is the way on, and nothing more is
-  sent.
+  When SAM finds nothing and Muse Spark gave no points, the read makes no
+  room. Where a read fails for a reason that may pass (a busy model, a read
+  that ran out of time), the screen says so and **Try this photo again**
+  sends the same photo one more time. If the read fails otherwise or makes
+  no room (the key the operator set is refused, the account has no credit,
+  the server cannot be reached), the screen says why in words, and for a
+  refused key it says plainly that it is the operator's key, not anything
+  of yours; then Mark your room is the way on, and nothing more is sent.
+  (On Steps 2, 5 and 8, the way on is another photo or a sample room.)
 - **MOCK** (no key): no model reads the photo, so nothing is invented. The
   photo is shown on your device only, and Mark your room, right under it,
   is the way on: you mark the room yourself. Nothing is sent. (Or use ours:
@@ -157,8 +174,9 @@ Everywhere a photo can be chosen, our kitchen is offered as a card with its
 thumbnail, **Our kitchen (a real photo)**: beside the three sample rooms on
 Steps 2, 5 and 8, and beside **Choose a photo** on your own room (Step 12).
 It is `rooms/kitchen.jpg`, a photo of a real kitchen. It is the author's
-own photo, taken by the author, with its camera data removed (1024 x 399,
-no people), and it is released with this repository under its license.
+own photo; when it was taken is not recorded. It was added on Oct 27,
+2026, during the event, with its camera data removed (1024 x 399, no
+people), and is released with this repository under the MIT license.
 
 - **LIVE**: it goes through Meta's models fresh, exactly like a photo you
   choose: shrunk and stripped on the device, one read (one Muse Spark call,
@@ -169,8 +187,8 @@ no people), and it is released with this repository under its license.
   AI is unavailable): the server replays Meta's real recorded answer for
   this exact photo, taken on 2026-10-27: one muse-spark-1.3 answer and six
   sam-3.1 answers (the stove, the kitchen island, the refrigerator, the
-  counter, the floor and the door, with real one_bit masks), kept byte for
-  byte in `server/replay/kitchen/`. `POST /api/replay/kitchen` (`server/replay.py`)
+  counter, the floor and the door, with real one_bit masks), kept in
+  `server/replay/kitchen/`. `POST /api/replay/kitchen` (`server/replay.py`)
   runs the very same pipeline a live photo goes through, its transport
   answering each call with its recorded answer in place of the network, so
   the same reader, mask decoder, match choice, floor and outlines run, and
@@ -178,9 +196,10 @@ no people), and it is released with this repository under its license.
   model called now, its calls are marked replayed, its cost is zero, and
   the server replays nothing for a photo whose fingerprint is not the
   recorded one. The page checks the same fingerprint, builds the room from
-  SAM 3.1's masks, and every screen that shows it says: "Meta's models read
-  this photo on Oct 27, 2026; this copy replays their recorded answer; no
-  model was called now." The replay makes the room the live read made:
+  SAM 3.1's masks, and its reveal and the closing screen say: "Meta's models
+  read this photo on Oct 27, 2026; this copy replays their recorded answer;
+  no model was called now." Every other screen that shows it labels it
+  REPLAY. Replayed, the recorded answer makes this room:
   Muse Spark named 8 things (5 on the floor, 3 as scenery), SAM 3.1's
   masks gave 5 exact outlines plus the floor, code made 2 changes, and the
   room can be won. The floor behind the kitchen island, which the camera
@@ -189,14 +208,16 @@ no people), and it is released with this repository under its license.
   the island's far part walks behind it).
 
 In MOCK, where a server answers, our kitchen's card is the one primary on
-your own room (it is the one room a model's answer can make there); with
-no server at all it is off, and says why, on every screen that offers it.
+your own room (it is the one room a model's answer can make there) unless
+an earlier room already holds it; with no server at all it is off, and
+says why, on every screen that offers it.
 A replayed room is never kept on the device: on a return visit it is
 replayed again in place. Its thumbnail is the photo itself, fetched from
 this page's own server and decoded on the device; nothing is sent for it.
 
 **Floors, walls and doorways.** Where a room's floor is known (drawn by
-code in a sample room, or grown by code from a LIVE or REHEARSAL read),
+code in a sample room; from a read, SAM 3.1's floor mask, or where none
+decodes, a floor grown by code from Muse Spark's points),
 the explorer stands only on it: the arrow pad, the keys, a tap and the
 walk-to chips all keep to the floor, the start is on it, and a path to
 another room goes through its doorway. A goal behind walls with no doorway
@@ -239,7 +260,7 @@ fingerprint, taken on the device, never the photo, so after a reload the
 same photo picked again brings the room back in place.
 
 **A sure way to completion.** Every Play step on the road has a plainly
-labelled secondary, **End this round**. It asks first in a true modal card
+labeled secondary, **End this round**. It asks first in a true modal card
 ("End this round? It counts as played, not won.", with End it and Keep
 playing; Keep playing has the focus and Escape never closes it). Ended, the
 round counts as played, not won (a room won before keeps its best), and the
@@ -258,9 +279,10 @@ the replay's own words), and the ways on: Free play, I'm done, Play again for an
 room, Try your own room (a photo of yours, or ours), and Start over, which
 asks first and clears nothing unless you confirm. I'm done ends the visit
 with a short thank-you (one line of the rooms played and won, a soft fade,
-the music's closing sting once) and then closes the app window; an ordinary
-browser tab cannot be closed by the page, so there it says "You can close
-this tab now." and offers Free play and Start over.
+the music's closing sting once) and then asks the browser to close the
+window; where the browser keeps it open (it keeps most ordinary tabs
+open), it says "You can close this tab now." and offers Free play and
+Start over.
 
 Install it as an app: the page is an installable web app
 (`manifest.webmanifest`, icons in `icons/` drawn from the favicon by
@@ -270,12 +292,14 @@ Open the page from the local server in a browser that offers installation
 (Chrome or Edge, for example); Settings then shows Install (it appears only
 while the browser offers it), or use the browser's own install item. The
 installed app opens in its own window from your apps, and there I'm done
-closes that window. It is the same page: LIVE (and REHEARSAL) still need
+asks the browser to close that window. It is the same page: LIVE (and REHEARSAL) still need
 the local server running, started as above, and the installed app is tied
 to the address it was installed from. While a card or the settings are open, a round in play holds
-still, so no round ends under them. Free play always opens on the list of rooms (the three sample rooms, and
-your own room once made: our kitchen carries its REPLAY tag where it was
-replayed); a replay of a room there lasts only
+still, so no round ends under them. Free play opens on the list of rooms
+(the three sample rooms, our kitchen once it is on your road, and your own
+room once made; our kitchen carries its REPLAY tag where it was replayed),
+and Play again on the closing screen opens that room's round there at
+once; a replay of a room there lasts only
 while you stay on it, and its rounds never change the road's results (its
 end card says so). Your own room, when made, stays on the road: going
 back to its step and choosing Continue to the end keeps it, its result and
@@ -328,10 +352,10 @@ On the closing screen such a room says on which step it can be made again,
 or that this copy cannot make it again.
 
 Every screen is written to fit without scrolling at 100% zoom: one short
-line up front, short labelled facts, and the longer text (the full consent
+line up front, short labeled facts, and the longer text (the full consent
 notice, the list of what the AI found, the proof) in a disclosure that
 starts closed. Text runs in one column held to 65ch (65 widths of the
-digit zero), so a line of ordinary words runs to about 75 letters.
+digit zero).
 `tests/fit.test.js` checks every road screen and the closing screen at
 839x945 and 1259x1418, and `tests/layout.test.js` checks the play screen,
 both with a layout model built on the stylesheet's own rules and no
@@ -343,37 +367,40 @@ it fits without making the screen scroll.
 
 ### Ask the room
 
-After any round, won or lost, the end card offers **Ask the room**: a
-riddle about the room, answered by touching a thing in it. The road never
+After any round, won or lost, in a room with riddles, the end card offers
+**Ask the room**: a riddle about the room, answered by touching a thing in it. The road never
 waits for it: the card's primary still goes on, and so does the counter's →.
 
 - **Who writes it.** In LIVE, Muse Spark, in one more call made after the
   room's reply has gone to the page, so the reveal never waits: it sees the
-  photo and the list of what SAM 3.1 found, under the reply's own ids, and
+  photo and the list of the room's things, under the reply's own ids, and
   answers with up to three riddles, each with its answers by id and one
   point on each answer. The sample rooms' riddles are written into the room
-  files and labelled "Riddle written into this sample room · MOCK · no model
+  files and labeled "Riddle written into this sample room · MOCK · no model
   was asked"; in REHEARSAL the stand-in answers with them. Our kitchen's
   replay replays riddles Muse Spark wrote for that photo in a LIVE read on
   2026-10-28 (`server/replay/kitchen_riddles.json`), on the same stream and
-  through the same checks, labelled "REPLAY · Riddle by muse-spark-1.3,
+  through the same checks, labeled "REPLAY · Riddle by muse-spark-1.3,
   recorded Oct 28, 2026 · no model was called now". That read's answers
   were its own ids, so each riddle's points go through the game's own pick
   on the replay's SAM 3.1 masks: the refrigerator and the stove are
   replayed; the four cabinets are not, since the replayed answers found no
   cabinets. No call is made for them.
 - **Who decides what is right.** Muse Spark says which things answer a
-  riddle, and every answer must be a thing SAM 3.1 found; SAM 3.1 says
-  where they are; code fills in the count of those answers (the number in
-  "find the four ..."), so no model writes a number; code decides whether the player touched them, on each
-  thing's own outline: SAM 3.1's mask in LIVE, the painted shape in the
-  samples. No model judges an answer.
+  riddle, each one a thing in the room's reply: found by SAM 3.1, or traced
+  by code around Muse Spark's own points where SAM gave nothing usable;
+  code fills in the count of those answers (the number in "find the four
+  ..."); code decides whether the player touched them, on each thing's own
+  outline (or its box, where that outline missed the part Muse Spark
+  pointed at): in LIVE, SAM 3.1's mask or the outline code traced; in the
+  samples, the painted shape. No model judges an answer.
 - **What is kept.** Code keeps a riddle only if it passes every check
   (`server/riddles.py`): 12 to 90 characters and no digits, the count only
-  as `{n}`, no word of an answer's name, nothing about people or bodies,
-  answers on the list and fewer than all of it, a rule that fits its
-  answers, each answer's point within 1.5% of the picture's long side of
-  the box SAM found for it, and no two riddles with the same answer. Each
+  as `{n}` in a riddle that asks for all its answers, no word of three
+  letters or more from an answer's name, none of a list of words for people
+  and bodies, answers on the list and fewer than all of it, a rule that
+  fits its answers, each answer's point within 1.5% of the picture's long
+  side of that thing's box, and no two riddles with the same answer. Each
   riddle dropped is listed in words.
 - **Answering.** Tap or click a thing (a near miss within 1.2% of the long
   side, or 16 CSS pixels, counts and is said aloud), or choose it under
@@ -384,10 +411,8 @@ waits for it: the card's primary still goes on, and so does the counter's →.
   the end card.
 - **Cost and switch.** One more Muse Spark call a photo, about 0.8 cent;
   `FRAMEPLAY_RIDDLES=no` on the server turns it off. Checked live on our
-  kitchen photo on 2026-10-28: three riddles 6.4 s after the reveal (the
-  refrigerator, the stove, and the four cabinets, their count filled in
-  by code),
-  every answer graded on SAM 3.1's own masks.
+  kitchen photo on 2026-10-28: three riddles (the refrigerator, the stove,
+  and the four cabinets, their count filled in by code).
 
 ### Postcard (Muse Image)
 
@@ -401,15 +426,18 @@ on the public demo and off by default: `FRAMEPLAY_IMAGE=yes` on the server
 turns it on (health says `postcard: on`), and the page offers it only then,
 and never for a sample room, a replay, a rehearsal or a marked room.
 
-- **What the card shows.** The picture, labelled "Made by Muse Image (AI) ·
+- **What the card shows.** The picture, labeled "Made by Muse Image (AI) ·
   LIVE", the read-back in one line (a match, or the difference named, such
   as `expected "Kitchen" but read "Kitchn"`), and **Save the postcard**,
   which downloads the JPEG. A postcard that fails says why in words, and
   the round's own card is a press away; the round itself is never blocked.
-- **What is kept.** The round's shrunk photo stays in memory with its level
-  for the visit, never on the device or the server; a level loaded from the
+- **What is kept.** While the page is open, the shrunk photo of a LIVE room
+  stays in its memory with its level, whether or not the postcard is on,
+  and is never saved on the device or the server; a level loaded from the
   device offers no postcard until its photo is picked again. The consent
-  notices say so before a photo is sent.
+  notices say, before a photo is sent, that a postcard sends the same
+  shrunk photo to Muse Image one more time and that this app keeps no
+  photo on the device or its server.
 - **Cost and limits.** About one cent a postcard (`POSTCARD_USD`) plus the
   read-back's Muse Spark tokens, counted in the server's daily spending
   stop, and at most 100 postcards a day on a server (`POSTCARD_DAY_CAP`).
@@ -417,7 +445,7 @@ and never for a sample room, a replay, a rehearsal or a marked room.
 ### Say it (Muse Voice Transcribe)
 
 Optional, and off unless the server runs LIVE with `FRAMEPLAY_VOICE=yes`;
-health says whether it is on (`voice`). When it is, the riddle panel gets
+health shows the switch (`voice`). When it is on, the riddle panel gets
 **Say it** beside **Answer with** (the V key does the same while the board
 has focus): the page records up to five seconds from the microphone, turns
 the clip into a mono 16-bit 16 kHz WAV on the device (`src/voice.js`), and
@@ -431,7 +459,7 @@ panel asks for consent, one time a visit, with an OK button. Voice is for
 players 18 and over. This app keeps no clip, on the device or on its
 server; while the demo runs on Meta's free hackathon credits, Meta may use
 what it receives to improve its products. Cost: about five seconds of audio
-at $0.18 an hour, under a tenth of a cent a riddle, counted in the server's
+at $0.18 an hour, under a tenth of a cent a clip, counted in the server's
 daily spending stop; the server takes at most 6 s a clip, 200 clips a day
 and 10 an hour from one client.
 
@@ -455,11 +483,38 @@ counts are capped, and with reduced motion (the system's setting or the
 page's) there are none.
 
 `src/settings_fx.js` builds the controls for the Settings drawer: Music on
-or off with a volume, Effects on or off, and Reduce motion (the same choice
-as the Motion switch). Each choice is kept on this device, and only once
+or off with a volume, Effects on or off, and Reduce motion. Each choice is kept on this device, and only once
 changed. The game tells a small event bus (`src/events.js`) what happens;
 the sound and the music listen. All of this is checked by unit tests
 against a stand-in AudioContext and a fake page, not yet in a browser.
+
+## Privacy
+
+FRAME//PLAY is for players 18 and over: the first screen says "You must be
+18 or over to send a photo (Meta's terms)." and its button reads "I am 18
+or over and I understand. Continue". That screen also asks you to keep
+people and anything private out of the photo.
+
+- **What is sent.** Only in LIVE, after that screen: the photo, shrunk and
+  stripped of its camera data on the device, through this app's server to
+  Meta's Model API; where a server has them on, the same copy to Muse Image
+  for a postcard you ask for, and a voice clip of about five seconds (at
+  most six) to Muse Voice Transcribe. While this demo runs on Meta's free hackathon
+  credits, Meta may use the photos and voice clips it receives to improve
+  its products; the page says so before anything is sent. In MOCK and
+  REHEARSAL nothing is sent to Meta.
+- **What is kept.** No photo and no voice clip is saved, on the device or
+  on the server. Levels made from your photos (outlines, names and roles,
+  never the photo) stay on your device, with your step, sound and tour
+  choices, until you clear this site's data. While the page is open, the
+  shrunk photo of a LIVE room (read now, or a kept level whose photo was
+  picked again) stays in its memory for a postcard, and is never saved.
+- **What is logged.** The server's log keeps, for each request, its method,
+  path and status, and for each photo its size, the time each stage took,
+  the calls, tokens and estimated cost, and how many things were found;
+  never the photo, and never the visitor's address (the per-visitor caps
+  use a digest salted for each run, which is not logged). The service
+  hosting a copy may keep its own access log.
 
 ## Running it
 
@@ -482,8 +537,9 @@ behind a live read, and each client may replay it 10 times a minute.
 end. After that time the server calls no model: health says MOCK and why
 (and `live_until` in its ceilings), the sample rooms are drawn by code, our
 kitchen replays Meta's recorded answer labeled REPLAY, and a photo sent from
-a page opened earlier is refused in words (503 live_unavailable), so our
-kitchen falls back to its replay there too. A time that cannot be read
+a page opened earlier, to a server already running before that time, is
+refused in words (503 live_unavailable), so our kitchen falls back to its
+replay there too. A time that cannot be read
 stops the server from starting.
 
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
@@ -491,8 +547,10 @@ day, and stops for the day at an estimated $5. Within those, each client
 gets at most 3 photos an hour and 10 a day, so one visitor cannot use up the
 day for everyone. The client is the connection's address, or with
 `--public` the last `X-Forwarded-For` hop (the address the Space's own
-proxy saw and appended); a hop a visitor writes comes before it and is
-never used, so a visitor cannot pose as several by writing new ones.
+proxy saw and appended); behind that proxy a hop a visitor writes comes
+before it and is never used, so a visitor cannot pose as several by
+writing new ones (run `--public` only behind a proxy that appends the
+address it saw).
 Visitors who share one address (an office, a VPN) share its photos.
 A photo's place is taken before its upload is read, so no more photos than
 the readers at work are held in memory; a request that sends nothing for 15
@@ -501,9 +559,11 @@ given up (time for a 4 MiB photo on a slow phone link; the page shrinks
 photos first). Each client uploads one photo at a time, so slow uploads
 from one client hold one of the 4 places at most. A photo is one Muse Spark
 call, at most 12 SAM 3.1 calls and one more Muse Spark call for its riddles
-(at most 14 calls in all): at the published prices about four to five
+(at most 14 calls in all): at the published prices about three to five
 cents, and about nine cents at worst (every call answered once; a call sent
-again costs again, and the estimate counts each send), so the stop allows at least 50 photos a day.
+again costs again, and the estimate counts each send), so, with no
+postcard or voice clip that day, the stop allows at least 50 photos a day
+(postcards and voice clips draw on the same stop).
 
 The $5 stop is an estimate kept by this server, not a limit on the Meta
 account. In LIVE the day's estimated spend and photo count are kept in a
@@ -512,14 +572,16 @@ small JSON file (`spend.json` in `FRAMEPLAY_DATA_DIR`, by default a
 read at start and written on every change, so a restart of the same server
 keeps the day's count. A fresh container (a rebuilt or moved Space, or a
 folder that is not kept) starts a new count; the per-photo and per-client
-caps still bound what it can spend. Health says where the count is kept
-(spend_kept: file or memory).
+caps still bound what it can spend. Health says where the count is meant
+to be kept (spend_kept: file when a folder is set, else memory); if that
+folder cannot be written, the count holds in memory only.
 
 If the Model API refuses the
 key or a model is gone, the server stops sending photos, says so in health
 (live_state: unavailable), and lets one photo check again every 10 minutes.
-If it refuses for billing or credit (a 402, a used-up quota, or a refusal
-whose code names billing, credit or payment), LIVE is stopped for the rest
+If it refuses for billing or credit (a 402, a used-up quota, or a 401 or
+403 whose code names billing, credit, payment or funds), photos and
+postcards are stopped for the rest
 of the UTC day: no photo is sent until midnight UTC, when one photo may
 check again. Health lists both (ceilings: live_hold_seconds,
 billing_stop_until). When LIVE cannot read a photo for
@@ -554,8 +616,9 @@ picture through them.
 
 ## Known limits (so far)
 
-- Live mode has been run against Meta on 2026-10-27: the desk sample
-  picture, then our kitchen photo, whose answers the server replays. The
+- Live mode has been run against Meta on 2026-10-27 (the desk sample
+  picture, then our kitchen photo, whose answers the server replays) and
+  again on 2026-10-28 (our kitchen photo, read fresh, with its riddles). The
   first calls showed that the first reader of sam-3.1's answer
   text, written from a summary of Meta's documents, did not match the real
   grammar, so every box was dropped. The reader is now written from those
@@ -563,10 +626,15 @@ picture through them.
   (`server/tests/fixtures/desk_1027.json`); a photo unlike the desk may
   still bring a surprise, which the reader reports as a diagnostic instead
   of guessing.
+- Two live reads of one photo can make two different rooms: one live read
+  of our kitchen photo on 2026-10-28 gave 7 exact outlines from SAM 3.1's
+  masks, cabinets among them; the 2026-10-27 answers the replay uses gave
+  5, none of them a cabinet. The replay shows one read, not the room a live
+  read will make.
 - SAM's mask payloads ('!' one_bit, which this app asks for, or '~'
   lossless, the API's default) are read by a strict decoder
-  (`server/sam_mask.py`, see NOTICE below), each mask once per photo and only
-  for the matches kept, while the photo has time left; the reply says of
+  (`server/sam_mask.py`, see NOTICE below), each mask at most once per
+  photo, while the photo has time left; the reply says of
   each mask whether it decoded, and a call whose mask did not decode
   carries the diagnostic `mask_undecodable` (`mask_time` when the photo
   ran out of time); that match's outline is then traced by code inside its
@@ -581,7 +649,8 @@ picture through them.
   are rough); when Muse Spark counted more than its points found (two
   chairs, a point on one), the most confident other matches, from 0.5 up
   and at least 75% of the best, make up the count; with no point in any
-  match, the most confident from 0.5 up. A kind keeps at most 3 things to
+  match, the most confident from 0.5 up and at least 75% of the best. A
+  kind keeps at most 3 things to
   collect, 4 obstacles, 2 hazards and one exit; one box is never two
   things. What is dropped is listed with the reveal.
 - When SAM finds nothing usable for a thing, code traces around Muse
@@ -598,19 +667,22 @@ picture through them.
   reveal says so. Small, low contrast objects are the hardest to trace. On
   the recorded desk answers the masks' outlines lie on the painter's exact
   silhouettes at IoU 0.958 (the coins, 34 x 21 px) to 0.994.
-- The floor is grown by colour: a floor much like its walls (white boards
-  under white walls) can run past its edge, up to 2% of the picture beyond
-  SAM's floor boxes, and a thing much like the floor that SAM did not find
-  is walked over. A thing on the floor that SAM did not find, unlike the
-  floor, is a wall. Marked rooms keep the horizon.
+- The floor is SAM 3.1's floor mask wherever one decodes. Where none does,
+  code grows it by colour instead, and a floor much like its walls (white
+  boards under white walls) can run past its edge, up to 2% of the
+  picture's long side beyond SAM's floor boxes. Either way the floor's
+  holes are filled as hidden floor, so a thing on the floor that SAM did
+  not find is walked over where the floor surrounds it; only one at the
+  floor's outer edge stays a wall. Marked rooms keep the horizon.
 - A box you mark is looser than SAM's: code looks for the one shape that
   stands out inside it and traces that. A box over several things, or over
   a thing much like its background, keeps your box as you drew it, and the
   reveal counts it as kept as a box.
 - One photo, one room; a 2.5D approximation with one baseline per object.
 - Ask the room: a riddle's answer is Muse Spark's judgement of the photo;
-  where its answers are comes from SAM 3.1, so a thing SAM did not find is
-  never an answer, and their count is the number of answers Muse Spark
+  where its answers are comes from the room's things (found by SAM 3.1, or
+  traced by code around Muse Spark's points), so a thing the read did not
+  find is never an answer, and their count is the number of answers Muse Spark
   chose (if SAM found five cabinets and Muse Spark chose four, the riddle
   asks for four). English only, at most three riddles a room.
 
@@ -643,4 +715,6 @@ written for this repository, and it is distributed under the SAM License,
 not MIT. So is `server/tests/lossless_encoder.py`, a test-only lossless
 encoder written as the mirror of that decoder. The license text is in
 [LICENSES/SAM_LICENSE.txt](LICENSES/SAM_LICENSE.txt), verbatim, as plain
-UTF-8 text. Everything else in this repository is MIT.
+UTF-8 text. Everything else in this repository is MIT;
+`server/tests/test_sam_mask.py` also quotes, as test data, the sample mask
+payloads and error messages published with meta-sam-parser 0.1.0.
