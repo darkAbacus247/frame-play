@@ -198,7 +198,7 @@ class Words(unittest.TestCase):
         texts = list(meta_api.WORDS.values()) + [
             meta_api.TIMEOUT_WORDS, meta_api.NETWORK_WORDS, meta_api.OUT_OF_TIME_WORDS, meta_api.REDIRECT_WORDS,
             meta_api.TOO_LARGE_WORDS, meta_api.MALFORMED_WORDS, meta_api.QUOTA_WORDS, meta_api.LIVE_UNAVAILABLE,
-            meta_api.other_status_words(418), meta_api.other_status_words(599)]
+            meta_api.CONTRIBUTOR_WORDS, meta_api.other_status_words(418), meta_api.other_status_words(599)]
         for text in texts:
             self.assertTrue(text.endswith('.'), text)
             self.assertRegex(text, r'^[A-Z]', text)
@@ -333,6 +333,50 @@ class Latch(unittest.TestCase):
             t.post('/responses', {}, time.monotonic() + 30, sleep=lambda s: None)
         self.assertFalse(c.exception.latched)
         self.assertEqual(t.claim(), 'open')
+
+
+class StandardModelsOnly(unittest.TestCase):
+    """Meta's API Terms: a request may be routed to a Contributor Model, and
+    the operator must make sure it uses the kind it means to. This app uses
+    Standard models only (server/config.py refuses to start with another id),
+    so an answer naming a Contributor Model is refused whole."""
+
+    def setUp(self):
+        self.fake = FakeMeta()
+        self.t = Transport(self.fake.base, KeyHolder(TEST_VALUE))
+        self.word = '-contri' + 'butor'  # split so that no file names a Contributor model
+
+    def tearDown(self):
+        self.fake.stop()
+
+    def post(self, route):
+        return self.t.post(route, {'model': 'muse-spark-1.3', 'a': 1}, time.monotonic() + 30, sleep=lambda s: None)
+
+    def test_an_answer_naming_a_contributor_model_is_refused_and_none_of_it_is_used(self):
+        answer = {'id': 'chatcmpl-x', 'model': 'muse-spark-1.3' + self.word, 'choices': [{'message': {'content': 'secret'}}]}
+        for route in ('/chat/completions', '/responses', '/images/edits'):
+            self.fake.on(route, ok_json(answer), ok_json(answer))
+            with self.assertRaises(CallError, msg=route) as c:
+                self.post(route)
+            e = c.exception
+            self.assertEqual((e.code, e.message), ('live_unavailable', meta_api.CONTRIBUTOR_WORDS), route)
+            self.assertEqual(e.message, 'Meta answered with a Contributor Model, which this app does not use.')
+            self.assertFalse(e.retryable or e.transient, route)
+            self.assertIsNone(e.excerpt, 'nothing of the answer is kept')
+            self.assertNotIn('secret', str(vars(e)))
+            self.assertEqual(self.fake.count(route), 1, 'not sent again')
+        self.assertIsNone(self.t.broken, 'a routing answer is not an account problem')
+
+    def test_an_answer_naming_the_requested_model_passes(self):
+        answer = {'id': 'chatcmpl-x', 'model': 'muse-spark-1.3', 'choices': []}
+        self.fake.on('/chat/completions', ok_json(answer))
+        j, attempt, _ = self.post('/chat/completions')
+        self.assertEqual((j, attempt), (answer, 1))
+        # the other shapes an answer takes: no model field, the stand-in's label, not an object
+        for a in ({'ok': 1}, {'model': 'REHEARSAL stand-in for sam-3.1'}, {'model': None}, [1, 2], 'x'):
+            meta_api.check_answer_model(a)
+        with self.assertRaises(CallError):
+            meta_api.check_answer_model({'model': 'SAM-3.1' + self.word.upper()})
 
 
 class RetryAfter(unittest.TestCase):

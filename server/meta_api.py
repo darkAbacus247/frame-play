@@ -67,6 +67,11 @@ LIVE_UNAVAILABLE = ('The live AI is unavailable on this server right now (an acc
 BILLING = re.compile(r'billing|credit|payment|funds|quota', re.I)
 DAY_STOP_WORDS = ('The live AI is stopped on this server for the rest of the day (UTC): the Model API refused it '
                   'for billing or credit. The sample rooms still work.')
+# Meta's API Terms: a request may be routed to a Contributor Model, and the
+# operator must make sure it uses the kind it means to. This app uses Standard
+# models only (config.check_models at start), so such an answer is refused
+# whole, and nothing of it is used.
+CONTRIBUTOR_WORDS = 'Meta answered with a Contributor Model, which this app does not use.'
 
 
 def next_utc_midnight(t):
@@ -118,6 +123,14 @@ def retry_after_seconds(value, now=None):
         return None
     now = time.time() if now is None else now
     return max(0, int(round(when.timestamp() - now)))
+
+
+def check_answer_model(answer):
+    """Refuse an answer whose model field names a Contributor Model. One field
+    read, no excerpt: the answer's body is never kept or logged."""
+    model = answer.get('model') if isinstance(answer, dict) else None
+    if isinstance(model, str) and config.CONTRIBUTOR in model.lower():
+        raise CallError('live_unavailable', CONTRIBUTOR_WORDS)
 
 
 def excerpt(text, holder=None, limit=300):
@@ -294,9 +307,11 @@ class Transport:
             raise e
         self._clear()
         try:
-            return status, json.loads(data.decode('utf-8'))
+            j = json.loads(data.decode('utf-8'))
         except (UnicodeDecodeError, ValueError):
             raise CallError('malformed', MALFORMED_WORDS, status, excerpt=excerpt(data, self.holder)) from None
+        check_answer_model(j)
+        return status, j
 
     def post(self, route, body, deadline, sleep=time.sleep, clock=time.monotonic, retry_timeout=None):
         """With the retry table. Returns (parsed JSON, attempts, ms).

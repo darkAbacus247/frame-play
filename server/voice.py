@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from server import config
 from server.config import KeyHolder, redact
 from server.meta_api import (CallError, NEVER_RETRY, RETRY_STATUSES, WORDS,
-                             excerpt, is_transient, next_utc_midnight,
+                             check_answer_model, excerpt, is_transient, next_utc_midnight,
                              other_status_words, retry_after_seconds)
 
 ROUTE = '/asr/transcribe'
@@ -262,9 +262,11 @@ class VoiceTransport:
             raise CallError(code, words, status, retry, retryable, billed=False,
                             excerpt=excerpt(data, self.holder) if data else None, transient=is_transient(status))
         try:
-            return status, json.loads(data.decode('utf-8'))
+            j = json.loads(data.decode('utf-8'))
         except (UnicodeDecodeError, ValueError):
             raise CallError('malformed', "The Model API's answer could not be read. Please try the same voice clip again.", status, excerpt=excerpt(data, self.holder)) from None
+        check_answer_model(j)  # Standard models only, as every other answer
+        return status, j
 
     def transcribe(self, wav, names, deadline, sleep=time.sleep, clock=time.monotonic):
         """With the retry table: a 429 (not quota) is sent up to three times.

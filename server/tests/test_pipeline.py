@@ -113,6 +113,29 @@ class Reads(WithFake):
         self.assertEqual(r['usage']['calls'], 7)
         self.assertGreater(r['usage']['estimated_usd'], 0.01)
 
+    def test_a_read_answered_by_a_contributor_model_is_refused_whole(self):
+        # Meta's API Terms: a request may be routed to a Contributor Model;
+        # this app uses Standard models only, so the read stops there, nothing
+        # of the answer is used, no SAM call follows, and the log holds no
+        # answer body
+        from server.meta_api import CONTRIBUTOR_WORDS
+        word = '-contri' + 'butor'  # split so that no file names a Contributor model
+        _, _, data = spark_answer(READ)
+        answer = json.loads(data)
+        answer['model'] = 'muse-spark-1.3' + word
+        self.fake.on('/chat/completions', ok_json(answer))
+        r = self.pipe.run(photo())
+        self.assertEqual((r['status'], r['error']['code'], r['error']['message']), ('error', 'live_unavailable', CONTRIBUTOR_WORDS))
+        self.assertEqual(r['error']['retry_same'], False)
+        self.assertEqual((r['scene'], r['surface'], r['objects']), (None, None, []), 'nothing of the answer is used')
+        self.assertEqual((r['usage']['spark_calls'], r['usage']['sam_calls']), (1, 0))
+        self.assertEqual(self.fake.count('/responses'), 0, 'no SAM call follows')
+        self.assertEqual(self.pipe.transport.live_state()[0], 'ok', 'a routing answer is not an account problem')
+        text = ''.join(self.lines)
+        self.assertIn('live_unavailable', text)
+        for leaked in ('The Desk', 'Gather the coins', word):
+            self.assertNotIn(leaked, text, 'the log never holds the answer')
+
     def test_the_spark_call_follows_the_rules(self):
         self.fake.on('/chat/completions', spark_answer(READ))
         self.pipe.run(photo())
