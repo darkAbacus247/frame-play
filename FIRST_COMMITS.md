@@ -1,6 +1,6 @@
 # First commit of every file
 
-Every file tracked at commit 9af45d8 (2026-11-01 10:32:24 UTC), with the time of the commit that
+Every file tracked at commit d7349c9 (2026-11-01 14:17:40 UTC), with the time of the commit that
 first added it (UTC, the author time git records) and that commit. Made from
 this repository's git history by `python -B tools/first_commits.py`; made
 again at the freeze.
@@ -210,3 +210,5 @@ again at the freeze.
 | `tests/postcard.test.js` | 2026-11-01 09:40:49 | 00fd684 |
 | `src/voice.js` | 2026-11-01 10:13:18 | 63b809f |
 | `tests/voice.test.js` | 2026-11-01 10:13:18 | 63b809f |
+| `tests/late_room.test.js` | 2026-11-01 13:39:10 | edd0568 |
+| `tests/start_seen_floor.test.js` | 2026-11-01 13:44:39 | 431ea3b |
