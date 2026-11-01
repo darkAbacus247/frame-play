@@ -2,8 +2,9 @@
 
 - This repository was created on 2026-10-26 after 16:00 UTC, the start of the
   Meta Global AI Developer Hackathon. Every file in it was written during the
-  event, except rooms/kitchen.jpg, a photo (below). The git history carries
-  the true time of every commit.
+  event, except rooms/kitchen.jpg, a photo (below), and
+  LICENSES/SAM_LICENSE.txt, Meta's SAM License text, kept verbatim. The git
+  history carries the true time of every commit.
 - Pre-existing: Meta's Muse Spark and SAM 3.1 models, SAM's mask format
   (ported under its license), and the written notes of my pre-event
   prototype (Oct 21 to 25), read as a spec, with none of its code; built
@@ -28,9 +29,10 @@
   from muse-image-1.0 for the postcard and muse-voice-transcribe-1.0 for Say
   it where a server turns them on) are data read at run time, not code; the
   one code a Meta model wrote is the server side of the postcard and of Say
-  it, named above. Two recorded sets are kept as data,
-  byte for byte as the models answered: the first live answers for the desk
-  sample picture (server/tests/fixtures/desk_1027.json, a test fixture), and
+  it, named above. Two recorded sets are kept as data, as the recording tool
+  wrote them (a JSON record around each of the models' answers): the first
+  live answers for the desk sample picture
+  (server/tests/fixtures/desk_1027.json, a test fixture), and
   the answers for the sample kitchen photo, read on 2026-10-27
   (server/replay/kitchen/: one muse-spark-1.3 answer and six sam-3.1
   answers), which the server replays where no model may be called and every

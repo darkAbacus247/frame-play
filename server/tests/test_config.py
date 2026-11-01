@@ -107,6 +107,11 @@ class Ceilings(unittest.TestCase):
         self.assertIn('at most 14 calls in all', ' '.join(readme.split()))
         self.assertIn('about nine cents at worst', ' '.join(readme.split()))
         self.assertIn('at least 50 photos a day', ' '.join(readme.split()))
+        # config.py's own comment carries the figure, and the README's usual cost
+        source = (Path(__file__).resolve().parents[2] / 'server' / 'config.py').read_text(encoding='utf-8')
+        self.assertIn('$0.094, about nine cents', ' '.join(source.split()))
+        self.assertIn('three to five cents', ' '.join(source.split()))
+        self.assertNotIn('four to five', source)
 
     def test_room_for_several_judges_with_the_day_and_dollar_guards_kept(self):
         self.assertEqual((config.IN_FLIGHT, config.PER_HOUR), (4, 120))

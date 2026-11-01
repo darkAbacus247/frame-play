@@ -4,8 +4,9 @@ rooms/kitchen.jpg is the author's own photo of a real kitchen (1024 x 399,
 camera data already removed), released with the repository. On 2026-10-27
 it went through the live path: one muse-spark-1.3 answer and six sam-3.1
 answers (the stove, the kitchen island, the refrigerator, the counter, the
-floor and the door, each with real one_bit masks), kept byte for byte in
-server/replay/kitchen/.
+floor and the door, each with real one_bit masks), kept in
+server/replay/kitchen/ as the recording tool wrote them (a JSON record
+around each answer).
 
 Where no model may be called (MOCK, REHEARSAL), POST /api/replay/kitchen
 replays them: the very same Pipeline that reads a live photo runs on the

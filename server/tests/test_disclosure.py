@@ -175,6 +175,24 @@ class Provenance(unittest.TestCase):
         self.assertIn("rooms/kitchen.jpg is the author's own photo of a real kitchen (1024 x 399, camera data removed), "
                       'added on Oct 27, 2026, during the event, with no recorded capture date', words)
 
+    def test_the_sam_license_text_is_said_to_be_older_than_the_event(self):
+        # LICENSES/SAM_LICENSE.txt is Meta's own license text, kept verbatim:
+        # the except-clause names it beside the photo (the Disclosure
+        # sentences do not change)
+        words = flat('PROVENANCE.md')
+        self.assertIn('Every file in it was written during the event, except rooms/kitchen.jpg, a photo (below), '
+                      "and LICENSES/SAM_LICENSE.txt, Meta's SAM License text, kept verbatim.", words)
+        self.assertEqual(words.count(PRE_EXISTING), 2)
+
+    def test_the_recorded_answers_are_said_as_they_are_kept(self):
+        # the recorded files are the recording tool's JSON records around the
+        # models' answers (re-indented, the prompt's start only), not the
+        # models' own bytes
+        for rel in ('PROVENANCE.md', 'server/replay.py', '.gitattributes'):
+            words = flat(rel)
+            self.assertNotIn('byte for byte', words, rel)
+            self.assertIn('as the recording tool wrote them', words, rel)
+
     @unittest.skipUnless(git_history(), 'no git history in this copy')
     def test_the_kitchen_photo_was_added_on_oct_27(self):
         out = subprocess.run(['git', 'log', '--diff-filter=A', '--format=%ad', '--date=format-local:%Y-%m-%d',

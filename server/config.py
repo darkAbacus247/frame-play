@@ -102,9 +102,9 @@ PRICE_VOICE_HOUR = 0.18 / 3600
 SPARK_WORST_IN_TOKENS = 12_000
 # A photo's worst estimate, every call answered once: the room read at its
 # worst ($0.032), every SAM call ($0.030) and Ask the room's riddle call at
-# its worst ($0.032), about nine cents; a read takes about four to five
-# (Muse Spark near one cent, SAM up to three, the riddles under one). At the
-# $5 stop that is at least 50 photos a day.
+# its worst ($0.032): $0.094, about nine cents. A read usually costs about
+# three to five cents (Muse Spark near one cent, SAM up to three, the riddles
+# under one). At the $5 stop that is at least 50 photos a day.
 PHOTO_WORST_USD = (SPARK_WORST_IN_TOKENS * PRICE_SPARK_IN + SPARK_MAX_COMPLETION_TOKENS * PRICE_SPARK_OUT
                    + SAM_CALLS_PER_PHOTO * PRICE_SAM_IMAGE
                    + RIDDLE_SPARK_CALLS * (SPARK_WORST_IN_TOKENS * PRICE_SPARK_IN + RIDDLE_MAX_COMPLETION_TOKENS * PRICE_SPARK_OUT))
