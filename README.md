@@ -351,13 +351,19 @@ its own step, with ←. No primary button ever moves the step counter back.
 On the closing screen such a room says on which step it can be made again,
 or that this copy cannot make it again.
 
-Every screen is written to fit without scrolling at 100% zoom: one short
-line up front, short labeled facts, and the longer text (the full consent
-notice, the list of what the AI found, the proof) in a disclosure that
-starts closed. Text runs in one column held to 65ch (65 widths of the
-digit zero).
+Every screen is written to fit without scrolling at 100% zoom in a window
+945 px tall or more: one short line up front, short labeled facts, and the
+longer text (the full consent notice, the list of what the AI found, the
+proof) in a disclosure that starts closed. Text runs in one column held to
+65ch (65 widths of the digit zero). In a 1280x800 window the closing screen
+fits whole (its ways on sit right under the won line, and the four rooms
+two by two), and so does every road screen but seven: in MOCK, your own
+room with a photo kept here; in REHEARSAL, under its band, the three pick
+steps (as first opened and with a room chosen) and Your three rooms. Those
+seven scroll by 19 to 40 px there, in the model.
 `tests/fit.test.js` checks every road screen and the closing screen at
-839x945 and 1259x1418, and `tests/layout.test.js` checks the play screen,
+839x945 and 1259x1418, and at 1280x800 names those seven and checks the
+rest, and `tests/layout.test.js` checks the play screen,
 both with a layout model built on the stylesheet's own rules and no
 tolerance; it is a model, not a browser. A picture sized to fill the space
 left (the reveal, the play board) rounds what it subtracts up and the space

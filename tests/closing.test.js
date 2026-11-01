@@ -219,8 +219,12 @@ test('one heading, one primary, real buttons for every way on; MOCK says what yo
   const buttons = all(section).filter((e) => e.tagName === 'BUTTON');
   const primary = buttons.filter((b) => b.hasAttribute('data-primary'));
   assert.deepEqual(primary.map((b) => b.textContent), ['Free play']);
-  // the accessible name starts with the visible words (label in name)
-  assert.deepEqual(buttons.map(nameOf), ['Play again: The Desk Top', 'Play again: The Living Room', 'Play again: The Apartment', 'Free play', 'I’m done', 'Try your own room', 'Start over']);
+  // the accessible name starts with the visible words (label in name); the
+  // ways on come right under the won line, before the rooms, so they are in
+  // the first view of a short window (the judge walk of 11-01: 1280x800)
+  assert.deepEqual(buttons.map(nameOf), ['Free play', 'I’m done', 'Try your own room', 'Start over', 'Play again: The Desk Top', 'Play again: The Living Room', 'Play again: The Apartment']);
+  const kids = section.children.map((e) => `${e.tagName.toLowerCase()}.${e.className}`);
+  assert.deepEqual(kids.slice(0, 4), ['h1.', 'p.lede', 'div.actions', 'ul.closing-rooms']);
   assert.ok(buttons.every((b) => !b.hasAttribute('aria-label')), 'no label that hides the visible words');
   assert.ok(buttons.every((b) => b.getAttribute('type') === 'button' && b.dataset.tip && b.getAttribute('aria-describedby')), 'keyboard buttons with words for screen readers');
   // in MOCK your own room is a photo you mark yourself, so it is offered too
@@ -230,7 +234,7 @@ test('one heading, one primary, real buttons for every way on; MOCK says what yo
   assert.equal(list.getAttribute('aria-label'), 'The rooms you played');
   assert.equal(list.children.length, 4);
   for (const b of buttons) b.click();
-  assert.deepEqual(calls, [['again', desk, 'The Desk Top'], ['again', living, 'The Living Room'], ['again', apartment, 'The Apartment'], 'free', 'done', 'own', 'over']);
+  assert.deepEqual(calls, ['free', 'done', 'own', 'over', ['again', desk, 'The Desk Top'], ['again', living, 'The Living Room'], ['again', apartment, 'The Apartment']]);
 });
 
 test('every mode offers Try your own room (in MOCK it is marked by hand)', () => {
@@ -247,9 +251,10 @@ test('every mode offers Try your own room (in MOCK it is marked by hand)', () =>
 
 // Modeled with the stylesheet's cascade (tests/layoutmodel.js), with text
 // wrapped a little wider than the real font: the closing screen fits main
-// without scrolling at 100% zoom.
-test('the closing screen fits without scrolling at 839x945 and 1259x1418', () => {
-  for (const [vw, vh] of [[839, 945], [1259, 1418]]) {
+// without scrolling at 100% zoom, in a 1280x800 window too (where the four
+// rooms sit two by two).
+test('the closing screen fits without scrolling at 839x945, 1259x1418 and 1280x800', () => {
+  for (const [vw, vh] of [[839, 945], [1259, 1418], [1280, 800]]) {
     for (const [mode, own] of [['mock', false], ['live', true], ['rehearsal', true]]) {
       const head = header({ lap: 'Circuit complete', counter: 'Step 15 of 15: The end', why: '', band: mode === 'rehearsal' ? 'REHEARSAL · local stand-in, not Meta. No photo leaves this machine.' : null });
       const { space, width, layout } = mainSpace(vw, vh, head, mode);
