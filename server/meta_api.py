@@ -366,12 +366,19 @@ def image_edit(transport, prompt, data_url, user_id, deadline, sleep=time.sleep,
     """One postcard edit through the transport. Returns (b64 JPEG, usage, sends).
 
     A 400 with code content_policy_violation is a plain refusal (never retried);
-    a 503 is sent once more."""
+    a 503 is sent once more, after its Retry-After, while time remains."""
     body = image_body(prompt, data_url, user_id)
     try:
         j, attempt, _ = transport.post(IMAGE_ROUTE, body, deadline, sleep, clock)
     except CallError as e:
         if e.status == 503 and getattr(e, 'attempt', 1) == 1:
+            # terms-36: the one resend honors Retry-After as post() does (post
+            # sends a 503 again by itself only when it asks for 3 s or less)
+            wait = e.retry_after or 0
+            if wait > deadline - clock() - 1:
+                raise
+            if wait:
+                sleep(wait)
             j, retry_attempt, _ = transport.post(IMAGE_ROUTE, body, deadline, sleep, clock)
             attempt = retry_attempt + 1
         elif e.status == 400 and e.code == 'content_policy_violation':

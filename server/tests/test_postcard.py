@@ -106,6 +106,32 @@ class ImageCall(unittest.TestCase):
         self.assertEqual(len(self.fake.requests), 2)
         self.assertEqual(sends, 2, 'the retry is counted, so the spend settles both sends')
 
+    # terms-36: the Model API's Retry-After is honored. post() sends a 503
+    # again by itself only when it asks for 3 s or less; the postcard's own
+    # one resend waits the time asked for, on a swapped clock here.
+    BUSY_6 = (503, {'Retry-After': '6'}, b'{"error": {"code": "unavailable", "message": "busy"}}')
+
+    def test_a_503_with_a_long_retry_after_waits_before_the_one_resend(self):
+        self.fake.on('/images/edits', self.BUSY_6, postcard_answer())
+        clock = [0.0]
+        slept = []
+
+        def sleep(s):
+            slept.append(s)
+            clock[0] += s
+        b64, _, sends = postcard.edit_postcard(self.t, ROOM, PHOTO, 'visitor', 30, sleep=sleep, clock=lambda: clock[0])
+        self.assertEqual((b64, sends), (POSTCARD_JPEG_B64, 2))
+        self.assertEqual(slept, [6], 'the second post waits the 6 s asked for')
+        self.assertEqual(len(self.fake.requests), 2)
+
+    def test_a_503_whose_retry_after_outlasts_the_deadline_is_not_resent(self):
+        self.fake.on('/images/edits', self.BUSY_6, postcard_answer())
+        slept = []
+        with self.assertRaises(CallError) as e:
+            postcard.edit_postcard(self.t, ROOM, PHOTO, 'visitor', 5, sleep=slept.append, clock=lambda: 0.0)
+        self.assertEqual((e.exception.status, e.exception.transient), (503, True))
+        self.assertEqual((slept, len(self.fake.requests)), ([], 1), 'no wait past the deadline, and no second send')
+
 
 class StandInPostcard(unittest.TestCase):
     def answer(self, drill=None):
