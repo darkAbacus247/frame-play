@@ -1,6 +1,6 @@
 # First commit of every file
 
-Every file tracked at commit 0f24950 (2026-10-28 15:19:28 UTC), with the time of the commit that
+Every file tracked at commit 9af45d8 (2026-11-01 10:32:24 UTC), with the time of the commit that
 first added it (UTC, the author time git records) and that commit. Made from
 this repository's git history by `python -B tools/first_commits.py`; made
 again at the freeze.
@@ -200,3 +200,13 @@ again at the freeze.
 | `server/tests/test_disclosure.py` | 2026-10-28 14:56:20 | e87bbf0 |
 | `FIRST_COMMITS.md` | 2026-10-28 15:19:28 | 0f24950 |
 | `tools/first_commits.py` | 2026-10-28 15:19:28 | 0f24950 |
+| `server/replay/kitchen_riddles.json` | 2026-10-28 15:44:04 | 2f8dc1a |
+| `tests/kitchen_riddles.test.js` | 2026-10-28 15:44:04 | 2f8dc1a |
+| `server/postcard.py` | 2026-10-28 21:55:28 | 51ad216 |
+| `server/tests/test_postcard.py` | 2026-10-28 21:55:28 | 51ad216 |
+| `server/tests/test_voice.py` | 2026-10-28 21:55:28 | 2b58be4 |
+| `server/voice.py` | 2026-10-28 21:55:28 | 2b58be4 |
+| `src/postcard.js` | 2026-11-01 09:40:49 | 00fd684 |
+| `tests/postcard.test.js` | 2026-11-01 09:40:49 | 00fd684 |
+| `src/voice.js` | 2026-11-01 10:13:18 | 63b809f |
+| `tests/voice.test.js` | 2026-11-01 10:13:18 | 63b809f |
