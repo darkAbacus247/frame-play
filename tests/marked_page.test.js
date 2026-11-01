@@ -320,7 +320,9 @@ test('in MOCK no page code can send: the only network call is fetch, and its onl
     const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
     assert.doesNotMatch(src, /XMLHttpRequest|sendBeacon|WebSocket|EventSource|new Image\b|navigator\.share|postMessage/, f);
     const calls = [...src.matchAll(/\bfetch\(/g)].length;
-    const expected = { 'app.js': 3, 'src/photo.js': 1 }[f] || 0;
+    // src/postcard.js: the room postcard's one POST, behind the server's
+    // switch and offered only for a LIVE read of a photo (never in MOCK)
+    const expected = { 'app.js': 3, 'src/photo.js': 1, 'src/postcard.js': 1 }[f] || 0;
     assert.equal(calls, expected, `${f}: fetch calls`);
   }
   // the third in app.js: a GET of this page's own sample photo, nothing sent

@@ -15,6 +15,7 @@ import { describeRoom, stepsAway, RIDDLE_WORDS } from './src/words.js';
 import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix, acceptRiddles, riddlesFromLine, checkRiddles } from './src/riddle.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
+import { makePostcard, postcardCard, postcardEligible, keepPostcardPhoto, blobToDataUrl, readbackLine, POSTCARD_BUTTON, POSTCARD_TIP, POSTCARD_BUSY, POSTCARD_TITLE, POSTCARD_READY } from './src/postcard.js';
 import { mountFxSettings, effectsOn } from './src/settings_fx.js';
 import { makeMarkedRoom, keptMarkedEntry, sanitizeMarks, needs } from './src/marks.js';
 import { mountMarker } from './src/marker.js';
@@ -60,6 +61,7 @@ const A = {
   missingWhy: null, // the header's reason while a room's level is missing
   boards: new Map(), // each room's picture size on its reveal (boardCap)
   lastBox: null, // the last reveal's space for its picture
+  postcardToken: 0, // the postcard card now showing (an older answer is dropped)
   tour: { on: false, offered: false, lastProgress: Date.now(), notOn: null },
 };
 
@@ -444,10 +446,12 @@ function choosePhoto(slot, file, panel, opts) {
     const kept = storedEntry(photo);
     if (kept) {
       say('This photo’s level was on this device: no model was called.');
+      await keepPhotoForPostcard(kept, photo.blob);
       return { ref, entry: kept };
     }
     const catcher = riddleCatcher();
     const entry = await readThroughServer(photo.blob, photo, photo.picture, { kind: 'photo', sha256: photo.sha256 }, onWords, null, signal, catcher);
+    await keepPhotoForPostcard(entry, photo.blob);
     // our kitchen, read fresh: its words say it is ours, not the player's
     if (opts && opts.ours && entry.summary) entry.summary.ours = true;
     // a cancelled read is not used, so not kept either; nor one made while
@@ -1039,9 +1043,74 @@ function showEndCard(slot, r, level) {
   } else if (riddlesPending(level)) {
     lines.push(RIDDLE_WORDS.onItsWay);
   }
+  // a room postcard (src/postcard.js), last and never the primary; Back
+  // from its card is this card again
+  if (postcardOffered(level)) {
+    secondary.push(postcardAction(level, { primary, back: () => showEndCard(slot, r, level) }));
+  }
   A.endCard = { slot, r, level };
   showCard($('card'), { title: r.words.title, lines, label: level.label, primary, secondary });
 }
+
+// ---- a room postcard (src/postcard.js) ----
+// Behind the server's switch (health.postcard, off by default) and only for
+// a level read live from a photo this visit, whose own shrunk photo is
+// still in memory (never a sample room, never a replay). Its card takes the
+// end card's place: a busy line, then the picture or the words in its
+// place; the card's primary is the one the player came from, and Back
+// brings that card again. A postcard that fails changes nothing else.
+function postcardOffered(level) {
+  return !liveOff() && postcardEligible(A.health, level);
+}
+
+// The very bytes sent for this read, kept with the level in memory only
+// (src/postcard.js keepPostcardPhoto: never saved with it), so a postcard
+// sends the same shrunk, stripped copy and no new pick is needed. Only a
+// LIVE read of a photo keeps one.
+async function keepPhotoForPostcard(entry, blob) {
+  const level = entry && entry.built && !entry.built.error ? entry.built.level : null;
+  if (!level || level.origin !== 'live' || !blob) return;
+  try {
+    keepPostcardPhoto(level, await blobToDataUrl(blob));
+  } catch { /* no postcard for this room; the round is not touched */ }
+}
+
+function postcardAction(level, from) {
+  return { label: POSTCARD_BUTTON, tip: POSTCARD_TIP, onClick: () => showPostcard(level, from) };
+}
+
+// from.primary: the card's primary (the road's own, or Close); from.back():
+// shows the card the player came from, or null when there is none.
+async function showPostcard(level, { primary, back = null }) {
+  const card = $('card');
+  const token = ++A.postcardToken;
+  A.endCard = null;
+  const show = (lines, nodes) => {
+    showCard(card, {
+      title: POSTCARD_TITLE, lines, nodes, primary,
+      secondary: back ? [{ label: 'Back', tip: 'Back to the card you came from', onClick: back }] : [],
+    });
+    card.dataset.postcard = String(token);
+  };
+  show([POSTCARD_BUSY], []);
+  say(POSTCARD_BUSY);
+  let answer;
+  try {
+    answer = await makePostcard(level.postcardPhoto, level.title || 'this room');
+  } catch (e) {
+    if (!postcardStill(card, token)) return;
+    show([e.message], []);
+    say(e.message);
+    return;
+  }
+  if (!postcardStill(card, token)) return;
+  show([], [postcardCard(answer)]);
+  say(`${POSTCARD_READY} ${readbackLine(answer.readback)}`);
+}
+
+// The postcard card still up for this very request: a card closed, or
+// another card shown since, takes nothing from a late answer.
+const postcardStill = (card, token) => !!card.open && card.dataset.postcard === String(token);
 
 // Ask the room (src/riddle.js): riddle i on the play screen; its own card
 // when it ends. The card's primary is the road's own, so the road never
@@ -1148,6 +1217,7 @@ async function screenEnd(main, token) {
     kept: A.road.rooms.map(keptOrigin),
     levels: entries.map((e) => (e ? e.built.level : null)),
     summaries: entries.map((e) => (e ? e.summary : null)),
+    postcards: entries.map((e) => !!e && postcardOffered(e.built.level)),
   });
   const section = closingView({
     rooms, mode: A.mode, primaryLabel: R.primaryLabel(A.road), canReplay: canReplay(),
@@ -1157,6 +1227,8 @@ async function screenEnd(main, token) {
       ownRoom: () => setRoad({ ...A.road, step: R.OWN_STEP }),
       startOver: confirmStartOver,
       done: () => imDone(rooms),
+      // the postcard's card over this screen; Close is its one way back
+      postcard: (slot) => showPostcard(entries[slot].built.level, { primary: { label: 'Close', onClick: () => {} } }),
     },
   });
   main.replaceChildren(section);
@@ -1229,7 +1301,8 @@ const coarsePointer = mq('(pointer: coarse)');
 function ownDeps(signal = null, seen = {}) {
   return {
     preview: previewPhoto,
-    readPhoto: async (f) => { const p = await readPhoto(f); return { ...p, pixels: pixelsOf(p.picture) }; },
+    // seen.photo: the photo as read here (its shrunk copy, for a postcard)
+    readPhoto: async (f) => { const p = await readPhoto(f); seen.photo = p; return { ...p, pixels: pixelsOf(p.picture) }; },
     send: async (blob, onWords) => {
       seen.reply = await sendPhoto(blob, (m) => onWords(m.words, m.stage), undefined, { signal, onRiddles: seen.catcher && seen.catcher.onRiddles });
       catcherReply(seen.catcher, seen.reply);
@@ -1539,6 +1612,7 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
     setBusy(false);
     if (r.notSame) r.words = sentences(r.words, IN_PLACE_WAYS);
     if (r.kind === 'built') {
+      if (r.ref.kind === 'photo' && seen.photo) await keepPhotoForPostcard(r.entry, seen.photo.blob);
       if (r.ref.kind === 'marked') say('Your marks for this photo were on this device: nothing was sent.');
       else if (r.entry.fromDevice) say('This photo’s level was on this device: no model was called.');
       else {

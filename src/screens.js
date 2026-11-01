@@ -11,6 +11,7 @@ import { objectWords } from './level.js';
 import { ROLE_WORDS } from './words.js';
 import { MOCK_WORDS, REPLAY_WORDS } from './own.js';
 import { MARK_ROLES, markedWords } from './marks.js';
+import { POSTCARD_BUTTON, POSTCARD_TIP } from './postcard.js';
 
 // A disclosure: its summary in view, its body one press away. Closed until
 // the player opens it.
@@ -49,7 +50,7 @@ export const WHERE = {
   // then Ask the room's one more Muse Spark call (server/riddles.py):
   // 1 + 12 + 1 = 14 (server/config.py, SPARK_CALLS_PER_PHOTO,
   // SAM_CALLS_PER_PHOTO and RIDDLE_SPARK_CALLS)
-  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it; then, while you play, one more Muse Spark call writes up to 3 riddles about it. At most 14 calls in all, each carrying the photo (a failed call may be sent one more time, a busy one two more times). This app does not store it. ' + META_USE,
+  live: 'In LIVE mode your photo is shrunk on this device and its camera data is removed. It then goes through this app’s server to Meta’s Model API for this one read: one Muse Spark call, then one SAM 3.1 call for the surface and one for each kind of object on it; then, while you play, one more Muse Spark call writes up to 3 riddles about it. At most 14 calls in all, each carrying the photo (a failed call may be sent one more time, a busy one two more times). If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the server’s daily spending stop. This app does not store it. ' + META_USE,
   rehearsal: 'This page is in REHEARSAL mode: a local stand-in answers, not Meta, and no photo leaves this machine.',
 };
 // The key points: each one short line, none weaker than the full notice.
@@ -435,7 +436,9 @@ export function freeView() {
 // What each mode does with a photo: the plain line in view; in REHEARSAL
 // the details one press away.
 export const OWN_NOTICE = {
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. ' + META_USE,
+  // the postcard sentence (src/postcard.js): the same photo, one more send,
+  // only when asked for, at about one cent inside the server's daily stop
+  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the daily stop. ' + META_USE,
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };
@@ -597,7 +600,9 @@ export function markView({ actions }) {
 // the room the running stand-in answers for (REHEARSAL), or null, `kept`
 // the origin of each photo room's level kept on this device, or null.
 // canReplay: this server can replay the sample kitchen photo's answer.
-export function closingRooms({ road, levels, summaries = [], mode, room = null, kept = [], canReplay = false }) {
+// postcards: per slot, whether the page offers a room postcard for its level
+// (src/postcard.js postcardEligible: the switch on, a LIVE read of a photo).
+export function closingRooms({ road, levels, summaries = [], mode, room = null, kept = [], canReplay = false, postcards = [] }) {
   return [0, 1, 2, OWN_SLOT].map((slot) => {
     const level = levels[slot] || null;
     const ref = road.rooms[slot] || null;
@@ -618,6 +623,7 @@ export function closingRooms({ road, levels, summaries = [], mode, room = null, 
     const ours = !!ref && (ref.kind === 'replay' || (!!summaries[slot] && summaries[slot].ours === true));
     return {
       slot, heading, ref, playable: !!level, won: road.best[slot] != null,
+      postcard: !!level && postcards[slot] === true,
       title: ref && ref.kind === 'marked' ? 'marked by you' : ours ? 'our kitchen' : level ? level.title : null,
       result: resultLine(road, slot),
       ai: level ? aiLine(level, summaries[slot]) : missingLine(slot, ref, mode, room, kept[slot] || null, canReplay),
@@ -724,10 +730,13 @@ export function doneView({ rooms, open = false, actions }) {
   ]);
 }
 
-// actions: { freePlay, playAgain(ref, title), ownRoom, startOver, done };
-// canReplay: this server can replay our kitchen photo's recorded answer
+// actions: { freePlay, playAgain(ref, title), ownRoom, startOver, done,
+// postcard(slot) (a room postcard, src/postcard.js; only for rooms that
+// offer one) }; canReplay: this server can replay our kitchen photo's
+// recorded answer
 export function closingView({ rooms, mode, primaryLabel, actions, canReplay = false }) {
   const sends = mode === 'live' || mode === 'rehearsal';
+  const roomName = (r) => (r.slot === OWN_SLOT ? 'your own room' : r.title);
   return el('section', { class: 'screen closing' }, [
     el('h1', { text: 'You’ve completed FRAME//PLAY' }),
     // what was won (the rooms on the road, whether or not their levels are
@@ -751,9 +760,14 @@ export function closingView({ rooms, mode, primaryLabel, actions, canReplay = fa
       // Top" (your own room by its row, as in REHEARSAL it carries a
       // sample's title)
       r.playable ? el('button', {
-        type: 'button', class: 'btn', tip: `Play ${r.slot === OWN_SLOT ? 'your own room' : r.title} again in free play`,
+        type: 'button', class: 'btn', tip: `Play ${roomName(r)} again in free play`,
         onclick: () => actions.playAgain(r.ref, r.title),
-      }, ['Play again', el('span', { class: 'sr-only', text: `: ${r.slot === OWN_SLOT ? 'your own room' : r.title}` })]) : null,
+      }, ['Play again', el('span', { class: 'sr-only', text: `: ${roomName(r)}` })]) : null,
+      // a room postcard, a secondary beside Play again, never the primary
+      r.postcard && actions.postcard ? el('button', {
+        type: 'button', class: 'btn', tip: POSTCARD_TIP,
+        onclick: () => actions.postcard(r.slot),
+      }, [POSTCARD_BUTTON, el('span', { class: 'sr-only', text: `: ${roomName(r)}` })]) : null,
     ]))),
     el('div', { class: 'actions' }, [
       el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),

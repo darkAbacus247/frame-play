@@ -73,7 +73,9 @@ test('every LIVE notice says Meta may use the photos while the demo runs on its 
   assert.match(points('live')[2], /Meta reads your photo and may use it; this app keeps none\./, 'the key point is no weaker');
   assert.match(OWN_NOTICE.live, /^LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API \(Muse Spark and SAM 3\.1\)\. This app keeps none\. /);
   assert.ok(WHERE.live.endsWith('This app does not store it. ' + META_USE_WORDS));
-  assert.ok(OWN_NOTICE.live.endsWith('This app keeps none. ' + META_USE_WORDS));
+  // the postcard sentence sits between what this app keeps and Meta's use
+  assert.ok(OWN_NOTICE.live.endsWith(META_USE_WORDS));
+  assert.match(OWN_NOTICE.live, /This app keeps none\. If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the daily stop\. While/);
   for (const mode of ['mock', 'rehearsal']) {
     for (const t of [WHERE[mode], OWN_NOTICE[mode], ...points(mode)]) assert.doesNotMatch(t, /free hackathon credits|may use/, `${mode}: nothing is sent to Meta`);
   }
@@ -105,7 +107,8 @@ test('what is kept is said for this app only, the one thing this code can vouch 
   assert.equal(live, 'LIVE mode: Meta reads your photo and may use it; this app keeps none.');
   assert.ok(live.length <= 80);
   assert.ok(OWN_NOTICE.live.includes('(Muse Spark and SAM 3.1). This app keeps none. '));
-  assert.ok(OWN_NOTICE.live.length <= 270, `${OWN_NOTICE.live.length} characters`);
+  // one notice of a few lines (the postcard's sentence included)
+  assert.ok(OWN_NOTICE.live.length <= 400, `${OWN_NOTICE.live.length} characters`);
   for (const t of [KEPT, KEPT_SHORT]) assert.doesNotMatch(t, /anywhere/, 'what Meta does with a photo is not this app’s to vouch for');
   for (const mode of ['mock', 'live', 'rehearsal']) {
     for (const t of [WHERE[mode], OWN_NOTICE[mode], ...points(mode)]) assert.doesNotMatch(t, /(^|\. )Not stored\./, `${mode}: a claim with no subject: ${t}`);
