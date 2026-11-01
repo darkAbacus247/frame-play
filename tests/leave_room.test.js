@@ -5,7 +5,7 @@
 // the one emphasized control, walks the road exactly as before.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bootApp, textOf, photoFile } from './apphost.js';
+import { bootApp, stopApps, textOf, photoFile } from './apphost.js';
 import { played } from './stub_game.js';
 import { replyFor } from './replies.js';
 import { LEAVE_WORDS, LEAVE_CARD, foundView, leaveButton } from '../src/screens.js';
@@ -177,6 +177,8 @@ test('the naive walker never meets the way out as the emphasized control', async
 });
 
 test('foundView: the way out only when the page hands one in, by slot', () => {
+  // a bare document: the booted pages' timers must not run against it
+  stopApps();
   installFakeDocument();
   const noop = () => {};
   const level = mockLevel('desk');

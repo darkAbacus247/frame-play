@@ -19,6 +19,11 @@ register(`data:text/javascript,${encodeURIComponent(HOOKS)}`);
 
 const realSetInterval = globalThis.setInterval;
 let boots = 0;
+// the timers every booted app.js leaves running (its tour's 1 s check, which
+// draws the offer 45 s after the boot): stopped at the next boot, or by a test
+// about to install a bare document, as a page that is gone runs no more
+const intervals = [];
+export function stopApps() { for (const t of intervals.splice(0)) clearInterval(t); }
 
 function memoryStorage() {
   const m = new Map();
@@ -86,6 +91,7 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // postcard(body): the answer api/postcard gives for a POST, as { status,
 // body } (a promise may wait), or null for no such route on this server.
 export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null, health = {}, postcard = null } = {}) {
+  stopApps();
   const doc = installFakeDocument();
   if (answer) {
     const make = doc.createElement;
@@ -117,7 +123,7 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
     },
     ImageData: class { constructor(data, width, height) { Object.assign(this, { data, width, height }); } },
     // the tour's timer must not keep the test process alive
-    setInterval: (f, ms) => { const t = realSetInterval(f, ms); if (t.unref) t.unref(); return t; },
+    setInterval: (f, ms) => { const t = realSetInterval(f, ms); if (t.unref) t.unref(); intervals.push(t); return t; },
     fetch: async (url, opts = {}) => {
       requests.push([opts.method || 'GET', String(url)]);
       if (url === 'api/health') {
