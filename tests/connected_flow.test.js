@@ -9,7 +9,7 @@ import { bootApp, photoFile, textOf } from './apphost.js';
 import { replyFor } from './replies.js';
 import { refusalWords, keyRefused, KEY_WORDS, acceptReply } from '../src/reply.js';
 import { makeOwnRoom, MOCK_WORDS } from '../src/own.js';
-import { OWN_NOTICE } from '../src/screens.js';
+import { OWN_NOTICE, ownNotice } from '../src/screens.js';
 import { AT_OWN as AT12 } from './roads.js';
 
 const KEY = { code: 'invalid_api_key', message: "The Model API did not accept this server's key", status: 401 };
@@ -27,7 +27,8 @@ test('Step 12 says what will happen to a photo, in each mode, before one is chos
     await app.settle();
     const notice = textOf(app.$('main').querySelector('.notice'));
     assert.match(notice, want[mode], mode);
-    assert.equal(notice, OWN_NOTICE[mode]);
+    // as the screen says it: in LIVE without the postcard sentence, this server having postcards off (tests/own_notice.test.js)
+    assert.equal(notice, ownNotice(mode));
     assert.equal(app.$('main').querySelector('.own-result').hidden, true, `${mode}: nothing chosen yet`);
   }
   assert.equal(OWN_NOTICE.mock, MOCK_WORDS);

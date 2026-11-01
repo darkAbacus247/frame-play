@@ -135,6 +135,11 @@ export function screens(mode) {
   for (const [k, id] of ['desk', 'living', 'apartment'].entries()) cmp.cards.append(V.roomSumView({ level: mockLevel(id), best: [1.24, null, 2.31][k] }).article);
   out.push({ name: 'Your three rooms', step: R.THREE_STEP, section: cmp.section, pictures: { 'sum-pic': (w) => (w * 768) / 1024 }, road: { rooms: [...SAMPLE_REFS, null], finished: [true, true, true, false] } });
   const ownStates = [['as it opens', null]];
+  if (mode !== 'mock') {
+    // a photo being read: the progress panel as app.js progressPanel fills
+    // it while reading (the three lines, the first under way, and Cancel)
+    ownStates.push(['reading a photo', { kind: 'reading' }]);
+  }
   if (mode === 'mock') {
     ownStates.push(['as it opens, with no server to replay ours', null, false, { replay: true, off: 'Off here: the server did not answer, so Meta’s recorded answer for our kitchen photo cannot be replayed.', short: 'Off here: no server answered' }]);
     ownStates.push(['with a landscape photo kept here', { kind: 'kept', picture: canvas(1024, 768), words: MOCK_WORDS }, true]);
@@ -152,10 +157,20 @@ export function screens(mode) {
       actions: { file: noop, skip: noop, ours: noop },
     });
     if (markable) demote(v.section);
-    if (result) {
+    if (result && result.kind === 'reading') {
+      const lines = ['Reading your room', 'Finding every object', 'Laying out the outlines'];
+      v.panel.replaceChildren(
+        el('ol', { class: 'progress-lines' }, lines.map((t, i) => el('li', { class: i ? 'todo' : 'now', text: i ? t : `${t}…` }))),
+        el('div', { class: 'actions' }, [el('button', { type: 'button', class: 'btn', 'data-busy-ok': 'true', text: 'Cancel' })]),
+      );
+      v.panel.hidden = false; v.panel.removeAttribute('hidden');
+    } else if (result) {
       v.shown.replaceChildren(...V.ownResult(result, markable ? { mark: noop } : null).filter(Boolean)); v.shown.hidden = false; v.shown.removeAttribute('hidden');
-      // the page's showOwnResult: what our kitchen does, and the advice, give
-      // way to the result; our kitchen's card stays, without its thumbnail
+    }
+    if (result) {
+      // the page's hideOursLine (a result shown, or a read under way): what
+      // our kitchen does, and the advice, give way; our kitchen's card
+      // stays, without its thumbnail
       for (const sel of ['.ours-line', '.advice']) {
         const e = v.section.querySelector(sel);
         if (e) { e.hidden = true; e.setAttribute('hidden', ''); }

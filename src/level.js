@@ -320,6 +320,11 @@ export function bareNav(rt) {
 // behind a low thing takes in its top (src/floor_mask.js hiddenFloor), and
 // a coffee table whose base meets the picture's edge would otherwise be the
 // start. The inferred floor is the fallback when no seen cell does as well.
+// Among the cells that reach every target, one whose nearest pixel is
+// START_HAZARD_ROOM body radii (a body-width-and-a-half) from any hazard
+// pixel is preferred when there is one: beside a hazard's halo, a player
+// holding the arrow keys lost in a few steps (the judge walk of 11-01).
+export const START_HAZARD_ROOM = 3;
 export function chooseStart(level, rt) {
   const { nav, W } = rt;
   const wb = maskBounds(rt.walk, rt.W, rt.H);
@@ -335,6 +340,9 @@ export function chooseStart(level, rt) {
   };
   const seen = rt.floor || null;
   const onSeen = (x, y) => seen[Math.floor(y) * rt.W + Math.floor(x)] === 1;
+  // room from any hazard (nav.hclear: the least hazard distance over the
+  // cell's pixels; Infinity where there is no hazard)
+  const roomy = (c) => nav.hclear[c] >= START_HAZARD_ROOM * rt.p.radius;
   const pick = (lowOnly, seenOnly) => {
     const cands = [];
     for (let c = 0; c < nav.pass.length; c++) {
@@ -345,13 +353,15 @@ export function chooseStart(level, rt) {
       cands.push([Math.abs(x - W / 2), -y, c]);
     }
     cands.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
-    let best = -1, bestScore = -1;
+    let best = -1, bestScore = -1, near = -1;
     for (const [, , c] of cands) {
       const s = score(nav.comp[c]);
-      if (s === targets.length) return c;
-      if (s > bestScore) { bestScore = s; best = c; }
+      if (s === targets.length) {
+        if (roomy(c)) return c;
+        if (near < 0) near = c; // the nearest the middle, beside a hazard: the fallback
+      } else if (s > bestScore) { bestScore = s; best = c; }
     }
-    return best;
+    return near >= 0 ? near : best;
   };
   const choose = (seenOnly) => {
     const low = pick(true, seenOnly);

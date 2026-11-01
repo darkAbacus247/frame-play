@@ -67,7 +67,8 @@ test('LIVE: your own room says what the models did, in one sentence', () => {
   });
   assert.equal(rooms[3].title, 'Morning desk');
   assert.equal(rooms[3].result, 'Won · by the shortest route');
-  assert.equal(rooms[3].ai, 'Muse Spark named 6 things in your photo and gave each a role, SAM 3.1 found 7 of them, and code traced 7 outlines inside SAM’s boxes and kept 0 as boxes, then proved the room can be won.');
+  // seven things of six kinds: the kinds, then the things in brackets (tests/named_kinds.test.js)
+  assert.equal(rooms[3].ai, 'Muse Spark named 6 kinds of thing (7 things) in your photo and gave each a role, SAM 3.1 found 7 of them, and code traced 7 outlines inside SAM’s boxes and kept 0 as boxes, then proved the room can be won.');
   assert.equal((rooms[3].ai.match(/\.\s/g) || []).length, 0, 'one sentence');
   const reh = closingRooms({ road: endRoad(true), mode: 'rehearsal', levels: [...SAMPLES, level('rehearsal', 'The Desk Top', 9, 1)] });
   assert.equal(reh[3].ai, 'The local stand-in (not Meta) answered for its sample picture; code traced 8 outlines inside SAM’s boxes and kept 1 as a box, and proved the room can be won.');

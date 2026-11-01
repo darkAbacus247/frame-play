@@ -58,29 +58,35 @@ class Ceilings(unittest.TestCase):
     def test_each_client_has_its_own_hour_and_day(self):
         clock = Clock(1_800_000_000.0 - (1_800_000_000.0 % 86400) + 3600)  # 01:00 UTC
         lim = Limits(clock=clock)
-        self.assertEqual((config.CLIENT_PER_HOUR, config.CLIENT_PER_DAY), (3, 10))
-        for _ in range(3):
+        # a judging panel behind one office or VPN address is one client, so
+        # its caps give it room; the server's own ceilings still bound the spend
+        self.assertEqual((config.CLIENT_PER_HOUR, config.CLIENT_PER_DAY), (12, 40))
+        hour, day = config.CLIENT_PER_HOUR, config.CLIENT_PER_DAY
+        for _ in range(hour):
             lim.uploaded(lim.admit('a'))  # its body read, as the server does
             lim.finish()
         with self.assertRaises(Refusal) as c:
             lim.admit('a')
         self.assertEqual(c.exception.code, 'client_hour_cap')
-        self.assertIn('from you', c.exception.message)
+        # the refusal names the address, not the person, and keeps the ways on
+        self.assertEqual(c.exception.message, f'This server has read {hour} photos from your address in the last hour '
+                         '(visitors who share one address share this). Try again later, play the sample rooms, or mark the room yourself.')
         self.assertGreater(c.exception.retry_after, 3500)
         lim.admit('b')  # another client is not held by the first one's photos
         lim.finish()
-        for _ in range(2):
+        taken = hour
+        while taken < day:
             clock.t += 3601
-            for _ in range(3):
+            for _ in range(min(hour, day - taken)):
                 lim.uploaded(lim.admit('a'))
                 lim.finish()
-        clock.t += 3601
-        lim.uploaded(lim.admit('a'))
-        lim.finish()
+                taken += 1
         with self.assertRaises(Refusal) as c:
             lim.admit('a')
         self.assertEqual(c.exception.code, 'client_day_cap')
-        self.assertEqual(lim.counters()['photos_today'], 11, 'the server counts every client')
+        self.assertEqual(c.exception.message, f'This server has read {day} photos from your address today '
+                         '(visitors who share one address share this). Try again tomorrow, play the sample rooms, or mark the room yourself.')
+        self.assertEqual(lim.counters()['photos_today'], day + 1, 'the server counts every client')
         clock.t += 86400  # a new UTC day
         lim.admit('a')
         # the server's own ceilings stay behind: they hold every client together
@@ -94,10 +100,10 @@ class Ceilings(unittest.TestCase):
         self.assertEqual(c.exception.code, 'day_cap')
         # not counted (MOCK, REHEARSAL), or no client given: only the server's ceilings
         off = Limits(clock=clock, clients=False)
-        for _ in range(5):
+        for _ in range(hour + 1):
             off.admit('a')
             off.finish()
-        self.assertEqual(Limits(client_hour=50, client_day=50).client_hour, 3, 'a setting never raises a ceiling')
+        self.assertEqual(Limits(client_hour=50, client_day=50).client_hour, hour, 'a setting never raises a ceiling')
 
     def test_a_client_uploads_one_photo_at_a_time(self):
         lim = Limits()

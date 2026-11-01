@@ -200,6 +200,15 @@ const sourceWords = (level, src) => (level.origin === 'marked' ? MARKED_SOURCE_W
 
 const plural = (k, one, many) => `${k} ${k === 1 ? one : many}`;
 
+// What Muse Spark named, against the things in the room: it names kinds
+// (three coins are one), so a room with more things than kinds says both,
+// "8 kinds of thing (12 things)"; with as many, or with kinds SAM did not
+// find (our kitchen: 8 named, 5 found), the count alone, as things.
+export function namedWords(kinds, things) {
+  if (things > kinds) return `${plural(kinds, 'kind', 'kinds')} of thing (${plural(things, 'thing', 'things')})`;
+  return plural(kinds, 'thing', 'things');
+}
+
 // How many objects came from Muse Spark's points because SAM did not find
 // them, from the level's own counts.
 export const fromPoints = (level) => {
@@ -251,9 +260,9 @@ export function summaryLine(level, summary) {
   const instead = summary && summary.instead ? `${summary.instead} ` : '';
   const lead = level.origin === 'replay' ? `${instead}${REPLAY_WORDS} ` : summary && summary.ours ? 'Our kitchen photo, read by Meta’s models now. ' : '';
   if (fromPoints(level)) {
-    return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
+    return `${lead}${who[0]} named ${namedWords(named, n)} and gave each a role. ${foundWords(level, who[1])}. ${outlines}`;
   }
-  return `${lead}${who[0]} named ${plural(named, 'thing', 'things')} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
+  return `${lead}${who[0]} named ${namedWords(named, n)} and gave each a role. ${who[1]} found ${n} of them. ${outlines}`;
 }
 
 // Where the play area came from, as the level says it (src/level.js and
@@ -443,13 +452,23 @@ export function freeView() {
 // ---- your own room ----
 // What each mode does with a photo: the plain line in view; in REHEARSAL
 // the details one press away.
+// the postcard sentence (src/postcard.js): the same photo, one more send,
+// only when asked for, at about one cent inside the server's daily stop;
+// the screen says it only where this server has postcards on (ownNotice)
+export const POSTCARD_SENTENCE = 'If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the daily stop. ';
 export const OWN_NOTICE = {
-  // the postcard sentence (src/postcard.js): the same photo, one more send,
-  // only when asked for, at about one cent inside the server's daily stop
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the daily stop. ' + META_USE,
+  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. ' + POSTCARD_SENTENCE + META_USE,
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };
+// The notice as Step 12 shows it: in LIVE the postcard sentence only when
+// this server has postcards on (health.postcard; the full notice shapes Say
+// it the same way, "when this server has it on"); else the mode's words.
+export function ownNotice(mode, { postcard = false } = {}) {
+  const m = OWN_NOTICE[mode] ? mode : 'mock';
+  if (m === 'live' && !postcard) return OWN_NOTICE.live.replace(POSTCARD_SENTENCE, '');
+  return OWN_NOTICE[m];
+}
 const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo, or a copy edited enough for the check to see, is refused in words, nothing is sent, and no level is made from it; an edit of a few pixels can pass, and the stand-in answers with its sample’s own places. A refused photo can still become your room: you mark it yourself, and nothing more is sent.';
 
 // Our kitchen: the author's own kitchen photo, as a card beside Choose a
@@ -497,8 +516,9 @@ export function oursCardView({ ours, onPick, draw, chosen = false, held = null, 
 // actions: { file(f), skip, ours }; camera: offer the camera; sampleLink:
 // the REHEARSAL picture to save, or null; made: a room is already made here;
 // ours: { replay, off, short, draw (its thumbnail), held } as oursCardView
-// takes them, or null
-export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, actions }) {
+// takes them, or null; postcard: this server has postcards on (the LIVE
+// notice then says the postcard sentence)
+export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, postcard = false, actions }) {
   const m = OWN_NOTICE[mode] ? mode : 'mock';
   const sends = m !== 'mock';
   // the one primary: our kitchen wherever its answer is replayed (MOCK,
@@ -528,7 +548,7 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
   const section = el('section', { class: 'screen own' }, [
     el('h1', { text: 'Your own room' }),
     el('p', { class: 'advice', text: 'A photo of your own room or desk top: clear edges on a plain floor or desk work best. No people.' }),
-    el('p', { class: `notice ${m}`, text: OWN_NOTICE[m] }),
+    el('p', { class: `notice ${m}`, text: ownNotice(m, { postcard }) }),
     m === 'rehearsal' ? more('More about this', [el('p', { text: REHEARSAL_MORE })]) : null,
     el('div', { class: 'actions' }, [choose, cam, oursBtn, fileIn, camIn, sampleLink, onward]),
     oursLine,
@@ -673,7 +693,7 @@ export function resultLine(road, slot) {
 
 export function aiLine(level, summary) {
   const n = level.objects.length;
-  const things = (k) => `${k} ${k === 1 ? 'thing' : 'things'}`;
+  const things = (k) => namedWords(k, n);
   if (level.origin === 'mock') return 'Sample room drawn by code; no model was called.';
   if (level.origin === 'marked') return `${markedWords(level)} Code proved the room can be won.`;
   if (level.origin === 'replay') {

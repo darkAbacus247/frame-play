@@ -177,6 +177,8 @@ test('REHEARSAL through the merged pipeline and page: a winnable desk, an honest
     app.button('Check again').click();
     await until(app, () => !app.button('Check again') && !app.button('Checking…'), 'the picker on again', 30000);
     assert.doesNotMatch(textOf(app.$('main').querySelector('.notice')), /but the local stand-in answered/);
+    // say() clears the live region and fills it on the next frame: wait for the words
+    await until(app, () => app.$('live').textContent !== '', 'the live region', 10000);
     assert.equal(app.$('live').textContent, 'The stand-in is answering again: you can send its picture.');
     app.choose(photoFile(65));
     await until(app, () => app.h1() === 'What the AI found', 'the reveal after Check again', 180000);

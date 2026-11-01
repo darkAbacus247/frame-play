@@ -16,7 +16,7 @@ import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix, acc
 import { voiceOn } from './src/voice.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
-import { makePostcard, postcardCard, postcardEligible, keepPostcardPhoto, blobToDataUrl, readbackLine, POSTCARD_BUTTON, POSTCARD_TIP, POSTCARD_BUSY, POSTCARD_TITLE, POSTCARD_READY } from './src/postcard.js';
+import { makePostcard, postcardCard, postcardEligible, postcardOn, keepPostcardPhoto, blobToDataUrl, readbackLine, POSTCARD_BUTTON, POSTCARD_TIP, POSTCARD_BUSY, POSTCARD_TITLE, POSTCARD_READY } from './src/postcard.js';
 import { mountFxSettings, effectsOn } from './src/settings_fx.js';
 import { makeMarkedRoom, keptMarkedEntry, sanitizeMarks, needs } from './src/marks.js';
 import { mountMarker } from './src/marker.js';
@@ -1362,6 +1362,8 @@ async function screenOwn(main, token) {
   const view = ownView({
     mode: ownMode(), primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
     sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road), ours: oursHere(R.OWN_SLOT),
+    // the postcard sentence only where this server has postcards on
+    postcard: postcardOn(A.health),
     actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.passOwnRoom(A.road)), ours: () => useOurs(view.panel, view.shown) },
   });
   // the live AI unavailable: said in place of MOCK's notice; a photo is
@@ -1450,8 +1452,8 @@ const LIVE_STOPS = {
   spend_stop: 'this server reached its spending stop for today',
   day_cap: 'this server has read its photos for today',
   hour_cap: 'this server has read its photos for this hour',
-  client_day_cap: 'this server has read its photos from you for today',
-  client_hour_cap: 'this server has read its photos from you for this hour',
+  client_day_cap: 'this server has read its photos from your address for today',
+  client_hour_cap: 'this server has read its photos from your address for this hour',
 };
 function oursInstead(f) {
   return LIVE_STOPS[f.code] && canReplay() ? `Not read live now: ${LIVE_STOPS[f.code]}.` : null;
@@ -1473,9 +1475,9 @@ async function oursAgain(slot, panel, shown) {
   return choosePhoto(slot, file, panel, { inPlace: true, ours: true });
 }
 
-// A photo's result shown on your own room: what our kitchen does, and the
-// advice on choosing a photo, give it room; our kitchen's card stays, its
-// thumbnail stepping aside (src/screens.js ownView).
+// A photo's result shown on your own room, or a read under way there: what
+// our kitchen does, and the advice on choosing a photo, give it room; our
+// kitchen's card stays, its thumbnail stepping aside (src/screens.js ownView).
 function hideOursLine() {
   const main = $('main');
   for (const sel of ['.ours-line', '.own .advice']) {
@@ -1529,7 +1531,7 @@ function oursReplayInstead(panel, shown, e, f) {
 async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.OWN_SLOT, why = null } = {}) {
   if (A.busy) return;
   setBusy(true);
-  if (shown) shown.hidden = true;
+  if (shown) { shown.hidden = true; hideOursLine(); } // on your own room, the panel takes a result's room
   let step = 0;
   progressPanel(panel, REPLAY_LINES, step, null, { cancel: cancelRead });
   // Ask the room: the recorded riddles ride the same stream, after the reply
@@ -1609,7 +1611,9 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
   const sends = mode === 'live' || mode === 'rehearsal';
   let step = 0;
   shown.hidden = true;
-  if (sends) progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead });
+  // the progress panel takes the room a result does, so its Cancel stays
+  // above the dock in a 1280x800 window (the judge walk of 11-01)
+  if (sends) { hideOursLine(); progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead }); }
   // the photo can be marked by hand instead (never in place: that is a
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
