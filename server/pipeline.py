@@ -621,6 +621,21 @@ DROP_WORDS = {
     'twice': 'it is the same thing as a better match',
     'empty_box': 'its box held to the picture is empty',
 }
+
+
+def unused_words(name, records, words, kept):
+    """The matches of one name dropped for one reason, as one warning: a
+    lone match with its confidence; several folded into one line (on the
+    judge walk of 11-01 the kitchen's door had 14 lines, one a match).
+    kept: a match of the name was used, so the dropped ones are "more"."""
+    if len(records) == 1:
+        return f'not used: a match for {name} at {round(records[0]["confidence"] * 100)}% ({words})'
+    n = f'{len(records)} {"more " if kept else ""}{name} matches not used'
+    if words == DROP_WORDS['no_point']:
+        return f'{n}: none held a Muse Spark point'
+    return f'{n} ({words})'
+
+
 SURFACE_WORDS = {
     'named': 'it is the play surface',
     'giant': 'it fills most of the picture, so it is part of the play surface',
@@ -1042,10 +1057,14 @@ class Pipeline:
             elif 'size_mismatch' in parsed.errors:
                 why = 'the answer was for a different picture size'
             else:
+                picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
+                # the matches dropped for one reason share one line
+                by_words = {}
                 for r, words, _ in sorted(dropped[o['name']], key=lambda d: d[0]['id']):
                     if r['confidence'] is not None and r['confidence'] >= MIN_CONFIDENCE:
-                        warnings.append(f'not used: a match for {o["name"]} at {round(r["confidence"] * 100)}% ({words})')
-                picked = sorted((q[2] for q in picks if q[0] == k), key=_rank)
+                        by_words.setdefault(words, []).append(r)
+                for words, rs in by_words.items():
+                    warnings.append(unused_words(o['name'], rs, words, bool(picked)))
                 why = None
             if not picked and o['name'] in absorbed_names:
                 continue  # it is the surface, said above

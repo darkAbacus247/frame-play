@@ -653,6 +653,21 @@ class MatchHygiene(unittest.TestCase):
         self.assertEqual(self.names(r).count('gold coin'), 3)
         self.assertIn('not used: a match for blue notebook at 59% (its confidence was far under its best match’s)', r['warnings'])
 
+    def test_several_unused_matches_of_one_name_are_one_line(self):
+        # SAM answers the notebook with its real box and three stray boxes none
+        # of Muse Spark's points fell in: one line says so, not three (the
+        # kitchen's door had 14 such lines on the judge walk of 11-01)
+        strays = ((30, 600, 110, 660, 0.8), (130, 600, 210, 660, 0.7), (900, 600, 980, 660, 0.6))
+        r = run_desk(lambda read: None, {'blue notebook': desk_answer((293, 429, 477, 522, 0.9), *strays)})
+        self.assertEqual(r['status'], 'ok')
+        self.assertEqual(self.names(r).count('blue notebook'), 1)
+        self.assertIn('3 more blue notebook matches not used: none held a Muse Spark point', r['warnings'])
+        self.assertFalse([w for w in r['warnings'] if w.startswith('not used: a match for blue notebook')])
+        # one stray match keeps its own line, with its confidence
+        one = run_desk(lambda read: None, {'blue notebook': desk_answer((293, 429, 477, 522, 0.9), strays[0])})
+        self.assertIn('not used: a match for blue notebook at 80% (none of Muse Spark’s points for it fell in it)', one['warnings'])
+        self.assertFalse([w for w in one['warnings'] if 'matches not used' in w])
+
     def test_a_match_inside_another_names_box_is_not_a_second_thing(self):
         def no_points(read):
             next(o for o in read['objects'] if o['name'] == 'blue notebook')['seeds'] = []
