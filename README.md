@@ -549,9 +549,9 @@ replay there too. A time that cannot be read
 stops the server from starting.
 
 In LIVE the server reads at most 4 photos at once and 120 an hour, 200 a
-day, and stops for the day at an estimated $5. Within those, each client
-gets at most 3 photos an hour and 10 a day, so one visitor cannot use up the
-day for everyone. The client is the connection's address, or with
+day, and stops for the day at an estimated $5. Within those, each address
+gets at most 12 photos an hour and 40 a day, so one visitor cannot use up
+the day for everyone. The client is the connection's address, or with
 `--public` the last `X-Forwarded-For` hop (the address the Space's own
 proxy saw and appended); behind that proxy a hop a visitor writes comes
 before it and is never used, so a visitor cannot pose as several by

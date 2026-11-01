@@ -174,9 +174,10 @@ class Limits:
                 self._trim(mine[0], now)
                 if len(mine[0]) >= self.client_hour:
                     wait = int(3600 - (now - mine[0][0])) + 1
-                    raise Refusal('client_hour_cap', f'This server has read {self.client_hour} photos from you in the last hour. Please try again later, or play the sample rooms.', wait)
+                    # the address, not the person: an office or a VPN shares one
+                    raise Refusal('client_hour_cap', f'This server has read {self.client_hour} photos from your address in the last hour (visitors who share one address share this). Try again later, play the sample rooms, or mark the room yourself.', wait)
                 if mine[1] >= self.client_day:
-                    raise Refusal('client_day_cap', f'This server has read {self.client_day} photos from you today. Please try again tomorrow, or play the sample rooms.', self._to_midnight(now))
+                    raise Refusal('client_day_cap', f'This server has read {self.client_day} photos from your address today (visitors who share one address share this). Try again tomorrow, play the sample rooms, or mark the room yourself.', self._to_midnight(now))
             if len(self.hour) >= self.per_hour:
                 wait = int(3600 - (now - self.hour[0])) + 1
                 raise Refusal('hour_cap', f'This server has read {self.per_hour} photos in the last hour. Please try again later.', wait)

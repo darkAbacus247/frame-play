@@ -52,9 +52,12 @@ PER_DAY = 200
 USD_STOP = 5.0
 # In LIVE, each client on top of the server's ceilings (server/limits.py):
 # the client is the socket's address, or under --public the last
-# X-Forwarded-For hop (the address the Space's own proxy appends).
-CLIENT_PER_HOUR = 3
-CLIENT_PER_DAY = 10
+# X-Forwarded-For hop (the address the Space's own proxy appends). A judging
+# panel behind one office or VPN address is one client, so its caps give it
+# room; the server-wide 120 an hour, 200 a day and the $5 stop still bound
+# the spend.
+CLIENT_PER_HOUR = 12
+CLIENT_PER_DAY = 40
 # Our kitchen's replay (server/replay.py) has its own places, never LIVE's,
 # and each client at most this many replays a minute.
 REPLAY_IN_FLIGHT = 4

@@ -1450,8 +1450,8 @@ const LIVE_STOPS = {
   spend_stop: 'this server reached its spending stop for today',
   day_cap: 'this server has read its photos for today',
   hour_cap: 'this server has read its photos for this hour',
-  client_day_cap: 'this server has read its photos from you for today',
-  client_hour_cap: 'this server has read its photos from you for this hour',
+  client_day_cap: 'this server has read its photos from your address for today',
+  client_hour_cap: 'this server has read its photos from your address for this hour',
 };
 function oursInstead(f) {
   return LIVE_STOPS[f.code] && canReplay() ? `Not read live now: ${LIVE_STOPS[f.code]}.` : null;
