@@ -321,7 +321,6 @@ class Handler(BaseHTTPRequestHandler):
         WAV and the room's kept things; the answer is the transcript, the
         matched id or null, and words."""
         from server import voice as voice_mod
-        from server.meta_api import CallError
         s = self.server.settings
         if not self.page_only():
             return
@@ -361,6 +360,28 @@ class Handler(BaseHTTPRequestHandler):
         if refused is not None:
             return self.send_json(400, error_body('bad_voice', refused))
         names = [t.get('name') for t in things if isinstance(t, dict) and isinstance(t.get('name'), str)]
+        # the live hold, as for a photo and a postcard: after an account or
+        # model problem (a refused key; a billing or credit refusal, until
+        # midnight UTC) nothing is sent to the Model API
+        live = getattr(self.server.pipeline, 'transport', None)
+        claim = getattr(live, 'claim', None)
+        held = claim() if claim is not None else 'open'
+        if held is None:
+            self.close_connection = True
+            _, _, wait = live.live_state()
+            words = live.refusal_words() if hasattr(live, 'refusal_words') else LIVE_UNAVAILABLE
+            return self.send_json(503, error_body('live_unavailable', words), {'Retry-After': str(max(1, wait))})
+        try:
+            return self.run_voice(wav, names, things)
+        finally:
+            if held == 'probe':
+                live.release()
+
+    def run_voice(self, wav, names, things):
+        """The clip's guards (the caps, the spend stop) and its call."""
+        from server import voice as voice_mod
+        from server.meta_api import CallError
+        s = self.server.settings
         limits = getattr(self.server, 'limits', None) or getattr(getattr(self.server, 'pipeline', None), 'limits', None)
         if limits is not None:
             try:

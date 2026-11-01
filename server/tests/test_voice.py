@@ -4,11 +4,13 @@ import struct
 import unittest
 
 from server import config, voice
-from server.config import settings_from
+from server.config import KeyHolder, Settings, settings_from
 from server.limits import Limits
-from server.meta_api import CallError
-from server.server import FramePlayServer, Handler
+from server.meta_api import CallError, Transport
+from server.pipeline import Pipeline
+from server.server import FramePlayServer, Handler, Log
 from server.standin import DRILLS, StandIn
+from server.tests import images
 from server.tests.fakemeta import FakeMeta, ok_json
 from server.tests.test_config import TEST_VALUE
 from server.tests.test_server import Running
@@ -243,6 +245,51 @@ class Route(unittest.TestCase):
         self.assertTrue(settings_from({'FRAMEPLAY_VOICE': 'yes'}).voice)
         self.assertFalse(settings_from({'FRAMEPLAY_VOICE': 'YES '}).voice is False or False)
         self.assertEqual(config.VOICE_MAX_SECONDS, 6)
+
+
+class Held(unittest.TestCase):
+    """The transport's live hold stops a voice clip as it stops a photo and a
+    postcard: after an account or model problem (a refused key, or a billing
+    or credit refusal until midnight UTC) nothing is sent."""
+
+    def setUp(self):
+        self.fake = FakeMeta()
+        self.fake.default['/v1/asr/transcribe'] = ok_json(
+            {'sessionId': 's', 'transcript': 'the fridge', 'audioDurationMs': 1500, 'turns': []})
+        settings = Settings('live', 'test', KeyHolder(TEST_VALUE), self.fake.base, voice=True)
+        self.transport = Transport(self.fake.base, config.REHEARSAL_CREDENTIAL)
+        self.transport.latching = True  # as with the owner's key
+        self.pipe = Pipeline(settings, Limits(clients=False), log=Log(stream=[]), transport=self.transport, sleep=lambda x: None)
+        self.run_ = Running(settings, pipeline=self.pipe, limits=self.pipe.limits)
+        self.pipe.log = self.run_.srv.log
+
+    def tearDown(self):
+        self.run_.stop()
+        self.fake.stop()
+
+    def post_voice(self):
+        body = json.dumps({'wav': base64.b64encode(GOOD).decode('ascii'), 'things': THINGS}).encode('utf-8')
+        status, h, data = self.run_.request('POST', '/api/voice', body,
+                                            {'X-FramePlay-Request': '1', 'Content-Type': 'application/json'})
+        return status, h, json.loads(data)
+
+    def test_a_held_transport_refuses_the_clip_and_sends_nothing(self):
+        # the hold engaged as test_server engages it: a photo refused for its key
+        self.fake.always('/chat/completions', ok_json({'error': {'code': 'invalid_api_key'}}, 401))
+        status, _, _ = self.run_.request('POST', '/api/room', images.jpeg(), {'X-FramePlay-Request': '1', 'Content-Type': 'image/jpeg'})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.transport.live_state()[0], 'unavailable')
+        status, h, j = self.post_voice()
+        self.assertEqual((status, j['error']['code']), (503, 'live_unavailable'))
+        self.assertIn('sample rooms still work', j['error']['message'])
+        self.assertEqual(h['Retry-After'], '600')
+        self.assertEqual(self.fake.count('/asr/transcribe'), 0, 'nothing was sent to the Model API')
+        self.assertEqual(self.pipe.limits.voice_today, 0, 'a held clip is not counted')
+
+    def test_an_open_transport_lets_the_clip_through(self):
+        status, _, j = self.post_voice()
+        self.assertEqual((status, j['status'], j['match']), (200, 'ok', 'o1'))
+        self.assertEqual(self.fake.count('/asr/transcribe'), 1)
 
 
 if __name__ == '__main__':
