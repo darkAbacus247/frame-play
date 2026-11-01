@@ -16,7 +16,7 @@ import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix, acc
 import { voiceOn } from './src/voice.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
-import { makePostcard, postcardCard, postcardEligible, keepPostcardPhoto, blobToDataUrl, readbackLine, POSTCARD_BUTTON, POSTCARD_TIP, POSTCARD_BUSY, POSTCARD_TITLE, POSTCARD_READY } from './src/postcard.js';
+import { makePostcard, postcardCard, postcardEligible, postcardOn, keepPostcardPhoto, blobToDataUrl, readbackLine, POSTCARD_BUTTON, POSTCARD_TIP, POSTCARD_BUSY, POSTCARD_TITLE, POSTCARD_READY } from './src/postcard.js';
 import { mountFxSettings, effectsOn } from './src/settings_fx.js';
 import { makeMarkedRoom, keptMarkedEntry, sanitizeMarks, needs } from './src/marks.js';
 import { mountMarker } from './src/marker.js';
@@ -1362,6 +1362,8 @@ async function screenOwn(main, token) {
   const view = ownView({
     mode: ownMode(), primaryLabel: R.primaryLabel(A.road), camera: coarsePointer.matches,
     sampleLink: room ? samplePictureLink(room) : null, made: R.ownMade(A.road), ours: oursHere(R.OWN_SLOT),
+    // the postcard sentence only where this server has postcards on
+    postcard: postcardOn(A.health),
     actions: { file: (f) => ownPhoto(f, view.panel, view.shown), skip: () => setRoad(R.passOwnRoom(A.road)), ours: () => useOurs(view.panel, view.shown) },
   });
   // the live AI unavailable: said in place of MOCK's notice; a photo is

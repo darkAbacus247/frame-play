@@ -447,13 +447,23 @@ export function freeView() {
 // ---- your own room ----
 // What each mode does with a photo: the plain line in view; in REHEARSAL
 // the details one press away.
+// the postcard sentence (src/postcard.js): the same photo, one more send,
+// only when asked for, at about one cent inside the server's daily stop;
+// the screen says it only where this server has postcards on (ownNotice)
+export const POSTCARD_SENTENCE = 'If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the daily stop. ';
 export const OWN_NOTICE = {
-  // the postcard sentence (src/postcard.js): the same photo, one more send,
-  // only when asked for, at about one cent inside the server's daily stop
-  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. If you ask for a postcard, the same shrunk photo goes to Muse Image one more time, about one cent, counted in the daily stop. ' + META_USE,
+  live: 'LIVE: your photo is shrunk on this device and its camera data removed, then read by Meta’s Model API (Muse Spark and SAM 3.1). This app keeps none. ' + POSTCARD_SENTENCE + META_USE,
   rehearsal: 'REHEARSAL: a local stand-in answers, not Meta. It only knows its sample room’s own picture.',
   mock: MOCK_WORDS,
 };
+// The notice as Step 12 shows it: in LIVE the postcard sentence only when
+// this server has postcards on (health.postcard; the full notice shapes Say
+// it the same way, "when this server has it on"); else the mode's words.
+export function ownNotice(mode, { postcard = false } = {}) {
+  const m = OWN_NOTICE[mode] ? mode : 'mock';
+  if (m === 'live' && !postcard) return OWN_NOTICE.live.replace(POSTCARD_SENTENCE, '');
+  return OWN_NOTICE[m];
+}
 const REHEARSAL_MORE = 'Save the sample picture with the button, then choose it as your photo: it goes through the same path a live photo takes, with the stand-in answering. Any other photo, or a copy edited enough for the check to see, is refused in words, nothing is sent, and no level is made from it; an edit of a few pixels can pass, and the stand-in answers with its sample’s own places. A refused photo can still become your room: you mark it yourself, and nothing more is sent.';
 
 // Our kitchen: the author's own kitchen photo, as a card beside Choose a
@@ -501,8 +511,9 @@ export function oursCardView({ ours, onPick, draw, chosen = false, held = null, 
 // actions: { file(f), skip, ours }; camera: offer the camera; sampleLink:
 // the REHEARSAL picture to save, or null; made: a room is already made here;
 // ours: { replay, off, short, draw (its thumbnail), held } as oursCardView
-// takes them, or null
-export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, actions }) {
+// takes them, or null; postcard: this server has postcards on (the LIVE
+// notice then says the postcard sentence)
+export function ownView({ mode, primaryLabel, camera = false, sampleLink = null, made = false, ours = null, postcard = false, actions }) {
   const m = OWN_NOTICE[mode] ? mode : 'mock';
   const sends = m !== 'mock';
   // the one primary: our kitchen wherever its answer is replayed (MOCK,
@@ -532,7 +543,7 @@ export function ownView({ mode, primaryLabel, camera = false, sampleLink = null,
   const section = el('section', { class: 'screen own' }, [
     el('h1', { text: 'Your own room' }),
     el('p', { class: 'advice', text: 'A photo of your own room or desk top: clear edges on a plain floor or desk work best. No people.' }),
-    el('p', { class: `notice ${m}`, text: OWN_NOTICE[m] }),
+    el('p', { class: `notice ${m}`, text: ownNotice(m, { postcard }) }),
     m === 'rehearsal' ? more('More about this', [el('p', { text: REHEARSAL_MORE })]) : null,
     el('div', { class: 'actions' }, [choose, cam, oursBtn, fileIn, camIn, sampleLink, onward]),
     oursLine,
