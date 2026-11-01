@@ -63,7 +63,10 @@ export const PEOPLE = 'Keep people and anything private out of the photo.';
 export const AGE = 'You must be 18 or over to send a photo (Meta’s terms).';
 // what this app keeps; in LIVE, Meta's own use is said beside it (META_USE)
 export const KEPT_SHORT = 'Kept by this app: no photo. Levels and choices stay on this device.';
-export const KEPT = 'Kept by this app: no photo, on this device or on its server. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.';
+// the host of a public copy keeps its own access log, which is not this app's
+// to promise away; there is no photo to delete, and the levels on the device
+// go with the site's data
+export const KEPT = 'Kept by this app: no photo, on this device or on its server. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices. The service hosting this copy may keep its own access log. This app keeps no photo, so it has nothing to delete; your levels stay on this device until you clear this site’s data.';
 
 export function welcomeView({ mode, primaryLabel, onConsent }) {
   const m = WHERE[mode] ? mode : 'mock';

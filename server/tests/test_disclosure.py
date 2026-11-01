@@ -54,6 +54,43 @@ class WhatWasPreExisting(unittest.TestCase):
         self.assertIn(PRE_EXISTING.replace("'", '’'), page)
         self.assertNotIn('An earlier prototype informed the design', page)
 
+    # Who wrote the code, the same wherever it is said: Meta's Muse Spark, run
+    # as a coding agent, wrote the server side of the postcard and of Say it
+    # (the lane commits in the history); Claude Code wrote everything else.
+    AI = ("Built with AI assistance: Meta's muse-spark-1.3, run as a coding agent on the event's API credits, wrote "
+          "the server side of the postcard and of Say it under my direction, reviewed by me and by Claude Code; "
+          "everything else was written by Claude Code (Anthropic) under my direction.")
+    # Every model the app may call, each with what it does.
+    MODELS = ("Live rooms are read by Meta's muse-spark-1.3 and sam-3.1 through the Meta Model API; where a server "
+              "turns them on, muse-image-1.0 draws the postcard and muse-voice-transcribe-1.0 writes down a spoken "
+              "riddle answer; sample rooms are drawn by code and labeled MOCK.")
+
+    def test_one_account_of_who_wrote_the_code(self):
+        for rel in ('README.md', 'PROVENANCE.md'):
+            words = flat(rel)
+            self.assertEqual(words.count(self.AI), 1, rel)
+            self.assertEqual(words.count(self.MODELS), 1, rel)
+            self.assertNotIn('Claude Code (Anthropic) wrote the code under my direction', words, rel)
+        page = re.search(r"^export const DISCLOSURE = '(.*)';$", text('app.js'), re.M).group(1)
+        self.assertIn(self.AI.replace("'", '’'), page)
+        self.assertIn(self.MODELS.replace("'", '’'), page)
+        self.assertNotIn('Claude Code (Anthropic) wrote the code under my direction', page)
+        # PROVENANCE's own list says the same in the author's third person,
+        # names the files, and no longer says model outputs are never code
+        prov = flat('PROVENANCE.md')
+        self.assertIn("Meta's muse-spark-1.3, run as a coding agent on the event's API credits, wrote the server side "
+                      "of the postcard (server/postcard.py, its routes, stand-in drills and server tests) and of Say it "
+                      "(server/voice.py, its routes, stand-in drills and server tests) under the author's direction, "
+                      "reviewed by the author and by Claude Code; everything else was written by Claude Code "
+                      "(Anthropic) under the author's direction", prov)
+        self.assertNotIn('They are never code', prov)
+        self.assertNotIn('Claude Code (Anthropic) wrote the code under the author\'s direction.', prov)
+        self.assertIn("muse-image-1.0 for the postcard and muse-voice-transcribe-1.0 for Say it", prov)
+        self.assertIn('are data read at run time, not code', prov)
+        # the words a judge or player reads carry no em-dash
+        for rel in ('README.md', 'PROVENANCE.md', 'app.js'):
+            self.assertNotIn('—', text(rel), rel)
+
     def test_every_notice_pointer_finds_the_notice(self):
         # rules-6: there is no NOTICE file; the notice is the paragraph under
         # License in the README, and every pointer says where it is

@@ -114,3 +114,18 @@ test('what is kept is said for this app only, the one thing this code can vouch 
     for (const t of [WHERE[mode], OWN_NOTICE[mode], ...points(mode)]) assert.doesNotMatch(t, /(^|\. )Not stored\./, `${mode}: a claim with no subject: ${t}`);
   }
 });
+
+test('the full notice says what the host may keep and how a player removes what this app keeps', () => {
+  // the host of a public copy keeps its own access log, which is not this
+  // app's to promise away; this app keeps no photo, so there is nothing of
+  // it to delete, and the levels on the device go with the site's data
+  assert.ok(KEPT.endsWith(' The service hosting this copy may keep its own access log. This app keeps no photo, so it has nothing to delete; your levels stay on this device until you clear this site’s data.'), KEPT);
+  assert.ok(KEPT.startsWith('Kept by this app: no photo, on this device or on its server. Levels made from your photos (outlines, names and roles, never the photo) stay on this device, with your step, sound and tour choices.'), 'nothing removed');
+  // the full notice carries it in every mode; the key points stay short
+  for (const mode of ['mock', 'live', 'rehearsal']) {
+    const { section } = welcomeView({ mode, primaryLabel: 'Continue', onConsent() {} });
+    const inside = section.all().filter((e) => e.tagName === 'LI').map((e) => e.textContent);
+    assert.ok(inside.includes(KEPT), `${mode}: the full notice`);
+    assert.ok(points(mode).every((t) => !t.includes('access log')), `${mode}: the key points stay short`);
+  }
+});

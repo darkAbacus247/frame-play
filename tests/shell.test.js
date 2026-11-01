@@ -269,5 +269,6 @@ test('the page shell: in-flow grid, no inline styles or scripts, labels in place
   assert.ok(!/<style/i.test(html) && !/\sstyle=/i.test(html) && !/<script(?![^>]*src=)/i.test(html));
   for (const id of ['top', 'main', 'tour-strip', 'drawer', 'dock', 'live', 'card']) assert.ok(html.includes(`id="${id}"`), id);
   const app = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
-  assert.ok(app.includes('Built with AI assistance: Claude Code (Anthropic) wrote the code under my direction.'));
+  assert.ok(app.includes('Built with AI assistance: Meta’s muse-spark-1.3, run as a coding agent on the event’s API credits, wrote the server side of the postcard and of Say it under my direction, reviewed by me and by Claude Code; everything else was written by Claude Code (Anthropic) under my direction.'));
+  assert.ok(!app.includes('Claude Code (Anthropic) wrote the code under my direction.'));
 });

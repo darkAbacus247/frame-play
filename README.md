@@ -621,9 +621,14 @@ FRAME//PLAY was built during the Meta Global AI Developer Hackathon (October
 SAM's mask format (ported under its license), and the written notes of my
 pre-event prototype (Oct 21 to 25), read as a spec, with none of its code;
 built during the event, from the first commit: all the code, art, music and
-tests. Built with AI assistance: Claude Code (Anthropic) wrote the code
-under my direction. Live rooms are read by Meta's muse-spark-1.3 and sam-3.1
-through the Meta Model API; sample rooms are drawn by code and labeled MOCK.
+tests. Built with AI assistance: Meta's muse-spark-1.3, run as a coding
+agent on the event's API credits, wrote the server side of the postcard and
+of Say it under my direction, reviewed by me and by Claude Code; everything
+else was written by Claude Code (Anthropic) under my direction. Live rooms
+are read by Meta's muse-spark-1.3 and sam-3.1 through the Meta Model API;
+where a server turns them on, muse-image-1.0 draws the postcard and
+muse-voice-transcribe-1.0 writes down a spoken riddle answer; sample rooms
+are drawn by code and labeled MOCK.
 
 ## License
 
