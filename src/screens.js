@@ -132,7 +132,7 @@ export function roomCardView({ title, origin, disabledWhy = null, onPick, draw, 
 // Why the photo picker on Steps 2, 5 and 8 is off, by mode.
 export const OFF_WORDS = {
   rehearsal: 'Off here in REHEARSAL: the stand-in knows only its own sample room. On Step 12 you can send its saved picture.',
-  mock: 'Off in MOCK mode: there is no live connection, so the page plays sample rooms drawn by code.',
+  mock: 'Off in MOCK mode: no live connection, so the page plays sample rooms drawn by code, and our kitchen from Meta’s recorded answer.',
 };
 
 export const PICK_HEADINGS = ['Your room: pick a photo', 'Another room: pick a second photo', 'A third room: pick a third photo'];
@@ -749,6 +749,14 @@ export function closingView({ rooms, mode, primaryLabel, actions, canReplay = fa
       // a sample room on the road was drawn by code, so never "what the AI did"
       ' Here is how each was made.',
     ]),
+    // the ways on, right under the won line: in the first view of a short
+    // window (1280x800), before the four rooms
+    el('div', { class: 'actions' }, [
+      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),
+      el('button', { type: 'button', class: 'btn done-btn', text: 'I’m done', tip: 'Ends your visit with a thank-you, then closes the app', onclick: actions.done }),
+      el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own, or use ours`, onclick: actions.ownRoom }),
+      el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
+    ]),
     el('ul', { class: 'closing-rooms', 'aria-label': 'The rooms you played' }, rooms.map((r) => el('li', {}, [
       el('div', { class: 'closing-text' }, [
         // the room and what happened share a line where they fit, so four
@@ -772,12 +780,6 @@ export function closingView({ rooms, mode, primaryLabel, actions, canReplay = fa
         onclick: () => actions.postcard(r.slot),
       }, [POSTCARD_BUTTON, el('span', { class: 'sr-only', text: `: ${roomName(r)}` })]) : null,
     ]))),
-    el('div', { class: 'actions' }, [
-      el('button', { type: 'button', class: 'btn primary', 'data-primary': 'true', 'data-tour': 'primary', text: primaryLabel, tip: 'Play any room as often as you like', onclick: actions.freePlay }),
-      el('button', { type: 'button', class: 'btn done-btn', text: 'I’m done', tip: 'Ends your visit with a thank-you, then closes the app', onclick: actions.done }),
-      el('button', { type: 'button', class: 'btn', text: 'Try your own room', tip: `Back to Step ${OWN_STEP}, to make a room from a photo of your own, or use ours`, onclick: actions.ownRoom }),
-      el('button', { type: 'button', class: 'btn', text: 'Start over', tip: 'Starts the road again from Step 1. Saved levels stay', onclick: actions.startOver }),
-    ]),
     sends || rooms[OWN_SLOT].ref ? null : el('p', { class: 'why', text: canReplay
       ? 'In MOCK no model reads a photo: your own room is a photo you mark yourself, or ours, with Meta’s recorded answer replayed.'
       : 'In MOCK no model reads a photo: your own room is a photo you mark yourself.' }),

@@ -463,9 +463,13 @@ dialog.card .label { color: var(--muted); }
 }
 
 /* ---- the closing screen ----
-   One compact row per room: its words, and Play again beside them (below
-   them when narrow), then the ways on. */
+   The ways on right under the won line, then one compact row per room: its
+   words, and Play again beside them (below them when narrow). In a wide
+   window the four rooms sit two by two, so the screen fits 800 px tall. */
 .closing-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+@media (min-width: 1100px) {
+  .closing-rooms { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
 .closing-rooms > li {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s1) var(--s4);
   padding: var(--s2) var(--s4); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);

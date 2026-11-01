@@ -315,6 +315,11 @@ export function bareNav(rt) {
 
 // The start: a free cell in the lowest fifth of the walk region, nearest the
 // horizontal centre, from which every target can be reached (or the most).
+// On the floor the camera saw (rt.floor) when a free cell of it reaches as
+// many targets as any cell does: seen at eye level, the floor inferred
+// behind a low thing takes in its top (src/floor_mask.js hiddenFloor), and
+// a coffee table whose base meets the picture's edge would otherwise be the
+// start. The inferred floor is the fallback when no seen cell does as well.
 export function chooseStart(level, rt) {
   const { nav, W } = rt;
   const wb = maskBounds(rt.walk, rt.W, rt.H);
@@ -328,12 +333,15 @@ export function chooseStart(level, rt) {
     if (!compScore.has(comp)) compScore.set(comp, targets.filter((k) => ringReachable(rt, k, comp)).length);
     return compScore.get(comp);
   };
-  const pick = (lowOnly) => {
+  const seen = rt.floor || null;
+  const onSeen = (x, y) => seen[Math.floor(y) * rt.W + Math.floor(x)] === 1;
+  const pick = (lowOnly, seenOnly) => {
     const cands = [];
     for (let c = 0; c < nav.pass.length; c++) {
       if (!nav.pass[c] || inRing[c]) continue;
       const [x, y] = cellCenter(nav, c);
       if (lowOnly && y < yMin) continue;
+      if (seenOnly && !onSeen(x, y)) continue;
       cands.push([Math.abs(x - W / 2), -y, c]);
     }
     cands.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
@@ -345,11 +353,18 @@ export function chooseStart(level, rt) {
     }
     return best;
   };
-  const low = pick(true);
-  if (low >= 0 && score(nav.comp[low]) === targets.length) return low;
-  const any = pick(false);
-  if (low < 0) return any;
-  return score(nav.comp[any]) > score(nav.comp[low]) ? any : low;
+  const choose = (seenOnly) => {
+    const low = pick(true, seenOnly);
+    if (low >= 0 && score(nav.comp[low]) === targets.length) return low;
+    const any = pick(false, seenOnly);
+    if (low < 0) return any;
+    return score(nav.comp[any]) > score(nav.comp[low]) ? any : low;
+  };
+  const anywhere = choose(false);
+  if (!seen || anywhere < 0) return anywhere;
+  const onFloor = choose(true);
+  if (onFloor < 0) return anywhere;
+  return score(nav.comp[onFloor]) >= score(nav.comp[anywhere]) ? onFloor : anywhere;
 }
 
 function permutations(arr) {
