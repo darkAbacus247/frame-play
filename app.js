@@ -1473,9 +1473,9 @@ async function oursAgain(slot, panel, shown) {
   return choosePhoto(slot, file, panel, { inPlace: true, ours: true });
 }
 
-// A photo's result shown on your own room: what our kitchen does, and the
-// advice on choosing a photo, give it room; our kitchen's card stays, its
-// thumbnail stepping aside (src/screens.js ownView).
+// A photo's result shown on your own room, or a read under way there: what
+// our kitchen does, and the advice on choosing a photo, give it room; our
+// kitchen's card stays, its thumbnail stepping aside (src/screens.js ownView).
 function hideOursLine() {
   const main = $('main');
   for (const sel of ['.ours-line', '.own .advice']) {
@@ -1529,7 +1529,7 @@ function oursReplayInstead(panel, shown, e, f) {
 async function replayOursHere(panel, { shown = null, inPlace = false, slot = R.OWN_SLOT, why = null } = {}) {
   if (A.busy) return;
   setBusy(true);
-  if (shown) shown.hidden = true;
+  if (shown) { shown.hidden = true; hideOursLine(); } // on your own room, the panel takes a result's room
   let step = 0;
   progressPanel(panel, REPLAY_LINES, step, null, { cancel: cancelRead });
   // Ask the room: the recorded riddles ride the same stream, after the reply
@@ -1609,7 +1609,9 @@ async function ownPhoto(file, panel, shown, { inPlace = false, ours = false } = 
   const sends = mode === 'live' || mode === 'rehearsal';
   let step = 0;
   shown.hidden = true;
-  if (sends) progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead });
+  // the progress panel takes the room a result does, so its Cancel stays
+  // above the dock in a 1280x800 window (the judge walk of 11-01)
+  if (sends) { hideOursLine(); progressPanel(panel, LIVE_LINES, step, null, { cancel: cancelRead }); }
   // the photo can be marked by hand instead (never in place: that is a
   // room read from this photo, made again)
   const marking = (picture, sha256) => (!inPlace && picture ? () => markPhoto({ file, picture, sha256 }) : null);
