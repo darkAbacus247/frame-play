@@ -1429,12 +1429,15 @@ async function pickOurs(slot, panel) {
 }
 
 // LIVE cannot read a photo now: an account or model problem (a refused key,
-// credit or billing), the server's spending stop, or its hourly or daily
-// photo cap, for everyone or for you. Our kitchen then falls back to Meta's
-// recorded answer, replayed and labeled REPLAY, with these words, rather
-// than ending on a refusal.
+// credit or billing), the server's spending stop, its hourly or daily
+// photo cap, for everyone or for you, or the live AI off on the server (a
+// page opened while LIVE was on, the server restarted after
+// FRAMEPLAY_LIVE_UNTIL: 409 live_off). Our kitchen then falls back to
+// Meta's recorded answer, replayed and labeled REPLAY, with these words,
+// rather than ending on a refusal.
 const LIVE_STOPS = {
   live_unavailable: 'the live AI is unavailable on this server right now',
+  live_off: 'the live AI is off on this server',
   spend_stop: 'this server reached its spending stop for today',
   day_cap: 'this server has read its photos for today',
   hour_cap: 'this server has read its photos for this hour',

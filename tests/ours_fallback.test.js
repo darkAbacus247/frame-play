@@ -1,9 +1,11 @@
 // Our kitchen when LIVE cannot read it now: the server's spending stop, its
-// hourly or daily photo cap, or an account or model problem (a refused key,
-// credit or billing, answered live_unavailable). Our kitchen is the first
-// card on the judge path, so it falls back to Meta's recorded answer,
-// replayed and labeled REPLAY, and says why, rather than ending on a
-// refusal. On the real app.js (tests/apphost.js).
+// hourly or daily photo cap, an account or model problem (a refused key,
+// credit or billing, answered live_unavailable), or the live AI off on the
+// server (409 live_off: a page opened before a server restart after
+// FRAMEPLAY_LIVE_UNTIL). Our kitchen is the first card on the judge path,
+// so it falls back to Meta's recorded answer, replayed and labeled REPLAY,
+// and says why, rather than ending on a refusal. On the real app.js
+// (tests/apphost.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootApp, paintCanvases, until, photoFile, textOf } from './apphost.js';
@@ -56,6 +58,9 @@ const STOPS = [
     'Not read live now: the live AI is unavailable on this server right now.'],
   ['LIVE ended at its set time (FRAMEPLAY_LIVE_UNTIL)', () => json(503, { status: 'error', error: { code: 'live_unavailable', message: 'LIVE on this server ended at 2026-11-09 00:00 UTC, as its owner set, so this photo was not sent. The sample rooms still work.' } }),
     'Not read live now: the live AI is unavailable on this server right now.'],
+  // the page was opened while LIVE was on; the server restarted after FRAMEPLAY_LIVE_UNTIL and runs as MOCK
+  ['the live AI off on this server (a restart after FRAMEPLAY_LIVE_UNTIL)', () => json(409, { status: 'error', error: { code: 'live_off', message: 'This server is in MOCK mode, so it sends no photo anywhere. Play the sample rooms.' } }),
+    'Not read live now: the live AI is off on this server.'],
   // in the reply itself: the stop reached mid-photo, and a credit or billing refusal from the Model API
   ['the spending stop, mid-photo', () => json(200, { ...liveKitchenReply(), status: 'refused', error: { code: 'spend_stop', message: 'This server has reached its spending stop for today ($5.00 estimated).' } }),
     'Not read live now: this server reached its spending stop for today.'],
