@@ -33,7 +33,7 @@ reader, with labeled buttons, keys that steer and a spoken line for what
 happens (checked on a stand-in page by the tests; no run with a real
 screen reader is recorded here yet).
 
-**Try it in a minute.** Open the demo at [Space URL], or run
+**Try it in a minute.** Open the demo at https://huggingface.co/spaces/darkAbacus247/frame-play, or run
 `python server/server.py` and open `http://127.0.0.1:8191/`. On Step 2, pick
 **Our kitchen (a real photo)**: with no key it replays Meta's recorded answer
 for that photo, and says so; on a live server it is read fresh. Play the
