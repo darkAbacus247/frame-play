@@ -301,7 +301,7 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
     # Ask the room: on unless switched off; a setting may only lower a ceiling
     riddles = (environ.get('FRAMEPLAY_RIDDLES') or '').strip().lower() != 'no'
     # A room postcard: off unless the environment says yes.
-    image = (environ.get('FRAMEPLAY_IMAGE') or '').strip().lower() == 'yes'
+    image = environ.get('FRAMEPLAY_IMAGE') == 'yes'
     live_until = live_until_from(environ.get('FRAMEPLAY_LIVE_UNTIL'))
     if rehearse is not None:
         if 'MODEL_API_KEY' in environ or 'FRAMEPLAY_LIVE' in environ:
@@ -325,4 +325,4 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
         why = 'FRAMEPLAY_LIVE is yes but there is no key, so no model is called.'
     else:
         why = 'No key and no live switch: sample rooms only, no model is called.'
-    return Settings('mock', why, None, API_BASE, day_cap, usd_stop, '', has_key)
+    return Settings('mock', why, None, API_BASE, day_cap, usd_stop, '', has_key, image=image)

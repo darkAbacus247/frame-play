@@ -108,17 +108,21 @@ def normalise(text):
 def compare_readback(lines, room):
     """The read-back against 'Greetings from ' + the room's name: match True,
     or the first differing words."""
-    expected = normalise('Greetings from ' + (clean_room_name(room) or 'this room'))
+    want = 'Greetings from ' + (clean_room_name(room) or 'this room')
+    expected = normalise(want)
     got = normalise(' '.join(lines))
+    # the difference names the differing words as printed, in whole sentences
+    want_words = str(want).split()
+    have_words = str(' '.join(lines)).split()
     n = min(len(expected), len(got))
     for i in range(n):
         if expected[i] != got[i]:
             return {'match': False,
-                    'difference': f'expected "{expected[i]}" but read "{got[i]}"'}
+                    'difference': f'expected "{want_words[i]}" but read "{have_words[i]}".'}
     if len(got) < len(expected):
-        return {'match': False, 'difference': f'missing "{expected[len(got)]}"'}
+        return {'match': False, 'difference': f'missing "{want_words[len(got)]}".'}
     if len(got) > len(expected):
-        return {'match': True, 'difference': f'extra "{got[len(expected)]}"'}
+        return {'match': True, 'difference': f'extra "{have_words[len(expected)]}".'}
     return {'match': True, 'difference': ''}
 
 

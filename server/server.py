@@ -174,9 +174,23 @@ class Handler(BaseHTTPRequestHandler):
         if not head:
             self.wfile.write(body)
 
-    def send_json(self, status, obj, extra=None, head=False):
-        text = config.redact(json.dumps(obj, ensure_ascii=False), self.server.settings.key)
+    def send_json(self, status, obj, extra=None, head=False, plain=()):
+        text = json.dumps(self.scrubbed(obj, plain), ensure_ascii=False)
         self.send_bytes(status, text.encode('utf-8'), 'application/json; charset=utf-8', extra, head)
+
+    def scrubbed(self, value, plain=()):
+        """The answer with the key and key-shaped strings removed from its
+        values, for the page: keys are never scrubbed, and plain names the
+        fields sent back byte for byte (the postcard picture is not a
+        secret). Logs and error text go through config.redact itself."""
+        holder = self.server.settings.key
+        if isinstance(value, dict):
+            return {k: (v if k in plain else self.scrubbed(v, ())) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.scrubbed(v, ()) for v in value]
+        if isinstance(value, str):
+            return config.redact(value, holder)
+        return value
 
     # ---- routes ----
     def do_GET(self, head=False):
@@ -445,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             extra = {'Retry-After': str(e.retry_after)} if e.retry_after else {}
             return self.send_json(429, error_body(e.code, e.message), extra)
-        user_id = self.client
+        user_id = 'frameplay-demo'
         sleep = getattr(server.pipeline, 'sleep', time.sleep)
         clock = getattr(server.pipeline, 'clock', time.monotonic)
         try:
@@ -471,8 +485,9 @@ class Handler(BaseHTTPRequestHandler):
             limits.settle(res, config.POSTCARD_USD, image_sends)
         except (ValueError, TypeError, KeyError):
             limits.settle(res, config.POSTCARD_USD, image_sends)
+        # The picture is base64, which the scrubber would read as a key; it is not a secret, so it goes plain.
         return self.send_json(200, {'image': b64, 'label': postcard_mod.POSTCARD_LABEL, 'mode': 'live',
-                                    'readback': readback})
+                                    'readback': readback}, plain=('image',))
 
 
 class FramePlayServer(ThreadingHTTPServer):

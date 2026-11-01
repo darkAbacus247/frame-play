@@ -60,7 +60,7 @@ class ImageBody(unittest.TestCase):
         self.assertFalse(settings_from({'FRAMEPLAY_IMAGE': 'no'}).image)
         self.assertFalse(settings_from({'FRAMEPLAY_IMAGE': 'YES'}).image, 'only the exact word yes')
         self.assertTrue(settings_from({'FRAMEPLAY_IMAGE': 'yes'}).image)
-        self.assertTrue(settings_from({'FRAMEPLAY_IMAGE': ' yes '}).image)
+        self.assertFalse(settings_from({'FRAMEPLAY_IMAGE': ' yes '}).image, 'only the exact word yes')
         self.assertTrue(settings_from({}, 'http://127.0.0.1:9/v1').image is False)
 
 
@@ -70,7 +70,7 @@ class ImageCall(unittest.TestCase):
         self.t = Transport(self.fake.base, config.REHEARSAL_CREDENTIAL)
 
     def tearDown(self):
-        self.fake.close()
+        self.fake.stop()
 
     def edit(self, **kw):
         return postcard.edit_postcard(self.t, ROOM, PHOTO, 'visitor', kw.get('deadline', 30),
@@ -184,7 +184,7 @@ class Readback(unittest.TestCase):
         self.assertIn('Desk', first['difference'])
         self.assertIn('Living', first['difference'])
         short = postcard.compare_readback(['Greetings from'], ROOM)
-        self.assertEqual((short['match'], short['difference']), (False, 'missing "the"'))
+        self.assertEqual((short['match'], short['difference']), (False, 'missing "The".'))
 
 
 class Route(unittest.TestCase):
@@ -196,12 +196,14 @@ class Route(unittest.TestCase):
         threading.Thread(target=self.ssrv.serve_forever, daemon=True).start()
         base = f'http://127.0.0.1:{self.ssrv.server_address[1]}/v1'
         settings = settings_from(environ or {}, base, 'desk')
-        # LIVE over the stand-in: the rehearsal transport carries the calls,
+        # LIVE over the stand-in: the rehearsal credential carries the calls,
         # the switch says postcards are on
         settings = dataclasses.replace(settings, mode='live', image=True,
                                        key=config.KeyHolder(TEST_VALUE), key_present=True)
         self.limits = Limits(clients=False)
-        self.pipe = Pipeline(settings, self.limits, sleep=lambda s: None)
+        from server.meta_api import Transport
+        transport = Transport(base, config.REHEARSAL_CREDENTIAL)
+        self.pipe = Pipeline(settings, self.limits, transport=transport, sleep=lambda s: None)
         self.run_ = Running(settings, pipeline=self.pipe, limits=self.limits)
         self.pipe.log = self.run_.srv.log
 
