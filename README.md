@@ -389,6 +389,27 @@ waits for it: the card's primary still goes on, and so does the counter's →.
   by code),
   every answer graded on SAM 3.1's own masks.
 
+### Say it (Muse Voice Transcribe)
+
+Optional, and off unless the server runs LIVE with `FRAMEPLAY_VOICE=yes`;
+health says whether it is on (`voice`). When it is, the riddle panel gets
+**Say it** beside **Answer with** (the V key does the same while the board
+has focus): the page records up to five seconds from the microphone, turns
+the clip into a mono 16-bit 16 kHz WAV on the device (`src/voice.js`), and
+posts it to `POST /api/voice`, where the server has Meta's Muse Voice
+Transcribe write it down and code matches the words against the room's
+things by name (`server/voice.py`); no model judges the answer. One thing
+named is picked exactly as a tap would be; none, or two, shows the server's
+words and what was heard; a failure shows its words and the riddle goes on,
+to be answered by a tap or under Answer with. Before the first clip the
+panel asks for consent, one time a visit, with an OK button. Voice is for
+players 18 and over. This app keeps no clip, on the device or on its
+server; while the demo runs on Meta's free hackathon credits, Meta may use
+what it receives to improve its products. Cost: about five seconds of audio
+at $0.18 an hour, under a tenth of a cent a riddle, counted in the server's
+daily spending stop; the server takes at most 6 s a clip, 200 clips a day
+and 10 an hour from one client.
+
 ## Sound and motion
 
 Every sound and the music are made in code with the Web Audio API; there

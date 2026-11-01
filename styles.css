@@ -228,6 +228,13 @@ button { font: inherit; color: inherit; }
 .answer-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s2); min-width: 0; }
 /* the round is over in riddle mode: ending it means nothing there */
 .play.riddle-on .end-round { display: none; }
+/* Say it: what was heard under the answer row, and the consent asked one time before the first clip */
+.voice-box { display: grid; gap: var(--s2); min-width: 0; }
+.voice-line { margin: 0; font-size: 0.9rem; color: var(--muted); max-width: none; }
+.voice-line:empty { display: none; }
+.voice-consent { display: grid; gap: var(--s2); padding: var(--s2); border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); min-width: 0; }
+.voice-consent-line { margin: 0; font-size: 0.9rem; max-width: none; }
+.say-it[aria-pressed="true"] { border-color: var(--gold); }
 .answer-row select {
   width: 100%; min-width: 0; min-height: var(--target);
   padding: 0 var(--s2); border-radius: var(--radius); border: 1px solid var(--line);

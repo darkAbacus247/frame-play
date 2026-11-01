@@ -314,15 +314,18 @@ test('REHEARSAL: a photo the stand-in does not know is refused before sending, a
   assert.equal(app.posts(), 0);
 });
 
-test('in MOCK no page code can send: the only network call is fetch, and its only callers are the health check, the rooms, our kitchen photo and the send', () => {
+test('in MOCK no page code can send: the only network call is fetch, and its only callers are the health check, the rooms, our kitchen photo, the send and Say it’s clip', () => {
   const files = ['app.js', ...readdirSync(new URL('../src/', import.meta.url)).map((f) => `src/${f}`)];
   for (const f of files) {
     const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
     assert.doesNotMatch(src, /XMLHttpRequest|sendBeacon|WebSocket|EventSource|new Image\b|navigator\.share|postMessage/, f);
     const calls = [...src.matchAll(/\bfetch\(/g)].length;
-    const expected = { 'app.js': 3, 'src/photo.js': 1 }[f] || 0;
+    // src/voice.js: the one voice clip, posted only after the player's own press on a LIVE server that offers Say it
+    const expected = { 'app.js': 3, 'src/photo.js': 1, 'src/voice.js': 1 }[f] || 0;
     assert.equal(calls, expected, `${f}: fetch calls`);
   }
+  const voice = readFileSync(new URL('../src/voice.js', import.meta.url), 'utf8');
+  assert.match(voice, /await fetch\('api\/voice', \{\n\s+method: 'POST'/);
   // the third in app.js: a GET of this page's own sample photo, nothing sent
   const page = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
   assert.match(page, /async function oursBlob\(\) \{\n\s+const res = await fetch\(OURS\.photo\);/);

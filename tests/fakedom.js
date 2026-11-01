@@ -62,6 +62,12 @@ class FakeElement {
       this.children.push(n);
     }
   }
+  prepend(...kids) {
+    const after = this.children;
+    this.children = [];
+    this.append(...kids);
+    this.children.push(...after);
+  }
   remove() {
     if (!this.parentNode) return;
     const p = this.parentNode;
