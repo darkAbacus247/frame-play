@@ -90,7 +90,9 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // health: more fields in the health answer (postcard: 'on' or Say it's voice switch, for two).
 // postcard(body): the answer api/postcard gives for a POST, as { status,
 // body } (a promise may wait), or null for no such route on this server.
-export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null, health = {}, postcard = null } = {}) {
+// delay: by address, the milliseconds a fetch of it waits before it answers
+// (a slow room file).
+export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null, health = {}, postcard = null, delay = {} } = {}) {
   stopApps();
   const doc = installFakeDocument();
   if (answer) {
@@ -126,6 +128,7 @@ export async function bootApp({ mode = 'mock', road = null, room = 'desk', answe
     setInterval: (f, ms) => { const t = realSetInterval(f, ms); if (t.unref) t.unref(); intervals.push(t); return t; },
     fetch: async (url, opts = {}) => {
       requests.push([opts.method || 'GET', String(url)]);
+      if (delay[url]) await new Promise((r) => setTimeout(r, delay[url]));
       if (url === 'api/health') {
         if (!server) throw new Error('no server');
         const h = { mode, reason: '', label: mode, ...health };

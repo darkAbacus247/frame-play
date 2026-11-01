@@ -109,8 +109,16 @@ function say(text) {
 }
 
 // ---- rooms ----
-async function sample(id) {
-  if (A.samples.has(id)) return A.samples.get(id);
+// A sample room's entry: loaded once; screens that ask while it loads share
+// the one load (a failed load is forgotten, so the next ask tries again).
+const loading = new Map();
+function sample(id) {
+  if (A.samples.has(id)) return Promise.resolve(A.samples.get(id));
+  if (!loading.has(id)) loading.set(id, loadSample(id).finally(() => loading.delete(id)));
+  return loading.get(id);
+}
+
+async function loadSample(id) {
   const meta = SAMPLES.find((s) => s.id === id);
   if (!meta) throw new Error('unknown sample room');
   const res = await fetch(meta.file);
@@ -717,18 +725,20 @@ async function screenRoom(main, slot, token) {
   // review: judges should see Meta's work before the code-drawn samples)
   const ours = oursHere(slot);
   view.cards.append(oursCardView({ ours, draw: ours.draw, held: ours.held, chosen: isOurs(here), onPick: () => pickOurs(slot, view.panel) }));
-  // a sample room an earlier step holds is not picked again here
+  // the three sample rooms, from one awaited load of their files, so a late
+  // file never leaves a three-card step (the judge walk of 11-01); a sample
+  // room an earlier step holds is not picked again here
+  const entries = await Promise.all(SAMPLES.map((s) => sample(s.id)));
+  if (token !== A.renderToken) return;
   const earlier = A.road.rooms.slice(0, slot);
-  for (const s of SAMPLES) {
-    const entry = await sample(s.id);
-    if (token !== A.renderToken) return;
+  SAMPLES.forEach((s, k) => {
     const used = earlier.findIndex((r) => r && r.kind === 'sample' && r.id === s.id);
-    view.cards.append(roomCard(entry, {
+    view.cards.append(roomCard(entries[k], {
       disabledWhy: used >= 0 ? `Already your ${['first', 'second'][used]} room` : null,
       chosen: !!here && here.kind === 'sample' && here.id === s.id,
       onPick: () => setRoad(R.chooseRoom(A.road, slot, { kind: 'sample', id: s.id })),
     }));
-  }
+  });
   if (A.busy) setBusy(true);
 }
 
@@ -1177,11 +1187,10 @@ async function screenFree(main, token) {
   if (A.free) return screenPlay(main, -1, A.free, token);
   const { section, cards } = freeView();
   main.replaceChildren(section);
-  for (const s of SAMPLES) {
-    const entry = await sample(s.id);
-    if (token !== A.renderToken) return;
-    cards.append(roomCard(entry, { onPick: () => { A.free = { kind: 'sample', id: s.id }; render(); } }));
-  }
+  // the sample rooms from one awaited load, as on a pick step
+  const entries = await Promise.all(SAMPLES.map((s) => sample(s.id)));
+  if (token !== A.renderToken) return;
+  SAMPLES.forEach((s, k) => cards.append(roomCard(entries[k], { onPick: () => { A.free = { kind: 'sample', id: s.id }; render(); } })));
   // our kitchen, played in a sample room's slot, as a sample room is
   for (const slot of [0, 1, 2]) {
     const ref = A.road.rooms[slot];
