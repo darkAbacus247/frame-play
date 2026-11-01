@@ -6,7 +6,7 @@
 // end card stays usable either way; Save is a download link to the JPEG.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bootApp, photoFile, textOf, until } from './apphost.js';
+import { bootApp, stopApps, photoFile, textOf, until } from './apphost.js';
 import { played } from './stub_game.js';
 import { replyFor } from './replies.js';
 import { roadAt, DESK, AT_OWN } from './roads.js';
@@ -272,6 +272,8 @@ test('makePostcard: one POST to api/postcard with the photo and the room; the se
 });
 
 test('postcardCard: the picture, the label with its mode, one read-back line and Save as a download link', () => {
+  // a bare document: the booted pages' timers must not run against it
+  stopApps();
   const doc = installFakeDocument();
   doc.body.append(el('div', { id: 'tips' }));
   const card = postcardCard({ ...GOOD, mode: 'live' });

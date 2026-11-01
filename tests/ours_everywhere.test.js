@@ -8,7 +8,7 @@
 // screen and Free play.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bootApp, textOf, paintCanvases, until } from './apphost.js';
+import { bootApp, stopApps, textOf, paintCanvases, until } from './apphost.js';
 import { played } from './stub_game.js';
 import { roadAt, DESK, LIVING, APARTMENT, SAMPLE_ROOMS, AT_OWN } from './roads.js';
 import { replayReply, liveKitchenReply, KITCHEN_PIXELS } from './kitchen.js';
@@ -207,6 +207,8 @@ test('Your own room: our kitchen as a card with its thumbnail, beside Choose a p
 });
 
 test('the closing screen names our kitchen in a sample room’s slot, replayed or read fresh', () => {
+  // a bare document: the booted pages' timers must not run against it
+  stopApps();
   installFakeDocument();
   const road = { ...AT_OWN, step: R.LAST_STEP, rooms: [OURS_REF, DESK, LIVING, null], own: 'skipped', finished: [true, true, true, false], best: [1.1, null, null, null] };
   const rows = closingRooms({ road, mode: 'mock', levels: [null, null, null, null], canReplay: true });
