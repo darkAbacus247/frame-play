@@ -82,7 +82,7 @@ export const textOf =(e) => (e.children.length ? e.children.map(textOf).join(' '
 // replay(): the reply api/replay/kitchen gives (the server's replay of our
 // kitchen photo), or its streamed lines as a list, or null when the server
 // has no replay (an older one).
-// health: more fields in the health answer (postcard: 'on', for one).
+// health: more fields in the health answer (postcard: 'on' or Say it's voice switch, for two).
 // postcard(body): the answer api/postcard gives for a POST, as { status,
 // body } (a promise may wait), or null for no such route on this server.
 export async function bootApp({ mode = 'mock', road = null, room = 'desk', answer = null, prefs = {}, server = mode !== 'mock', replay = null, health = {}, postcard = null } = {}) {

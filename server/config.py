@@ -77,15 +77,26 @@ POSTCARD_USD = 0.01
 POSTCARD_DAY_CAP = 100
 READBACK_MAX_COMPLETION_TOKENS = 400
 READBACK_TIMEOUT_S = 30.0
+
+# Say it (server/voice.py): a riddle answered by voice, written down by
+# Meta's Muse Voice Transcribe and matched by code. Off unless FRAMEPLAY_VOICE
+# is yes. At most 6 s of mono 16-bit WAV at 16000 or 24000 Hz.
+VOICE_MODEL = 'muse-voice-transcribe-1.0'
+VOICE_MAX_SECONDS = 6
+VOICE_DAY_CAP = 200
+VOICE_CLIENT_HOUR_CAP = 10
+VOICE_TIMEOUT_S = 30.0
 # After an account or model problem, no photo is sent for this long; then one
 # photo may check again.
 LIVE_HOLD_S = 600.0
 
 # Published prices (Standard): muse-spark-1.3 $1.25 per 1M input tokens and
-# $4.25 per 1M output tokens, reasoning included; sam-3.1 $2.50 per 1,000 images.
+# $4.25 per 1M output tokens, reasoning included; sam-3.1 $2.50 per 1,000 images;
+# muse-voice-transcribe-1.0 $0.18 per hour of audio.
 PRICE_SPARK_IN = 1.25 / 1_000_000
 PRICE_SPARK_OUT = 4.25 / 1_000_000
 PRICE_SAM_IMAGE = 2.50 / 1000
+PRICE_VOICE_HOUR = 0.18 / 3600
 # The worst case a Spark call is reserved at before it is sent: a generous
 # input bound for one image and the instruction, plus the output ceiling.
 SPARK_WORST_IN_TOKENS = 12_000
@@ -274,6 +285,7 @@ class Settings:
     riddles: bool = True
     # A room postcard: off unless FRAMEPLAY_IMAGE=yes says so.
     image: bool = False
+    voice: bool = False
     # LIVE only: the folder that keeps the day's spend (server/limits.py)
     data_dir: str = ''
     # FRAMEPLAY_LIVE_UNTIL: after it LIVE turns itself off (None: no end)
@@ -302,6 +314,8 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
     riddles = (environ.get('FRAMEPLAY_RIDDLES') or '').strip().lower() != 'no'
     # A room postcard: off unless the environment says yes.
     image = environ.get('FRAMEPLAY_IMAGE') == 'yes'
+    # Say it: off unless the environment says yes, read the way FRAMEPLAY_RIDDLES is read
+    voice = (environ.get('FRAMEPLAY_VOICE') or '').strip().lower() == 'yes'
     live_until = live_until_from(environ.get('FRAMEPLAY_LIVE_UNTIL'))
     if rehearse is not None:
         if 'MODEL_API_KEY' in environ or 'FRAMEPLAY_LIVE' in environ:
@@ -309,20 +323,22 @@ def settings_from(environ, rehearse=None, rehearsal_room='desk'):
         if not re.fullmatch(r'[a-z0-9_-]{1,32}', rehearsal_room or ''):
             raise ConfigError('The rehearsal room must be a sample room id')
         return Settings('rehearsal', 'Rehearsing against a local stand-in, not Meta. No key is held.',
-                        None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles, image=image)
+                        None, loopback_base(rehearse), day_cap, usd_stop, rehearsal_room, riddles=riddles,
+                        image=image, voice=voice)
     if has_key and live_on and live_until is not None and time.time() >= live_until:
-        return Settings('mock', ended_words(live_until), None, API_BASE, day_cap, usd_stop, '', True, live_until=live_until)
+        return Settings('mock', ended_words(live_until), None, API_BASE, day_cap, usd_stop, '', True, riddles=riddles,
+                        image=image, voice=voice, live_until=live_until)
     if has_key and live_on:
         # the day's spend is kept in a writable folder: FRAMEPLAY_DATA_DIR,
         # or frameplay in the system's temporary folder
         data_dir = (environ.get('FRAMEPLAY_DATA_DIR') or '').strip() or os.path.join(tempfile.gettempdir(), 'frameplay')
         return Settings('live', 'The key is present and FRAMEPLAY_LIVE is yes.',
                         KeyHolder(environ['MODEL_API_KEY']), API_BASE, day_cap, usd_stop, '', True, riddles=riddles,
-                        image=image, data_dir=data_dir, live_until=live_until)
+                        image=image, voice=voice, data_dir=data_dir, live_until=live_until)
     if has_key:
         why = 'The key is present but FRAMEPLAY_LIVE is not yes, so no model is called.'
     elif live_on:
         why = 'FRAMEPLAY_LIVE is yes but there is no key, so no model is called.'
     else:
         why = 'No key and no live switch: sample rooms only, no model is called.'
-    return Settings('mock', why, None, API_BASE, day_cap, usd_stop, '', has_key, image=image)
+    return Settings('mock', why, None, API_BASE, day_cap, usd_stop, '', has_key, riddles=riddles, image=image, voice=voice)

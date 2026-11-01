@@ -77,6 +77,11 @@ class Limits:
         self.reserved = 0.0   # reservations still open
         self.calls = 0
         self.answered = 0
+        # Say it (server/voice.py): the day's voice clips and this hour's,
+        # each at most VOICE_MAX_SECONDS of audio at $0.18 an hour
+        self.voice_today = 0
+        self.voice_hour = deque()
+        self.voice_clients = {} if clients else None
         # per client: [the times of its photos this hour, its photos today];
         # None when clients are not counted (MOCK, REHEARSAL)
         self.clients = {} if clients else None
@@ -125,6 +130,7 @@ class Limits:
             self.day = d
             self.photos_today = 0
             self.spent = 0.0
+            self.voice_today = 0
             if self.clients:
                 for key, c in list(self.clients.items()):
                     self._trim(c[0], now)
@@ -132,7 +138,13 @@ class Limits:
                         c[1] = 0
                     else:
                         del self.clients[key]
+            if self.voice_clients:
+                for key, c in list(self.voice_clients.items()):
+                    self._trim(c, now)
+                    if not c:
+                        del self.voice_clients[key]
         self._trim(self.hour, now)
+        self._trim(self.voice_hour, now)
 
     @staticmethod
     def _trim(times, now):
@@ -269,6 +281,35 @@ class Limits:
             self.calls = max(0, self.calls - 1)
             self._save()
 
+    def admit_voice(self, client=None):
+        """Take a voice clip in, or raise a Refusal. A clip refused here sends
+        nothing. client: who sent it (an opaque key), held to its own hour."""
+        with self.lock:
+            now = self.clock()
+            self._roll(now)
+            if self.voice_today >= config.VOICE_DAY_CAP:
+                raise Refusal('voice_day_cap', f'This server has heard its {config.VOICE_DAY_CAP} voice clips for today. Please try again tomorrow.', self._to_midnight(now))
+            mine = self.voice_clients.get(client) if self.voice_clients is not None and client is not None else None
+            if mine is not None:
+                self._trim(mine, now)
+                if len(mine) >= config.VOICE_CLIENT_HOUR_CAP:
+                    wait = int(3600 - (now - mine[0])) + 1
+                    raise Refusal('voice_client_hour_cap', f'This server has heard {config.VOICE_CLIENT_HOUR_CAP} voice clips from you in the last hour. Please try again later.', wait)
+            self.voice_hour.append(now)
+            self.voice_today += 1
+            if self.voice_clients is not None and client is not None:
+                self.voice_clients.setdefault(client, deque()).append(now)
+
+    def uncount_voice(self):
+        """A voice clip that sent nothing (refused at the spending stop):
+        it uses none of the day."""
+        with self.lock:
+            try:
+                self.voice_hour.pop()
+            except IndexError:
+                pass
+            self.voice_today = max(0, self.voice_today - 1)
+
     def counters(self):
         with self.lock:
             self._roll(self.clock())
@@ -279,6 +320,8 @@ class Limits:
                 'photos_answered': self.answered,
                 'calls_sent': self.calls,
                 'estimated_usd_today': round(self.spent + self.reserved, 4),
+                'voice_this_hour': len(self.voice_hour),
+                'voice_today': self.voice_today,
             }
 
 

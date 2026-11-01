@@ -20,6 +20,7 @@ Live mode needs MODEL_API_KEY and FRAMEPLAY_LIVE=yes in the operator's own
 environment; without both the server runs in mock mode and calls no model.
 """
 import argparse
+import base64
 import hashlib
 import ipaddress
 import json
@@ -68,10 +69,14 @@ FIXED_FILES = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.j
 PATTERNS = (re.compile(r'/src/[a-z_]+\.js'), re.compile(r'/rooms/[a-z0-9_-]+\.json'), re.compile(r'/rooms/kitchen\.jpg'))
 REPLAY_ROUTE = '/api/replay/kitchen'
 POSTCARD_ROUTE = '/api/postcard'
+VOICE_ROUTE = '/api/voice'
 # a replay carries no photo: its body, if any, is at most this long
 REPLAY_MAX_BODY = 64
 # a postcard carries the round's shrunk photo as a data URL: room JSON plus margin
 POSTCARD_MAX_BODY = 1024 * 1024
+# Say it: room for a JSON body with a base64 WAV of at most 6 s (mono
+# 16-bit 24 kHz is 288 KiB of audio) and the room's kept things
+VOICE_MAX_BODY = 600 * 1024
 
 
 def static_file(path):
@@ -197,8 +202,8 @@ class Handler(BaseHTTPRequestHandler):
         route = self.route
         if route == '/api/health':
             return self.send_json(200, self.server.health(), head=head)
-        if route == '/api/room':
-            return self.send_json(405, error_body('method', 'Use POST for /api/room.'), {'Allow': 'POST'}, head)
+        if route in ('/api/room', VOICE_ROUTE):
+            return self.send_json(405, error_body('method', f'Use POST for {route}.'), {'Allow': 'POST'}, head)
         if route == REPLAY_ROUTE:
             return self.send_json(405, error_body('method', f'Use POST for {REPLAY_ROUTE}.'), {'Allow': 'POST'}, head)
         f = static_file(route)
@@ -215,6 +220,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.post_replay()
         if route == POSTCARD_ROUTE:
             return self.post_postcard()
+        if route == VOICE_ROUTE:
+            return self.post_voice()
         if route != '/api/room':
             self.close_connection = True  # its body is never used
             self.drain()
@@ -227,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
         route = self.route
         self.close_connection = True
         self.drain()
-        if route in ('/api/room', REPLAY_ROUTE, POSTCARD_ROUTE):
+        if route in ('/api/room', REPLAY_ROUTE, POSTCARD_ROUTE, VOICE_ROUTE):
             return self.send_json(405, error_body('method', f'Use POST for {route}.'), {'Allow': 'POST'})
         if route == '/api/health' or static_file(route) is not None:
             return self.send_json(405, error_body('method', 'This address only answers GET.'), {'Allow': 'GET'})
@@ -307,6 +314,103 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(503, error_body('replay_unavailable', 'The recorded answers are not on this server.'))
         stream = 'application/x-ndjson' in (self.headers.get('Accept') or '')
         replay.handle_kitchen(self, stream)
+
+    def post_voice(self):
+        """Say it: a riddle answered by voice, written down by Meta's Muse
+        Voice Transcribe and matched by code. A JSON body carries the base64
+        WAV and the room's kept things; the answer is the transcript, the
+        matched id or null, and words."""
+        from server import voice as voice_mod
+        from server.meta_api import CallError
+        s = self.server.settings
+        if not self.page_only():
+            return
+        try:
+            length = int(self.headers.get('Content-Length', ''))
+        except ValueError:
+            length = -1
+        if length < 0 or length > VOICE_MAX_BODY:
+            self.close_connection = True
+            self.drain()
+            return self.send_json(413, error_body('too_large', 'The voice clip is larger than this server takes. Please try again from the page.'))
+        try:
+            raw = self.rfile.read(length)
+            body = json.loads(raw.decode('utf-8'))
+        except (OSError, UnicodeDecodeError, ValueError):
+            self.close_connection = True
+            return self.send_json(400, error_body('bad_voice', 'The voice request cannot be read. Please try again from the page.'))
+        if not s.voice:
+            # switched off: nothing is sent to the Model API
+            self.close_connection = True
+            return self.send_json(409, error_body('voice_off', voice_mod.REFUSAL_VOICE_OFF))
+        if s.mode != 'live' or self.server.live_ended():
+            # MOCK, REHEARSAL, or LIVE ended: no voice is sent anywhere
+            self.close_connection = True
+            return self.send_json(409, error_body('live_off', voice_mod.REFUSAL_NOT_LIVE))
+        if not isinstance(body, dict):
+            return self.send_json(400, error_body('bad_voice', 'The voice request cannot be read. Please try again from the page.'))
+        try:
+            wav = base64.b64decode(body.get('wav') or '', validate=True)
+        except (ValueError, TypeError):
+            wav = None
+        things = body.get('things')
+        if wav is None or not isinstance(things, list):
+            return self.send_json(400, error_body('bad_voice', 'The voice request cannot be read. Please try again from the page.'))
+        # the WAV check refuses before any request; nothing is sent
+        refused = voice_mod.check_wav(wav)
+        if refused is not None:
+            return self.send_json(400, error_body('bad_voice', refused))
+        names = [t.get('name') for t in things if isinstance(t, dict) and isinstance(t.get('name'), str)]
+        limits = getattr(self.server, 'limits', None) or getattr(getattr(self.server, 'pipeline', None), 'limits', None)
+        if limits is not None:
+            try:
+                limits.admit_voice(self.client)
+            except Exception as e:
+                code = getattr(e, 'code', 'refused')
+                words = getattr(e, 'message', str(e))
+                retry = getattr(e, 'retry_after', None)
+                return self.send_json(429, {'status': 'refused', 'error': {'code': code, 'message': sentence(words)}},
+                                      {'Retry-After': str(retry)} if retry else {})
+        res = None
+        if limits is not None:
+            try:
+                res = limits.reserve(voice_mod.voice_worst())
+            except Exception as e:
+                # refused at the spending stop: the clip uses none of the day
+                limits.uncount_voice()
+                words = getattr(e, 'message', str(e))
+                retry = getattr(e, 'retry_after', None)
+                return self.send_json(429, {'status': 'refused', 'error': {'code': 'spend_stop', 'message': sentence(words)}},
+                                      {'Retry-After': str(retry)} if retry else {})
+        try:
+            transport = voice_mod.VoiceTransport(s.base, s.credential())
+        except ValueError as e:
+            if res is not None and limits is not None:
+                limits.release(res)
+                limits.uncount_voice()
+            return self.send_json(503, error_body('live_unavailable', str(e) or LIVE_UNAVAILABLE))
+        deadline = time.monotonic() + config.VOICE_TIMEOUT_S
+        try:
+            answer, _, _ = transport.transcribe(wav, names, deadline)
+        except CallError as e:
+            if limits is not None and res is not None:
+                # an error after the send: the reservation pays for the worst,
+                # unless the answer says nothing was billed
+                if getattr(e, 'billed', True):
+                    limits.settle(res, None)
+                else:
+                    limits.release(res)
+            if getattr(e, 'transient', False) or e.status in (429, 500, 502, 503) or e.status is None:
+                if e.status == 429:
+                    return self.send_json(429, error_body('voice_busy', str(e)), {'Retry-After': '60'})
+                return self.send_json(502, error_body('voice_unavailable', str(e)))
+            return self.send_json(400, error_body('voice_refused', str(e)))
+        transcript = voice_mod.transcript_of(answer)
+        match, words = voice_mod.match_answer(transcript, things)
+        if limits is not None and res is not None:
+            limits.settle(res, voice_mod.voice_cost(voice_mod.duration_s(answer)))
+        return self.send_json(200, {'status': 'ok', 'transcript': transcript, 'match': match,
+                                    'words': sentence(words)})
 
     def post_room(self):
         s = self.server.settings
@@ -593,6 +697,10 @@ class FramePlayServer(ThreadingHTTPServer):
                 'postcard_readback_max_completion_tokens': config.READBACK_MAX_COMPLETION_TOKENS,
                 'seconds_per_postcard_call': config.CALL_TIMEOUT_S,
                 'seconds_for_postcard_readback': config.READBACK_TIMEOUT_S,
+                # Say it: a short voice clip per riddle, at most 6 s of audio
+                'voice_max_seconds': config.VOICE_MAX_SECONDS,
+                'voice_per_day': config.VOICE_DAY_CAP,
+                'voice_per_client_per_hour': config.VOICE_CLIENT_HOUR_CAP,
                 # after an account or model problem, LIVE is held this long;
                 # after a billing or credit refusal, until midnight UTC
                 'live_hold_seconds': config.LIVE_HOLD_S,
@@ -607,6 +715,9 @@ class FramePlayServer(ThreadingHTTPServer):
             'postcard': 'on' if s.image else 'off',
             'postcard_reason': ('One Muse Image edit of the round\'s photo, then a Muse Spark read-back of its printed text.'
                                 if s.image else 'FRAMEPLAY_IMAGE is not yes: no postcards are made.'),
+            'voice': 'on' if s.voice else 'off',
+            'voice_reason': ('A riddle may be answered by voice: a short clip is written down by Muse Voice Transcribe and matched by code.'
+                             if s.voice else 'FRAMEPLAY_VOICE is not yes: no voice is sent.'),
         }
         h.update(self.live_state())
         if self.limits is not None:

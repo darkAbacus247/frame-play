@@ -13,6 +13,7 @@ import * as R from './src/road.js';
 import { tourStep, offerDue, offerFits, shouldPulse, veilRects } from './src/tour.js';
 import { describeRoom, stepsAway, RIDDLE_WORDS } from './src/words.js';
 import { riddlesFromRoom, answerWords, fillCount, riddleLabel, reasonPrefix, acceptRiddles, riddlesFromLine, checkRiddles } from './src/riddle.js';
+import { voiceOn } from './src/voice.js';
 import { acceptReply, photoRefusal } from './src/reply.js';
 import { readPhoto, previewPhoto, sendPhoto, canvasJpeg, decodeToCanvas, pixelsOf, sha256Hex } from './src/photo.js';
 import { makePostcard, postcardCard, postcardEligible, keepPostcardPhoto, blobToDataUrl, readbackLine, POSTCARD_BUTTON, POSTCARD_TIP, POSTCARD_BUSY, POSTCARD_TITLE, POSTCARD_READY } from './src/postcard.js';
@@ -47,6 +48,7 @@ const A = {
   samples: new Map(),
   live: new Map(), // levels made through the live path (or from marks) this visit, by refKey
   riddleWait: new Set(), // Ask the room: request ids whose riddles are still being written
+  voice: { on: false, consented: false }, // Say it: offered when health says so; consent given one time a visit
   marking: new Map(), // photos being marked this visit, by sha256: { picture, marks }
   remark: null, // the sha256 of a made room whose marks are open again
   busy: false,
@@ -953,6 +955,7 @@ async function screenPlay(main, slot, ref, token) {
     // a card (Start over?, welcome back) or the settings drawer holds the round
     paused: () => cardOpen() || A.drawerOpen,
     onEnd: (r) => endOfRound(slot, r, level),
+    voice: A.voice,
   });
   A.view.focusGame();
 }
@@ -1958,6 +1961,7 @@ async function detectMode() {
       A.mode = h.mode;
       A.modeWhy = h.reason || '';
       A.health = h;
+      A.voice.on = voiceOn(h);
       // a send's live_unavailable holds until health says otherwise
       A.liveDown = h.live_state === 'unavailable' ? { reason: h.live_reason || '', wait: h.live_check_again_s || 0 } : null;
       return true;
@@ -1965,6 +1969,7 @@ async function detectMode() {
   }
   A.mode = 'mock';
   A.health = null;
+  A.voice.on = false;
   A.liveDown = null;
   A.modeWhy = NO_SERVER_WORDS;
   return false;

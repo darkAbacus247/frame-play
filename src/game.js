@@ -8,6 +8,7 @@ import { Fx } from './fx.js';
 import { ruleRow, announce, endCardWords, RIDDLE_WORDS } from './words.js';
 import { objectWords } from './level.js';
 import { pickForRiddle, gradePick, newRiddleState, fillCount, riddleSlack, thingWords, answerChoices, riddleLabel, MISSES } from './riddle.js';
+import { recordClip, wavFromBlob, sayIt, thingsOf, VOICE_MAX_SECONDS, VOICE_WORDS } from './voice.js';
 import { el, boardRoom, capBoard, ceilH, ceilW, floorW, spaceH } from './ui.js';
 import { emit } from './events.js';
 
@@ -90,7 +91,9 @@ if (globalThis.document) watchPage(globalThis.document);
 
 // opts: { level, rt, picture, ui: () => ({outlines, reducedMotion, highContrast, walls}),
 //         audio, say(text), onEnd({status, ratio, travelled, words}),
-//         paused(): true while the round must hold still }
+//         paused(): true while the round must hold still,
+//         voice: { on, consented } when the server's health offers Say it
+//         (record, toWav and send may stand in for src/voice.js in tests) }
 export function mountPlay(root, opts) {
   const { level, rt, picture, audio, say } = opts;
   let state = createRound(level, rt);
@@ -246,6 +249,10 @@ export function mountPlay(root, opts) {
   // (src/riddle.js); the road is never touched from here.
   let riddle = null;
   const RIGHT_MS = 1200, WRONG_MS = 1200;
+  // Say it: offered only when the server's health says the switch is on
+  // (opts.voice.on). The consent is kept on that same object, so it is
+  // asked for one time, not again for every room.
+  const voice = opts.voice && opts.voice.on ? opts.voice : null;
   const gameWords = game.getAttribute('aria-label');
 
   function riddleView(now) {
@@ -264,17 +271,24 @@ export function mountPlay(root, opts) {
     const status = el('p', { class: 'riddle-status', id: 'riddle-status' });
     const select = el('select', { id: 'answer-with' });
     for (const c of answerChoices(level)) select.append(el('option', { value: c.id, text: c.text }));
+    // Say it: the button beside the choice, and under the row a line for
+    // what is heard (and, before the first clip, the consent)
+    const sayBtn = voice ? el('button', { type: 'button', class: 'btn say-it', text: VOICE_WORDS.button, tip: VOICE_WORDS.tip, 'aria-keyshortcuts': 'v', onclick: () => sayItPress() }) : null;
+    const voiceLine = voice ? el('p', { class: 'voice-line', role: 'status' }) : null;
+    const voiceBox = voice ? el('div', { class: 'voice-box' }, [voiceLine]) : null;
     const panel = el('div', { class: 'riddle-panel', role: 'group', 'aria-label': 'The riddle' }, [
       status,
       el('label', { for: 'answer-with', class: 'answer-label', text: 'Answer with' }),
       el('div', { class: 'answer-row' }, [
         select,
         el('button', { type: 'button', class: 'btn', text: 'Pick it', onclick: () => pickId(select.value, false) }),
+        sayBtn,
       ]),
+      voiceBox,
       el('button', { type: 'button', class: 'btn', text: 'Skip this riddle', tip: 'Ends this riddle without an answer', onclick: () => finish('skipped') }),
       el('button', { type: 'button', class: 'btn', text: 'Stop the riddle', tip: 'Back to the end of the round', onclick: () => stopRiddle(true) }),
     ]);
-    riddle = { list, i, rs: newRiddleState(r), marks: [], text: fillCount(r.text, r.n), handlers, panel, status, select, timer: 0 };
+    riddle = { list, i, rs: newRiddleState(r), marks: [], text: fillCount(r.text, r.n), handlers, panel, status, select, timer: 0, sayBtn, voiceLine, voiceBox, rec: null, consent: null };
     chips.hidden = true;
     pad.hidden = true;
     wrap.classList.add('riddle-on');
@@ -282,7 +296,7 @@ export function mountPlay(root, opts) {
     rule.textContent = `“${riddle.text}”`;
     rule.classList.add('riddle-row');
     label.textContent = riddleLabel(r);
-    game.setAttribute('aria-label', RIDDLE_WORDS.gameLabel);
+    game.setAttribute('aria-label', voice ? `${RIDDLE_WORDS.gameLabel} ${VOICE_WORDS.keyHint}` : RIDDLE_WORDS.gameLabel);
     setStatus();
     say(RIDDLE_WORDS.start(i + 1, list.length, riddle.text));
     audio && audio.play('tick');
@@ -292,6 +306,8 @@ export function mountPlay(root, opts) {
 
   function clearPanel() {
     clearTimeout(riddle.timer);
+    // a clip still being recorded ends with the riddle; its answer is dropped
+    if (riddle.rec) riddle.rec.stop();
     riddle.panel.remove();
   }
 
@@ -367,6 +383,82 @@ export function mountPlay(root, opts) {
     if (riddle.rs.done) finish(riddle.rs.done);
   }
 
+  // ---- Say it: the riddle answered by voice (src/voice.js) ----
+  // The first press asks for consent in the panel; OK starts the clip. A
+  // press while listening stops the clip early. The clip becomes the WAV
+  // the server wants and goes to api/voice; a matched id is picked exactly
+  // as a tap would be (pickId); no match shows the server's words and what
+  // was heard; a failure shows its words. None of it blocks the riddle.
+  function sayItPress() {
+    if (!voice || !riddle || riddle.done) return;
+    if (riddle.rec) { riddle.rec.stop(); return; }
+    if (riddle.consent) { riddle.consent.querySelector('button').focus({ preventScroll: true }); return; }
+    if (!voice.consented) { askVoiceConsent(); return; }
+    listen();
+  }
+
+  function askVoiceConsent() {
+    const ok = el('button', {
+      type: 'button', class: 'btn', text: VOICE_WORDS.ok,
+      onclick: () => {
+        voice.consented = true;
+        riddle.consent.remove();
+        riddle.consent = null;
+        listen();
+      },
+    });
+    riddle.consent = el('div', { class: 'voice-consent', role: 'group', 'aria-label': 'Before you say it' }, [
+      el('p', { class: 'voice-consent-line', text: VOICE_WORDS.consent }),
+      ok,
+    ]);
+    riddle.voiceBox.append(riddle.consent);
+    say(VOICE_WORDS.consent);
+    ok.focus({ preventScroll: true });
+  }
+
+  async function listen() {
+    const cur = riddle;
+    const record = voice.record || recordClip;
+    const toWav = voice.toWav || wavFromBlob;
+    const send = voice.send || sayIt;
+    // the same riddle, still open: a stopped or ended riddle takes no answer
+    const open = () => riddle === cur && !cur.done;
+    const show = (words) => { cur.voiceLine.textContent = words; };
+    const idle = () => {
+      cur.rec = null;
+      cur.sayBtn.textContent = VOICE_WORDS.button;
+      cur.sayBtn.removeAttribute('aria-pressed');
+    };
+    cur.rec = record(VOICE_MAX_SECONDS);
+    cur.sayBtn.textContent = VOICE_WORDS.stop;
+    cur.sayBtn.setAttribute('aria-pressed', 'true');
+    show(VOICE_WORDS.listening);
+    say(VOICE_WORDS.listening);
+    try {
+      const blob = await cur.rec.done;
+      idle();
+      if (!open()) return;
+      show(VOICE_WORDS.writing);
+      const wav = await toWav(blob);
+      const ans = await send(wav, thingsOf(level));
+      if (!open()) return;
+      if (ans.match !== null && level.objects.some((o) => o.id === ans.match)) {
+        show(ans.transcript ? VOICE_WORDS.heard(ans.transcript) : '');
+        pickId(ans.match, false);
+        return;
+      }
+      const words = ans.transcript ? `${ans.words} ${VOICE_WORDS.heard(ans.transcript)}` : ans.words;
+      show(words);
+      say(words);
+    } catch (e) {
+      idle();
+      if (!open()) return;
+      const words = (e && e.message) || VOICE_WORDS.failed;
+      show(words);
+      say(words);
+    }
+  }
+
   function riddleTap(e) {
     game.focus({ preventScroll: true });
     if (riddle.done) return;
@@ -400,8 +492,10 @@ export function mountPlay(root, opts) {
   game.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (riddle) {
-      // the round is over: keys do not steer; Esc goes back to the end card
+      // the round is over: keys do not steer; Esc goes back to the end
+      // card; V says the answer when the server offers Say it
       if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); stopRiddle(true); }
+      else if ((e.key === 'v' || e.key === 'V') && voice) { e.preventDefault(); sayItPress(); }
       return;
     }
     if (KEY_DIRS[e.key]) {
