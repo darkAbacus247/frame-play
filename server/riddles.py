@@ -64,7 +64,7 @@ Return JSON only, in the given schema. For each riddle:
 Rules: what decides the answer must be visible in this photo. Skip any listed thing
 whose box does not hold what its name says. Never write about people, bodies, faces,
 who owns something, brands, writing or labels, prices, or anything unsafe. Each riddle
-has a different answer. Prefer riddles a child could answer by looking."""
+has a different answer. Prefer riddles anyone could answer by looking."""
 
 RIDDLE_SCHEMA = {
     'type': 'object', 'additionalProperties': False, 'required': ['riddles'],
@@ -309,7 +309,10 @@ def line_for(pipeline, reply, status, riddles=(), calls=(), usage=None, warnings
 def run_riddles(pipeline, photo, reply):
     """The riddles line for a reply already sent: one Spark call, cleaned."""
     s = pipeline.settings
-    objects = [o for o in (reply.get('objects') or []) if isinstance(o.get('box'), list)]
+    # only what SAM 3.1 found: a thing traced around Muse Spark's points
+    # (found_by 'points') is never listed, so the page's "found by sam-3.1"
+    # label stays true of every answer
+    objects = [o for o in (reply.get('objects') or []) if isinstance(o.get('box'), list) and o.get('found_by') != 'points']
     if reply.get('status') != 'ok':
         return line_for(pipeline, reply, 'none', error={'code': 'no_room', 'message': 'This photo made no room, so no riddle was written.'})
     if len(objects) < 2:

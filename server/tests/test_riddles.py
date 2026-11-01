@@ -68,6 +68,9 @@ class Prompt(unittest.TestCase):
         self.assertIn('The play surface is the desk;', text['text'])
         self.assertIn('{n}', text['text'], 'the count is left to the game, literally')
         self.assertNotIn('{LIST}', text['text'])
+        # the entry is for players 18 and over
+        self.assertIn('Prefer riddles anyone could answer by looking.', text['text'])
+        self.assertNotIn('a child could', text['text'])
 
     def test_the_listing_is_on_the_grid_in_reply_order(self):
         lines = riddles.listing(DESK_OBJECTS, L, 768).splitlines()
@@ -177,6 +180,43 @@ class Cleaning(unittest.TestCase):
 RIDDLES_JSON = {'riddles': [
     {'text': 'Touch the thing you would fill with hot tea.', 'rule': 'one', 'answer_ids': ['o1'], 'points': [], 'why': 'Hot drinks.'},
 ]}
+
+
+class Candidates(unittest.TestCase):
+    """Only what SAM 3.1 found may answer a riddle: the panel labels every
+    live riddle "found by sam-3.1" (src/riddle.js), so a thing traced around
+    Muse Spark's points (found_by "points", server/pipeline.py) is never
+    listed and never an answer."""
+
+    def run_with(self, objects, answer=None):
+        sent = []
+
+        class Spark:
+            def post(self, route, body, deadline, sleep, clock):
+                sent.append(body)
+                return json.loads(spark_answer(answer or {'riddles': []})[2]), 1, 5
+
+        settings = settings_from({}, 'http://127.0.0.1:9/v1', 'desk')
+        pipe = Pipeline(settings, Limits(), transport=Spark(), sleep=lambda x: None)
+        photo = {'width': L, 'height': 768, 'type': 'image/jpeg', 'bytes': b'\xff\xd8'}
+        reply = {'status': 'ok', 'request_id': 'r1', 'surface': {'name': 'desk'}, 'objects': objects}
+        return riddles.run_riddles(pipe, photo, reply), sent
+
+    def test_a_point_traced_thing_is_never_a_candidate(self):
+        mug = {**DESK_OBJECTS[3], 'found_by': 'sam'}
+        lamp = {**DESK_OBJECTS[4], 'found_by': 'points'}
+        line, sent = self.run_with([mug, lamp])
+        self.assertEqual((line['status'], line['error']['code']), ('none', 'too_few'))
+        self.assertEqual(sent, [], 'one SAM-found thing is too few for a fair riddle: no call')
+        box = {**DESK_OBJECTS[0], 'found_by': 'sam'}
+        lit = riddle(text='Touch the thing that makes light at night.', ids=('o5',), points=[{'id': 'o5', 'x': 224, 'y': 360}])
+        line, sent = self.run_with([box, mug, lamp], answer={'riddles': [lit]})
+        text = sent[0]['messages'][0]['content'][0]['text']
+        self.assertIn('o1 | cardboard box |', text)
+        self.assertIn('o4 | coffee mug |', text)
+        self.assertNotIn('o5 |', text, 'the traced lamp is not offered')
+        self.assertEqual(line['riddles'], [])
+        self.assertIn('its answer o5 is not on the list', line['warnings'][0])
 
 
 class InTheStream(unittest.TestCase):
